@@ -70,6 +70,53 @@ def test_resolve_output_default_name(tmp_path):
     assert recorder_scan._resolve_output(["ros2", "bag", "record"], tmp_path) == bag
 
 
+NODE = "/opt/ros/jazzy/lib/rosbag2_transport/recorder"
+
+
+def test_is_record_cmd_matches_recorder_node():
+    assert recorder_scan._is_record_cmd([NODE, "--ros-args", "-p", "x:=1"])
+    # the `ros2 run` wrapper is not matched, only the node it spawns
+    assert not recorder_scan._is_record_cmd(
+        ["/usr/bin/python3", "/opt/ros/jazzy/bin/ros2", "run",
+         "rosbag2_transport", "recorder"])
+    assert not recorder_scan._is_record_cmd(
+        ["/opt/ros/jazzy/lib/rosbag2_transport/player", "--ros-args"])
+    assert not recorder_scan._is_record_cmd(["/usr/bin/recorder"])
+
+
+def test_node_output_param_override_beats_params_file(tmp_path):
+    params = tmp_path / "rec.yaml"
+    params.write_text("/**:\n  ros__parameters:\n    storage:\n"
+                      "      uri: from_file\n      storage_id: mcap\n")
+    argv = [NODE, "--ros-args", "--params-file", str(params),
+            "-p", "storage.uri:=/bags/run"]
+    assert recorder_scan._node_output(argv, tmp_path) == "/bags/run"
+    argv = [NODE, "--ros-args", "--params-file", "rec.yaml"]  # cwd-relative
+    assert recorder_scan._node_output(argv, tmp_path) == "from_file"
+
+
+def test_node_output_flat_param_key_and_none(tmp_path):
+    params = tmp_path / "rec.yaml"
+    params.write_text("recorder:\n  ros__parameters:\n"
+                      "    storage.uri: flat\n")
+    argv = [NODE, "--ros-args", "--params-file", str(params)]
+    assert recorder_scan._node_output(argv, tmp_path) == "flat"
+    params.write_text("/**:\n  ros__parameters:\n    storage:\n"
+                      "      storage_id: mcap\n")
+    assert recorder_scan._node_output(argv, tmp_path) is None
+    # -p outside --ros-args is not a ROS parameter
+    assert recorder_scan._node_output([NODE, "-p", "storage.uri:=x"],
+                                      tmp_path) is None
+
+
+def test_resolve_output_recorder_node(tmp_path):
+    active = make_bag(tmp_path / "20260930_142510_mapping", {"/t": [1.0]})
+    (active / "metadata.yaml").unlink()
+    argv = [NODE, "--ros-args", "--params-file", "/nonexistent.yaml",
+            "-p", f"storage.uri:={active}"]
+    assert recorder_scan._resolve_output(argv, tmp_path) == active
+
+
 def test_scan_returns_empty_when_no_recorder():
     assert recorder_scan.scan() == []  # no ros2 bag record on this machine
 
@@ -155,6 +202,31 @@ def test_scan_detects_host_recorder_in_fake_proc(tmp_path, monkeypatch):
     found = _patched_scan(monkeypatch, proc)
     assert found == [{"pid": 100, "output_dir": bag.resolve(),
                       "discovery": {"ROS_DOMAIN_ID": "7"}}]
+
+
+def test_scan_detects_containerised_recorder_node(tmp_path, monkeypatch):
+    """jo-zotac's record_all: bare recorder node in a container, output from
+    a -p override, params file only readable through the /proc portal."""
+    host_bags = tmp_path / "host" / "bags"
+    bag = make_bag(host_bags / "20260930_142510_mapping", {"/t": [1.0]})
+    (bag / "metadata.yaml").unlink()
+    root = tmp_path / "ctr_root"
+    (root / "home" / "ros" / "utils").mkdir(parents=True)
+    (root / "home" / "ros" / "utils" / "rec.yaml").write_text(
+        "/**:\n  ros__parameters:\n    storage:\n      storage_id: mcap\n")
+    os.symlink(host_bags, root / "home" / "ros" / "bags")
+    proc = _fake_proc(tmp_path)
+    _fake_recorder(
+        proc, 300,
+        [NODE, "--ros-args", "--params-file", "/home/ros/utils/rec.yaml",
+         "-p", "storage.uri:=/home/ros/bags/20260930_142510_mapping"],
+        root=str(root), cwd="/home/ros", same_ns=False,
+        mountinfo=f"1 0 8:1 {host_bags} /home/ros/bags rw - ext4 /dev/sda1\n")
+    found = _patched_scan(
+        monkeypatch, proc,
+        self_mountinfo="1 0 8:1 / / rw - ext4 /dev/sda1\n")
+    assert [f["output_dir"] for f in found] == [bag.resolve()]
+    assert found[0]["pid"] == 300
 
 
 def test_scan_translates_containerised_recorder(tmp_path, monkeypatch):

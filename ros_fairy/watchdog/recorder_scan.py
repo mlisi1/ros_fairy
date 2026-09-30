@@ -2,7 +2,9 @@
 
 The watchdog's inotify only sees the spool, where ``ros2 fairy mission_record``
 records. A plain ``ros2 bag record`` in another terminal lands in the operator's
-cwd and is invisible to it. This module scans ``/proc`` for a live rosbag2
+cwd and is invisible to it. The same goes for the bare recorder node
+(``ros2 run rosbag2_transport recorder --ros-args -p storage.uri:=...``), which
+takes its output directory from ROS parameters rather than ``-o``. This module scans ``/proc`` for a live rosbag2
 *recorder* process and resolves where it is writing — pure ``/proc`` reading, no
 ROS and no sourced environment needed, so it stays version-agnostic.
 
@@ -24,6 +26,8 @@ import os
 import re
 from pathlib import Path
 from typing import TypedDict
+
+import yaml
 
 from ros_fairy.utils import ros_env
 
@@ -60,13 +64,29 @@ def _read_cmdline(pid: str) -> list[str]:
     return [tok for tok in raw.decode("utf-8", "replace").split("\0") if tok]
 
 
+def _is_recorder_node(argv: list[str]) -> bool:
+    """True when argv is the bare rosbag2 recorder node executable.
+
+    ``ros2 run rosbag2_transport recorder`` spawns
+    ``<prefix>/lib/rosbag2_transport/recorder``; only that child is matched, not
+    the ``ros2 run`` wrapper, so one recording yields one process.
+    """
+    if not argv:
+        return False
+    exe = Path(argv[0])
+    return exe.name == "recorder" and exe.parent.name == "rosbag2_transport"
+
+
 def _is_record_cmd(argv: list[str]) -> bool:
-    """True when argv is a ``... bag record ...`` invocation (not play/info/...).
+    """True when argv is a ``... bag record ...`` invocation (not play/info/...)
+    or the bare recorder node.
 
     The verb immediately after ``bag`` is the authoritative discriminator, so an
     output dir or topic named like another verb (e.g. ``-o info``) is not
     mistaken for it.
     """
+    if _is_recorder_node(argv):
+        return True
     try:
         bag_i = argv.index("bag")
     except ValueError:
@@ -84,6 +104,74 @@ def _output_arg(argv: list[str]) -> str | None:
             return tok.split("=", 1)[1]
         if tok.startswith("-o="):
             return tok.split("=", 1)[1]
+    return None
+
+
+def _ros_args(argv: list[str]) -> list[str]:
+    """The tokens inside ``--ros-args`` blocks (up to each closing ``--``)."""
+    out, inside = [], False
+    for tok in argv:
+        if tok == "--ros-args":
+            inside = True
+        elif tok == "--":
+            inside = False
+        elif inside:
+            out.append(tok)
+    return out
+
+
+def _param_uri(tokens: list[str]) -> str | None:
+    """``storage.uri`` from ``-p``/``--param storage.uri:=X`` (last one wins)."""
+    uri = None
+    for i, tok in enumerate(tokens[:-1]):
+        if tok in ("-p", "--param"):
+            name, sep, val = tokens[i + 1].partition(":=")
+            if sep and name == "storage.uri":
+                uri = val
+    return uri
+
+
+def _params_file_uri(path: Path) -> str | None:
+    """``storage.uri`` from a ROS params file, under any node key.
+
+    Accepts both the nested (``storage: {uri: X}``) and the flat dotted
+    (``storage.uri: X``) spelling.
+    """
+    try:
+        doc = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    for node in doc.values():
+        params = node.get("ros__parameters") if isinstance(node, dict) else None
+        if not isinstance(params, dict):
+            continue
+        storage = params.get("storage")
+        uri = storage.get("uri") if isinstance(storage, dict) else None
+        uri = uri or params.get("storage.uri")
+        if isinstance(uri, str) and uri:
+            return uri
+    return None
+
+
+def _node_output(argv: list[str], cwd: Path, view=lambda p: p) -> str | None:
+    """The recorder node's ``storage.uri``: a ``-p`` override beats params files.
+
+    Params-file paths are in the recorder's namespace, so they are read
+    through ``view``.
+    """
+    tokens = _ros_args(argv)
+    uri = _param_uri(tokens)
+    if uri:
+        return uri
+    files = [tokens[i + 1] for i, tok in enumerate(tokens[:-1])
+             if tok == "--params-file"]
+    for f in reversed(files):  # later files override earlier ones
+        p = Path(f)
+        uri = _params_file_uri(view(p if p.is_absolute() else cwd / p))
+        if uri:
+            return uri
     return None
 
 
@@ -155,7 +243,8 @@ def _resolve_output(argv: list[str], cwd: Path,
     one readable from ours (identity on the host, the ``/proc/<pid>/root``
     portal for a containerised recorder).
     """
-    arg = _output_arg(argv)
+    arg = _node_output(argv, cwd, view) if _is_recorder_node(argv) \
+        else _output_arg(argv)
     if arg is not None:
         bag_dir = Path(arg)
         if not bag_dir.is_absolute():
