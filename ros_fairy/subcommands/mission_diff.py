@@ -30,17 +30,21 @@ def run(args, console: Console | None = None) -> int:
     assert a_id is not None and b_id is not None  # both set or returned above
 
     try:
-        record_a = locate.load_record(locate.resolve_archive(a_id))
-        record_b = locate.load_record(locate.resolve_archive(b_id))
+        crate_a = locate.resolve_archive(a_id)
+        crate_b = locate.resolve_archive(b_id)
+        record_a = locate.load_record(crate_a)
+        record_b = locate.load_record(crate_b)
     except locate.LocateError as exc:
         console.print(f"[red]{exc}[/red]")
         return 1
 
     if getattr(args, "json", False):
-        print(json.dumps(diff_ui.diff_as_dict(record_a, record_b), indent=2))
+        print(json.dumps(diff_ui.diff_as_dict(record_a, record_b, crate_a,
+                                              crate_b), indent=2))
         return 0
 
-    diff_ui.show_diff(record_a, record_b, console=console)
+    diff_ui.show_diff(record_a, record_b, console=console,
+                      crate_a=crate_a, crate_b=crate_b)
     return 0
 
 

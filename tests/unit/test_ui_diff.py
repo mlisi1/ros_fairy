@@ -203,6 +203,145 @@ def test_nested_parameter_diff_shows_only_the_changed_leaf(fairy_dirs):
     assert "enabled" not in out
 
 
+def test_urdf_diff_shows_only_changed_line(fairy_dirs):
+    urdf_a = ("<robot name='heron'>\n"
+             "  <link name='base'/>\n"
+             "  <link name='old'/>\n"
+             "</robot>")
+    urdf_b = ("<robot name='heron'>\n"
+             "  <link name='base'/>\n"
+             "  <link name='new'/>\n"
+             "</robot>")
+
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["robot_description"] = urdf_a
+    a = builder.build(h1, c1)
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["ros_graph"]["robot_description"] = urdf_b
+    b = builder.build(h2, c2)
+
+    out = _render(a, b)
+    assert "Robot description" in out
+    assert "old" in out and "new" in out
+    # the unchanged lines must not be dumped alongside the real change
+    assert "heron" not in out
+    assert "base" not in out
+
+
+def test_urdf_diff_reads_archived_file_content(fairy_dirs):
+    """Once archived, ros_graph.robot_description is rewritten to a
+    crate-relative path — the diff must read the actual file, not compare
+    two identical path strings."""
+    from ros_fairy.archive import assembler, locate
+
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["robot_description"] = "<robot><link name='a'/></robot>"
+    crate_a = assembler.assemble(builder.build(h1, c1), h1)
+
+    # A fresh _spool() call, not a deepcopy of h1 — assemble() already moved
+    # h1's bag out of the spool, so reusing that path would fail the move.
+    h2, c2 = _spool(fairy_dirs)
+    h2["ros_graph"]["robot_description"] = "<robot><link name='b'/></robot>"
+    crate_b = assembler.assemble(builder.build(h2, c2), h2)
+
+    loaded_a = locate.load_record(crate_a)
+    loaded_b = locate.load_record(crate_b)
+    # confirms the field itself is now just a (identical) path — proving a
+    # plain field comparison would have hidden the real change
+    assert loaded_a.ros_graph.robot_description == \
+        loaded_b.ros_graph.robot_description == "harvest/robot_description.urdf"
+
+    console = Console(file=io.StringIO(), width=140, force_terminal=False)
+    diff_ui.show_diff(loaded_a, loaded_b, console=console,
+                      crate_a=crate_a, crate_b=crate_b)
+    out = console.file.getvalue()
+    assert "Robot description" in out
+    assert "'a'" in out and "'b'" in out
+
+
+def test_tf_static_diff_shows_added_removed_and_changed(fairy_dirs):
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["tf_static"] = [
+        {"parent_frame": "base", "child_frame": "gps_link",
+         "translation": {"x": 0.1, "y": 0.0, "z": 0.0},
+         "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}},
+        {"parent_frame": "base", "child_frame": "camera_link",
+         "translation": {"x": 0.0, "y": 0.0, "z": 0.3},
+         "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}},
+    ]
+    a = builder.build(h1, c1)
+
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["ros_graph"]["tf_static"] = [
+        {"parent_frame": "base", "child_frame": "gps_link",
+         "translation": {"x": 0.2, "y": 0.0, "z": 0.0},
+         "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}},
+        {"parent_frame": "base", "child_frame": "lidar_link",
+         "translation": {"x": 0.0, "y": 0.0, "z": 0.5},
+         "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}},
+    ]
+    b = builder.build(h2, c2)
+
+    out = _render(a, b)
+    assert "Static transforms" in out
+    assert "base → camera_link" in out               # removed
+    assert "base → lidar_link" in out                # added
+    assert "base → gps_link: translation.x" in out   # changed leaf
+    assert "0.1" in out and "0.2" in out
+
+
+def test_parameter_capture_gap_flagged_not_silently_ignored(fairy_dirs):
+    """If a mission's param dump failed entirely for a node the other mission
+    did capture, that's a harvest gap — not evidence nothing changed."""
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["nodes"] = ["/navsat", "/bt_navigator"]
+    h1["ros_graph"]["parameters"] = {
+        "/bt_navigator": {"/bt_navigator": {"ros__parameters": {"rate": 5.0}}}}
+    a = builder.build(h1, c1)
+
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["ros_graph"]["parameters"] = {}  # capture failed entirely this run
+    b = builder.build(h2, c2)
+
+    out = _render(a, b)
+    assert "Parameters" in out
+    assert "/bt_navigator: parameters captured" in out
+    # must not fabricate a "rate" value diff — there's nothing to compare to
+    assert "/bt_navigator: rate" not in out
+
+
+def test_parameter_gap_note_skipped_for_brand_new_nodes(fairy_dirs):
+    """A node that's simply new in B never had params in A by definition —
+    that's already explained by the ROS graph section, not a capture gap."""
+    def mutate(h, c):
+        h["ros_graph"]["nodes"] = h["ros_graph"]["nodes"] + ["/new_node"]
+        h["ros_graph"]["parameters"] = {
+            "/new_node": {"/new_node": {"ros__parameters": {"x": 1}}}}
+
+    a, b = _pair(fairy_dirs, mutate)
+    out = _render(a, b)
+    assert "/new_node: parameters captured" not in out
+
+
+def test_tf_static_not_captured_flagged_not_silently_ignored(fairy_dirs):
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["tf_static"] = [
+        {"parent_frame": "base", "child_frame": "gps_link",
+         "translation": {"x": 0.1, "y": 0.0, "z": 0.0},
+         "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}]
+    a = builder.build(h1, c1)
+
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["ros_graph"]["tf_static"] = None  # /tf_static capture timed out
+    b = builder.build(h2, c2)
+
+    out = _render(a, b)
+    assert "Static transforms captured" in out
+    # must not report mission A's transform as "removed" — we don't actually
+    # know whether mission B still had it
+    assert "gps_link" not in out
+
+
 def test_diff_as_dict_only_contains_changed_sections(fairy_dirs):
     def mutate(h, c):
         c["intent"]["goal"] = "Different"

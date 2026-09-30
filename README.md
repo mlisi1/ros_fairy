@@ -78,7 +78,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `list` | List the missions saved on this robot |
 | `diff` | Compare two missions and show what changed |
 | `verify` | Check that a saved archive is complete and unmodified |
-| `export` | Package a saved mission into one portable file |
+| `export` | Package a mission — or `--all` unexported ones, or `--today`'s — into portable files |
 | `repair` | Make unplayable (bad-clock) recordings playable |
 | `adopt` | Ingest a bag recorded outside `mission_record` |
 | `reindex` | Rebuild the mission list from the archives on disk |

@@ -4,7 +4,9 @@ Compares two MissionRecord objects section by section, printing only what
 actually changed. Sections with no differences are silently omitted.
 """
 
+import difflib
 import re
+from pathlib import Path
 
 from rich.console import Console, Group
 from rich.panel import Panel
@@ -157,6 +159,91 @@ def _diff_graph(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     return rows
 
 
+def _load_urdf_text(record: MissionRecord, crate: Path | None) -> str | None:
+    """The actual URDF text for a mission.
+
+    Once archived, ``ros_graph.robot_description`` is rewritten from the raw
+    XML to a crate-relative path ("harvest/robot_description.urdf") — see
+    assembler.assemble — so comparing the field itself would just compare two
+    identical path strings, hiding every real change. Read the file from the
+    crate when one is given; fall back to the field as-is for records that
+    were never archived (e.g. built directly in tests).
+    """
+    value = record.ros_graph.robot_description
+    if not value:
+        return None
+    if crate is not None:
+        candidate = crate / value
+        if candidate.is_file():
+            try:
+                return candidate.read_text()
+            except OSError:
+                return None
+    return value
+
+
+def _diff_urdf(a: MissionRecord, b: MissionRecord,
+               crate_a: Path | None, crate_b: Path | None) -> list[tuple]:
+    text_a = _load_urdf_text(a, crate_a)
+    text_b = _load_urdf_text(b, crate_b)
+    if text_a == text_b:
+        return []
+    if text_a is None or text_b is None:
+        return [("Robot description (URDF)",
+                 "(none)" if text_a is None else "present",
+                 "(none)" if text_b is None else "present")]
+
+    rows: list[tuple] = []
+    sm = difflib.SequenceMatcher(a=text_a.splitlines(), b=text_b.splitlines(),
+                                 autojunk=False)
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            continue
+        old_lines, new_lines = text_a.splitlines()[i1:i2], \
+            text_b.splitlines()[j1:j2]
+        for k in range(max(len(old_lines), len(new_lines))):
+            old = old_lines[k].strip() if k < len(old_lines) else ""
+            new = new_lines[k].strip() if k < len(new_lines) else ""
+            rows.append((f"URDF line {i1 + k + 1}", old, new))
+    return rows
+
+
+def _diff_tf_static(a: MissionRecord, b: MissionRecord) -> list[tuple]:
+    tf_a, tf_b = a.ros_graph.tf_static, b.ros_graph.tf_static
+    # None means the /tf_static capture never got a reply (ros_descriptions
+    # harvest failed/timed out) — distinct from an empty list, which means it
+    # was reached and genuinely saw zero static transforms. Treating None as
+    # [] would report every transform on the other side as "newly added"
+    # when really this side just has no data to compare.
+    if tf_a is None or tf_b is None:
+        if tf_a == tf_b:
+            return []
+        return [("Static transforms captured",
+                 "no" if tf_a is None else "yes",
+                 "no" if tf_b is None else "yes")]
+
+    by_a = {(tf.get("parent_frame"), tf.get("child_frame")): tf for tf in tf_a}
+    by_b = {(tf.get("parent_frame"), tf.get("child_frame")): tf for tf in tf_b}
+
+    rows: list[tuple] = []
+    for key in sorted(set(by_a) - set(by_b)):
+        rows.append((f"tf {key[0]} → {key[1]}", "present", ""))
+    for key in sorted(set(by_b) - set(by_a)):
+        rows.append((f"tf {key[0]} → {key[1]}", "", "present"))
+    for key in sorted(set(by_a) & set(by_b)):
+        leaves_a = dict(_leaves("", by_a[key]))
+        leaves_b = dict(_leaves("", by_b[key]))
+        for leaf in sorted(set(leaves_a) | set(leaves_b)):
+            if leaf in ("parent_frame", "child_frame"):
+                continue
+            va, vb = leaves_a.get(leaf), leaves_b.get(leaf)
+            if va != vb:
+                rows.append((f"tf {key[0]} → {key[1]}: {leaf}",
+                             str(va) if leaf in leaves_a else "",
+                             str(vb) if leaf in leaves_b else ""))
+    return rows
+
+
 def _flatten_params(parameters: dict[str, dict]) -> dict[str, dict]:
     """node -> {param_name: value}, unwrapping the `ros2 param dump` envelope.
 
@@ -200,6 +287,22 @@ def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
                 rows.append((f"{node}: {key}",
                              str(va) if key in leaves_a else "",
                              str(vb) if key in leaves_b else ""))
+
+    # A node missing from ros_graph.parameters isn't necessarily unchanged —
+    # `ros2 param dump` may simply have timed out for it that run
+    # (ros_graph.complete=False tracks this at the mission level; a whole
+    # mission can come back with nothing captured at all, as happened here).
+    # Flag the gap instead of silently treating "no data" as "no change" —
+    # but only for nodes that existed in both missions' graphs, since a
+    # brand-new/removed node's capture asymmetry is already explained by the
+    # ROS graph section.
+    nodes_a = {n for n in a.ros_graph.nodes if not _RANDOM_ID_NODE.search(n)}
+    nodes_b = {n for n in b.ros_graph.nodes if not _RANDOM_ID_NODE.search(n)}
+    persisting = nodes_a & nodes_b
+    for node in sorted((set(flat_a) ^ set(flat_b)) & persisting):
+        rows.append((f"{node}: parameters captured",
+                     "yes" if node in flat_a else "no",
+                     "yes" if node in flat_b else "no"))
     return rows
 
 
@@ -229,7 +332,8 @@ def _diff_recordings(a: MissionRecord, b: MissionRecord) -> list[tuple]:
 # ── public entry point ────────────────────────────────────────────────────────
 
 def show_diff(a: MissionRecord, b: MissionRecord,
-              console: Console | None = None) -> None:
+              console: Console | None = None,
+              crate_a: Path | None = None, crate_b: Path | None = None) -> None:
     console = console or Console()
 
     header = Table.grid(padding=(0, 2))
@@ -239,12 +343,14 @@ def show_diff(a: MissionRecord, b: MissionRecord,
     header.add_row("B", _mission_label(b))
 
     sections = [
-        ("Mission context", _diff_context(a, b)),
-        ("Software",        _diff_software(a, b)),
-        ("Sensors",         _diff_sensors(a, b)),
-        ("ROS graph",       _diff_graph(a, b)),
-        ("Parameters",      _diff_parameters(a, b)),
-        ("Recordings",      _diff_recordings(a, b)),
+        ("Mission context",       _diff_context(a, b)),
+        ("Software",              _diff_software(a, b)),
+        ("Sensors",               _diff_sensors(a, b)),
+        ("ROS graph",             _diff_graph(a, b)),
+        ("Parameters",            _diff_parameters(a, b)),
+        ("Robot description",     _diff_urdf(a, b, crate_a, crate_b)),
+        ("Static transforms",     _diff_tf_static(a, b)),
+        ("Recordings",            _diff_recordings(a, b)),
     ]
     changed = [(title, rows) for title, rows in sections if rows]
 
@@ -272,7 +378,9 @@ def _mission_summary(r: MissionRecord) -> dict:
     }
 
 
-def diff_as_dict(a: MissionRecord, b: MissionRecord) -> dict:
+def diff_as_dict(a: MissionRecord, b: MissionRecord,
+                 crate_a: Path | None = None,
+                 crate_b: Path | None = None) -> dict:
     """Machine-readable form of the same diff show_diff() renders.
 
     `changes` holds only sections that differ; each change is the section's
@@ -280,12 +388,14 @@ def diff_as_dict(a: MissionRecord, b: MissionRecord) -> dict:
     empty `b` = removed in B).
     """
     sections = {
-        "mission_context": _diff_context(a, b),
-        "software":        _diff_software(a, b),
-        "sensors":         _diff_sensors(a, b),
-        "ros_graph":       _diff_graph(a, b),
-        "parameters":      _diff_parameters(a, b),
-        "recordings":      _diff_recordings(a, b),
+        "mission_context":  _diff_context(a, b),
+        "software":         _diff_software(a, b),
+        "sensors":          _diff_sensors(a, b),
+        "ros_graph":        _diff_graph(a, b),
+        "parameters":       _diff_parameters(a, b),
+        "robot_description": _diff_urdf(a, b, crate_a, crate_b),
+        "tf_static":        _diff_tf_static(a, b),
+        "recordings":       _diff_recordings(a, b),
     }
     changes = {
         name: [{"label": label, "a": va, "b": vb} for label, va, vb in rows]
