@@ -58,6 +58,23 @@ def test_ros_graph_no_nodes_is_a_failure_not_an_empty_capture():
             ros_graph.harvest()
 
 
+def test_ros_graph_listings_bypass_the_ros2_daemon():
+    """The daemon is chosen by domain ID only and may run with someone else's
+    discovery settings; listings must use the watchdog's adopted env."""
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        return _completed({"node": NODE_LIST, "topic": TOPIC_LIST,
+                           "pkg": PKG_LIST, "param": PARAM_DUMP}[cmd[1]])
+
+    with mock.patch("subprocess.run", side_effect=fake_run):
+        ros_graph.harvest()
+    listings = [c for c in calls if c[1] in ("node", "topic")]
+    assert len(listings) == 2
+    assert all("--no-daemon" in c and "--spin-time" in c for c in listings)
+
+
 def test_ros_graph_param_dump_failure_degrades():
     def fake_run(cmd, **kw):
         if cmd[1] == "param":
@@ -69,6 +86,39 @@ def test_ros_graph_param_dump_failure_degrades():
         data = ros_graph.harvest()
     assert data["complete"] is False
     assert data["parameters"] == {}
+
+
+def test_ros_graph_logs_which_nodes_lack_parameters():
+    """Per-node failures were debug-only, so they never reached the journal
+    or the archived watchdog.log."""
+    import logging
+
+    class Collect(logging.Handler):
+        def __init__(self):
+            super().__init__(logging.INFO)
+            self.lines = []
+
+        def emit(self, record):
+            self.lines.append(record.getMessage())
+
+    def fake_run(cmd, **kw):
+        if cmd[1] == "param" and cmd[3] == "/controller":
+            return _completed("", returncode=1, stderr="timed out")
+        return _completed({"node": NODE_LIST, "topic": TOPIC_LIST,
+                           "pkg": PKG_LIST, "param": PARAM_DUMP}[cmd[1]])
+
+    logger = logging.getLogger("ros_fairy.harvest.ros_graph")
+    collect, old_level = Collect(), logger.level
+    logger.addHandler(collect)
+    logger.setLevel(logging.INFO)
+    try:
+        with mock.patch("subprocess.run", side_effect=fake_run):
+            ros_graph.harvest()
+    finally:
+        logger.removeHandler(collect)
+        logger.setLevel(old_level)
+    assert "parameters not captured for 1 of 2 node(s): /controller" \
+        in collect.lines
 
 
 def test_ros_graph_timeout():

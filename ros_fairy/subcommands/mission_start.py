@@ -73,6 +73,7 @@ def _drop_previous_harvest(console: Console) -> None:
         for path in foreign:
             console.print(f"  {path}")
     paths.harvest_json_path().unlink(missing_ok=True)
+    paths.watchdog_log_path().unlink(missing_ok=True)
 
 
 def run(args, console: Console | None = None) -> int:

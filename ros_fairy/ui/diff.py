@@ -83,11 +83,17 @@ def _diff_software(a: MissionRecord, b: MissionRecord) -> list[tuple]:
         if va != vb:
             rows.append((pkg, va or "", vb or ""))
 
-    pkgs_a, pkgs_b = set(a.software.ros_packages), set(b.software.ros_packages)
-    for pkg in sorted(pkgs_a - pkgs_b):
-        rows.append((f"host pkg {pkg}", "installed", ""))
-    for pkg in sorted(pkgs_b - pkgs_a):
-        rows.append((f"host pkg {pkg}", "", "installed"))
+    # None (or [] in older records — a ROS host is never empty) means the
+    # package list wasn't captured; diffing it would list every package as
+    # removed (2026-10-01).
+    pkgs_a, pkgs_b = a.software.ros_packages, b.software.ros_packages
+    if pkgs_a and pkgs_b:
+        for pkg in sorted(set(pkgs_a) - set(pkgs_b)):
+            rows.append((f"host pkg {pkg}", "installed", ""))
+        for pkg in sorted(set(pkgs_b) - set(pkgs_a)):
+            rows.append((f"host pkg {pkg}", "", "installed"))
+    elif bool(pkgs_a) != bool(pkgs_b):
+        rows.append(_captured_row("host packages captured", pkgs_a, pkgs_b))
 
     ca = {c.name: c for c in a.software.docker_containers}
     cb = {c.name: c for c in b.software.docker_containers}

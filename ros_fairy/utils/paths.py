@@ -53,6 +53,11 @@ def harvest_json_path() -> Path:
     return spool_dir() / "harvest.json"
 
 
+def watchdog_log_path() -> Path:
+    """The watchdog's log for the open mission; archived with it."""
+    return spool_dir() / "watchdog.log"
+
+
 def session_env_path() -> Path:
     """ROS environment of the live recording shell, refreshed at mission time.
 

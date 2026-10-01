@@ -493,3 +493,156 @@ def test_run_pipeline_marks_ros_graph_partial_when_incomplete(fairy_dirs,
 
     doc = wd_mod.run_pipeline()
     assert doc["provenance"]["harvest_status"]["ros_graph"] == "partial"
+
+
+# -- repeated harvests must not degrade the capture (2026-10-01) ---------------
+
+def _graph_pipeline(nodes, status="ok", packages=("rclpy",)):
+    def pipeline():
+        captured = status in ("ok", "partial")
+        return builder.compose_harvest(
+            identity=IDENTITY,
+            system={"hostname": "r1", "kernel": "Linux 6.8", "arch": "x86_64",
+                    "ros_distro": "jazzy", "apt_ros_versions": {}},
+            graph={"captured_at": "2026-10-01T14:30:00+00:00",
+                   "nodes": list(nodes),
+                   "topics": [{"name": "/fix",
+                               "type": "sensor_msgs/msg/NavSatFix"}],
+                   "ros_packages": list(packages) if packages else None,
+                   "parameters": {n: {n: {"ros__parameters": {"x": 1}}}
+                                  for n in nodes},
+                   "complete": True} if captured else
+                  ({"ros_packages": list(packages)} if packages else None),
+            docker=None,
+            descriptions={"robot_description": "<robot/>", "tf_static": []}
+            if captured else None,
+            harvest_status={**GOOD_STATUS, "ros_graph": status,
+                            "ros_descriptions": status if captured
+                            else "timeout"})
+    return pipeline
+
+
+def test_later_failed_harvest_keeps_the_earlier_graph(fairy_dirs):
+    """A retry that ran after the stack stopped overwrote a good capture with
+    an empty one, so the mission was archived without its graph."""
+    ino, clock = FakeINotify(), FakeClock()
+    dog = Watchdog(inotify=ino, clock=clock,
+                   pipeline=_graph_pipeline(["/navsat", "/bt_navigator"]),
+                   harvest_in_thread=False)
+    dog.start()
+    _record_bag((ino, clock, dog), with_metadata=False)
+
+    dog.pipeline = _graph_pipeline([], status="failed", packages=None)
+    dog._harvest_once()
+
+    harvest, _ = builder.load_spool()
+    graph = harvest["ros_graph"]
+    assert graph["nodes"] == ["/navsat", "/bt_navigator"]
+    assert set(graph["parameters"]) == {"/navsat", "/bt_navigator"}
+    assert graph["robot_description"] == "<robot/>"
+    status = harvest["provenance"]["harvest_status"]
+    assert status["ros_graph"] == "ok" and status["ros_descriptions"] == "ok"
+    assert harvest["software"]["ros_packages"] == ["rclpy"]
+    assert harvest["sensors"][0]["detected_at_start"] is True
+
+
+def test_later_better_harvest_still_replaces_a_failed_one(fairy_dirs):
+    ino, clock = FakeINotify(), FakeClock()
+    dog = Watchdog(inotify=ino, clock=clock,
+                   pipeline=_graph_pipeline([], status="failed"),
+                   harvest_in_thread=False)
+    dog.start()
+    _record_bag((ino, clock, dog), with_metadata=False)
+    dog.pipeline = _graph_pipeline(["/navsat"])
+    dog._harvest_once()
+    harvest, _ = builder.load_spool()
+    assert harvest["ros_graph"]["nodes"] == ["/navsat"]
+    assert harvest["provenance"]["harvest_status"]["ros_graph"] == "ok"
+
+
+def test_recording_start_supersedes_a_pending_retry(fairy_dirs):
+    """A retry armed by an earlier failure fired alongside the new recording's
+    own harvest, queueing a second one that ran after the stack stopped."""
+    ino, clock = FakeINotify(), FakeClock()
+    calls = []
+
+    def counting():
+        calls.append(clock.now)
+        return good_pipeline()
+
+    dog = Watchdog(inotify=ino, clock=clock, pipeline=counting,
+                   harvest_in_thread=False)
+    dog.start()
+    dog._next_retry = clock.now - 1  # expired while idle
+    _record_bag((ino, clock, dog), with_metadata=False)
+    dog.step(0)
+    assert len(calls) == 1
+    assert dog._next_retry is None
+
+
+def test_run_pipeline_keeps_packages_when_graph_discovery_fails(fairy_dirs,
+                                                                 monkeypatch):
+    from ros_fairy.harvest import (
+        docker_info,
+        hardware_devices,
+        python_env,
+        robot_identity,
+        ros_descriptions,
+        ros_graph,
+        system_info,
+    )
+    monkeypatch.setattr(robot_identity, "harvest", lambda: IDENTITY)
+    monkeypatch.setattr(system_info, "harvest", lambda: {
+        "hostname": "r1", "kernel": "Linux", "arch": "x86_64",
+        "ros_distro": "jazzy", "apt_ros_versions": {}})
+    monkeypatch.setattr(python_env, "harvest", lambda: {"status": "ok"})
+    monkeypatch.setattr(hardware_devices, "harvest", lambda: {"status": "ok"})
+    monkeypatch.setattr(docker_info, "harvest", lambda: {"available": False})
+
+    def no_nodes():
+        raise ros_graph.RosGraphError("no ROS nodes visible")
+
+    def no_descriptions():
+        raise RuntimeError("timed out")
+
+    monkeypatch.setattr(ros_graph, "harvest", no_nodes)
+    monkeypatch.setattr(ros_graph, "list_packages", lambda: ["nav2_core",
+                                                             "rclpy"])
+    monkeypatch.setattr(ros_descriptions, "harvest", no_descriptions)
+
+    doc = wd_mod.run_pipeline()
+    assert doc["provenance"]["harvest_status"]["ros_graph"] == "failed"
+    assert doc["software"]["ros_packages"] == ["nav2_core", "rclpy"]
+    assert doc["ros_graph"]["nodes"] == []
+
+    monkeypatch.setattr(ros_graph, "list_packages", no_nodes)
+    doc = wd_mod.run_pipeline()
+    assert doc["software"]["ros_packages"] is None  # not captured, not empty
+
+
+def test_spool_log_handler_mirrors_and_caps(fairy_dirs, monkeypatch):
+    import logging
+    paths.spool_dir().mkdir(parents=True, exist_ok=True)
+    handler = wd_mod.SpoolLogHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
+    logger = logging.getLogger("ros_fairy.test_spool_log")
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        logger.warning("harvest module ros_graph failed: no ROS nodes visible")
+        text = paths.watchdog_log_path().read_text()
+        assert "WARNING harvest module ros_graph failed" in text
+
+        paths.watchdog_log_path().unlink()  # spool cleared between missions
+        logger.info("next mission")
+        assert paths.watchdog_log_path().read_text() == "INFO next mission\n"
+
+        monkeypatch.setattr(wd_mod.SpoolLogHandler, "MAX_BYTES", 2000)
+        for i in range(200):
+            logger.info("line %03d", i)
+        text = paths.watchdog_log_path().read_text()
+        assert len(text) <= 2000
+        assert text.startswith("[older entries dropped]\n")
+        assert text.rstrip().endswith("INFO line 199")
+    finally:
+        logger.removeHandler(handler)

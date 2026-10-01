@@ -103,7 +103,7 @@ def compose_harvest(identity: dict | None, system: dict | None,
         "default_license": identity.get("default_license"),
         "software": {
             "ros_distro": system.get("ros_distro"),
-            "ros_packages": graph.get("ros_packages", []),
+            "ros_packages": graph.get("ros_packages"),
             "apt_ros_versions": system.get("apt_ros_versions", {}),
             "docker_containers": docker.get("docker_containers", []),
             "ros_fairy_version": ros_fairy.__version__,

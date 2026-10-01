@@ -371,6 +371,17 @@ def test_commit_flushes_staging_before_rename(fairy_dirs, monkeypatch):
     assert not paths.harvest_json_path().exists()
 
 
+def test_watchdog_log_archived_with_the_mission(fairy_dirs):
+    harvest, context = _spool(fairy_dirs)
+    paths.watchdog_log_path().write_text(
+        "... WARNING harvest module ros_graph failed: no ROS nodes visible\n")
+    final = assembler.assemble(builder.build(harvest, context), harvest)
+    assert "ros_graph failed" in (final / "harvest" / "watchdog.log").read_text()
+    crate = json.loads((final / "ro-crate-metadata.json").read_text())
+    assert "harvest/watchdog.log" in json.dumps(crate)
+    assert not paths.watchdog_log_path().exists()  # next mission starts clean
+
+
 def test_find_incomplete_crates(fairy_dirs):
     harvest, context = _spool(fairy_dirs)
     final = assembler.assemble(builder.build(harvest, context), harvest)

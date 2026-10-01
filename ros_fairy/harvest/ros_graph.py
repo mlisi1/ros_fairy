@@ -57,15 +57,26 @@ def _run(args: list[str], timeout: float = ROS2_CLI_TIMEOUT_S) -> str:
     return result.stdout
 
 
+# Listings bypass the ros2 daemon. The CLI picks the daemon by domain ID
+# alone, so it may have been started by another user with other discovery
+# settings (ROS_AUTOMATIC_DISCOVERY_RANGE, ROS_STATIC_PEERS) than the ones the
+# watchdog adopted from the recording — and then answers with an empty graph
+# while exiting 0. A direct listing uses this process's own environment.
+# Measured on the robot (37 nodes, 125 topics): complete even at 0.5s.
+LIST_SPIN_S = 2.0
+_DIRECT = ["--no-daemon", "--spin-time", str(LIST_SPIN_S)]
+
+
 def list_nodes() -> list[str]:
-    return sorted(line.strip() for line in _run(["node", "list"]).splitlines()
+    return sorted(line.strip()
+                  for line in _run(["node", "list", *_DIRECT]).splitlines()
                   if line.strip())
 
 
 def list_topics() -> list[dict[str, str]]:
     """Parse 'ros2 topic list -t' lines of the form '/name [pkg/msg/Type]'."""
     topics = []
-    for line in _run(["topic", "list", "-t"]).splitlines():
+    for line in _run(["topic", "list", "-t", *_DIRECT]).splitlines():
         line = line.strip()
         if not line:
             continue
@@ -141,6 +152,11 @@ def harvest() -> dict[str, Any]:
                   "still outstanding: %s", PARAM_DUMP_BUDGET_S,
                   len(still_running), ", ".join(still_running))
         pool.shutdown(wait=False, cancel_futures=True)
+
+    missing = sorted(set(dumpable) - set(parameters))
+    if missing:
+        log.info("parameters not captured for %d of %d node(s): %s",
+                 len(missing), len(dumpable), ", ".join(missing))
 
     return {
         "captured_at": datetime.now(timezone.utc).isoformat(),

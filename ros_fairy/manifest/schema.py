@@ -96,7 +96,9 @@ class HardwareDevice(_Model):
 
 class Software(_Model):
     ros_distro: str | None = None
-    ros_packages: list[str] = Field(default_factory=list)
+    # `ros2 pkg list` on the host. None = not captured (probe failed); an
+    # empty list never happens on a ROS host, so old records' [] means the same.
+    ros_packages: list[str] | None = None
     apt_ros_versions: dict[str, str] = Field(default_factory=dict)
     docker_containers: list[DockerContainer] = Field(default_factory=list)
     ros_fairy_version: str

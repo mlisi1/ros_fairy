@@ -97,6 +97,13 @@ def run_pipeline() -> dict[str, Any]:
     attempt("ros_graph", ros_graph.harvest)
     if status["ros_graph"] == "ok" and not results["ros_graph"]["complete"]:
         status["ros_graph"] = "partial"
+    if results["ros_graph"] is None:
+        # `ros2 pkg list` reads the local install, no DDS involved: a failed
+        # discovery must not cost the mission its installed-package record.
+        try:
+            results["ros_graph"] = {"ros_packages": ros_graph.list_packages()}
+        except Exception as exc:
+            log.warning("listing installed ROS packages failed: %s", exc)
     attempt("docker_info", docker_info.harvest)
     if status["docker_info"] == "ok" and \
             not results["docker_info"]["available"]:
@@ -117,6 +124,59 @@ def run_pipeline() -> dict[str, Any]:
         python_env=results["python_env"],
         hardware_devices=results["hardware_devices"],
     )
+
+
+_STATUS_RANK = {"ok": 3, "partial": 2}  # anything else: nothing captured
+
+# Which parts of harvest.json each ROS module produces. Only these modules are
+# retried, so only they can be clobbered by a later, worse run.
+_ROS_MODULE_FIELDS = {
+    "ros_graph": ("captured_at", "nodes", "topics", "parameters", "complete"),
+    "ros_descriptions": ("robot_description", "tf_static"),
+}
+
+
+def _param_count(doc: dict) -> int:
+    return len((doc.get("ros_graph") or {}).get("parameters") or {})
+
+
+def _keep_better_ros_capture(existing: dict, new: dict) -> dict:
+    """``new`` with each ROS module's result replaced by ``existing``'s where
+    that one was better.
+
+    Harvests repeat (one per recording, plus retries), and a later one can run
+    after the stack went down: its empty result used to overwrite a good
+    capture wholesale, so the mission was archived with no graph (2026-10-01).
+    """
+    old_status = existing.get("provenance", {}).get("harvest_status", {})
+    new_status = new.get("provenance", {}).get("harvest_status", {})
+    merged = {**new, "ros_graph": dict(new.get("ros_graph") or {}),
+              "provenance": {**new.get("provenance", {}),
+                             "harvest_status": dict(new_status)}}
+    for module, fields in _ROS_MODULE_FIELDS.items():
+        old_rank = _STATUS_RANK.get(old_status.get(module), 0)
+        new_rank = _STATUS_RANK.get(new_status.get(module), 0)
+        better = old_rank > new_rank or (
+            module == "ros_graph" and old_rank == new_rank == 2
+            and _param_count(existing) > _param_count(new))
+        if not better:
+            continue
+        for field in fields:
+            merged["ros_graph"][field] = (existing.get("ros_graph") or {}).get(
+                field)
+        merged["provenance"]["harvest_status"][module] = old_status[module]
+        if module == "ros_graph":
+            # sensor liveness was derived from that same graph
+            merged["sensors"] = existing.get("sensors", new.get("sensors"))
+            log.info("kept the earlier ROS graph capture (%s) over this "
+                     "run's (%s)", old_status[module],
+                     new_status.get(module))
+    # Installed packages: keep a captured list over a missing one.
+    old_pkgs = (existing.get("software") or {}).get("ros_packages")
+    if old_pkgs and not (new.get("software") or {}).get("ros_packages"):
+        merged["software"] = {**new.get("software", {}),
+                              "ros_packages": old_pkgs}
+    return merged
 
 
 class Watchdog:
@@ -373,6 +433,10 @@ class Watchdog:
         self._touch_activity()
         log.info("recording detected: %s", bag_dir)
         self.write_state()
+        # This harvest supersedes any retry still pending from an earlier
+        # failure; firing both queued a second harvest that could run after
+        # the recording (and the robot's stack) had stopped (2026-10-01).
+        self._next_retry = None
         self._run_harvest()
 
     def _finalise(self, bag_dir: Path | None) -> None:
@@ -476,14 +540,22 @@ class Watchdog:
             else:
                 os.environ.pop(key, None)
         if env:
-            log.info("adopted %s DDS env: %s", label, ", ".join(sorted(env)))
+            log.info("adopted %s DDS env: %s", label,
+                     ", ".join(f"{k}={env[k]}" for k in sorted(env)))
 
     def _harvest_once(self) -> None:
         with self._harvest_lock:
             self._apply_session_env()
+            started = time.monotonic()
             doc = self.pipeline()
-            self._save_harvest(doc)
             status = doc["provenance"]["harvest_status"]
+            graph = doc.get("ros_graph") or {}
+            log.info("harvest finished in %.0fs: %s; %d nodes, parameters "
+                     "for %d", time.monotonic() - started,
+                     ", ".join(f"{k}={v}" for k, v in status.items()),
+                     len(graph.get("nodes") or []),
+                     len(graph.get("parameters") or {}))
+            self._save_harvest(doc)
             if status.get("ros_graph") in ("failed", "timeout") or \
                     status.get("ros_descriptions") in ("failed", "timeout"):
                 self._next_retry = self.clock() + ROS_RETRY_INTERVAL_S
@@ -498,8 +570,11 @@ class Watchdog:
         self._run_harvest()
 
     def _save_harvest(self, doc: dict) -> None:
-        """Write harvest.json, preserving bag records already finalised."""
+        """Write harvest.json, preserving bag records already finalised and
+        any ROS capture that was better than this run's."""
         existing, _ = builder.load_spool()
+        if existing:
+            doc = _keep_better_ros_capture(existing, doc)
         if existing and existing.get("bags"):
             doc = {**doc, "bags": existing["bags"]}
             if existing.get("provenance", {}).get("harvested_at"):
@@ -658,10 +733,44 @@ def ensure_ros_log_dir() -> None:
     os.environ["ROS_LOG_DIR"] = str(log_dir)
 
 
+class SpoolLogHandler(logging.Handler):
+    """Mirror the watchdog's log into the spool so it is archived with the
+    mission (``harvest/watchdog.log``).
+
+    The journal stays on this robot, rotates, and needs privileges to read;
+    the crate goes wherever the data goes, so whoever receives a mission can
+    see why something wasn't captured. The file is opened per record, so it
+    survives the spool being cleared between missions; it is capped so a
+    robot left idle for weeks doesn't grow it without bound.
+    """
+
+    MAX_BYTES = 1 << 20
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            path = paths.watchdog_log_path()
+            line = self.format(record) + "\n"
+            with open(path, "a", encoding="utf-8") as fh:
+                fh.write(line)
+                size = fh.tell()
+            if size > self.MAX_BYTES:  # keep the newest half
+                data = path.read_bytes()[-self.MAX_BYTES // 2:]
+                cut = data.find(b"\n") + 1
+                fsio.atomic_write_text(
+                    path, "[older entries dropped]\n"
+                    + data[cut:].decode("utf-8", "replace"))
+        except Exception:
+            self.handleError(record)
+
+
+_LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
+
+
 def main() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(name)s %(levelname)s %(message)s")
+    logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
+    spool_log = SpoolLogHandler(level=logging.INFO)
+    spool_log.setFormatter(logging.Formatter(_LOG_FORMAT))
+    logging.getLogger("ros_fairy").addHandler(spool_log)
     ensure_ros_log_dir()
     Watchdog().run()
 

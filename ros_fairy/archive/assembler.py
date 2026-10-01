@@ -223,6 +223,12 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
                         "name": "Raw harvest data",
                         "encodingFormat": "application/json"}]
         fsio.atomic_write_json(harvest_dir / "harvest.json", harvest_doc)
+        watchdog_log = paths.watchdog_log_path()
+        if watchdog_log.is_file():
+            shutil.copy2(watchdog_log, harvest_dir / "watchdog.log")
+            extra_files.append({"id": "harvest/watchdog.log",
+                                "name": "Recording assistant log",
+                                "encodingFormat": "text/plain"})
         raw_py = harvest_doc.get("raw_python_env") or {}
         pip_freeze = raw_py.get("pip_freeze")
         if pip_freeze:
@@ -390,7 +396,8 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
     # Step 7: clear spool context files
     for leftover in (paths.harvest_json_path(),
                      paths.mission_context_path(),
-                     paths.session_env_path()):
+                     paths.session_env_path(),
+                     paths.watchdog_log_path()):
         try:
             leftover.unlink(missing_ok=True)
         except OSError:

@@ -8,6 +8,7 @@ case.
 import copy
 import io
 
+import pytest
 from rich.console import Console
 
 from ros_fairy.manifest import builder
@@ -410,3 +411,16 @@ def test_diff_as_dict_only_contains_changed_sections(fairy_dirs):
     data = diff_ui.diff_as_dict(a, b)
     assert set(data["changes"]) == {"mission_context"}
     assert data["mission_a"]["goal"] != data["mission_b"]["goal"]
+
+
+@pytest.mark.parametrize("missing", [None, []])
+def test_missing_host_package_list_is_one_row_not_every_package_removed(
+        fairy_dirs, missing):
+    """2026-10-01: a failed capture listed every installed package as
+    (removed). Old records stored [] for "not captured", new ones None."""
+    def mutate(h, c):
+        h["software"]["ros_packages"] = missing
+    a, b = _pair(fairy_dirs, mutate)
+    out = " ".join(_render(a, b).split())
+    assert "host packages captured yes no" in out
+    assert "host pkg" not in out
