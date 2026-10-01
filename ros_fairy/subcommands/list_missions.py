@@ -6,7 +6,7 @@ from datetime import datetime
 from rich.console import Console
 from rich.table import Table
 
-from ros_fairy.archive import index
+from ros_fairy.archive import assembler, index
 from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils import paths
@@ -119,6 +119,12 @@ def run(args, console: Console | None = None) -> int:
     console.print(table)
     if total > len(rows):
         console.print(f"Showing {len(rows)} of {total} missions")
+    broken = assembler.find_incomplete_crates()
+    if broken:
+        n = len(broken)
+        console.print(f"[yellow]{n} incomplete mission save"
+                      f"{'s' if n != 1 else ''} not shown — run "
+                      "[bold]ros2 fairy doctor[/bold] for details.[/yellow]")
     return 0
 
 

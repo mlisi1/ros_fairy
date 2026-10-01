@@ -343,6 +343,42 @@ def test_resume_interrupted_staging(fairy_dirs):
     assert total == 1
 
 
+def test_commit_flushes_staging_before_rename(fairy_dirs, monkeypatch):
+    """A power cut after an unflushed rename left a crate of empty files
+    (2026-09-29); everything must be on disk before the rename commits it."""
+    harvest, context = _spool(fairy_dirs)
+    record = builder.build(harvest, context)
+    events = []
+    real_tree, real_dir = fsio.fsync_tree, fsio.fsync_dir
+
+    def tree(root):
+        events.append(("tree", root.parent == paths.staging_dir()))
+        real_tree(root)
+
+    def dirsync(path):
+        events.append(("dir", path))
+        real_dir(path)
+
+    monkeypatch.setattr(fsio, "fsync_tree", tree)
+    monkeypatch.setattr(fsio, "fsync_dir", dirsync)
+    final = assembler.assemble(record, harvest)
+    assert events[0] == ("tree", True)  # flushed while still in staging
+    assert ("dir", paths.archive_dir()) in events
+    assert ("dir", paths.spool_dir()) in events  # spool clearing is durable
+    assert (final / "mission_record.json").is_file()
+    assert not paths.harvest_json_path().exists()
+
+
+def test_find_incomplete_crates(fairy_dirs):
+    harvest, context = _spool(fairy_dirs)
+    final = assembler.assemble(builder.build(harvest, context), harvest)
+    assert assembler.find_incomplete_crates() == []
+    broken = paths.archive_dir() / "2026-09-29_17-04-31_cut-off"
+    (broken / "harvest").mkdir(parents=True)
+    assert assembler.find_incomplete_crates() == [broken]
+    assert final not in assembler.find_incomplete_crates()
+
+
 def test_index_filters(fairy_dirs):
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)

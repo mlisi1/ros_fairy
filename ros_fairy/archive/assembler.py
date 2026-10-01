@@ -137,6 +137,35 @@ def find_interrupted_staging() -> Path | None:
     return candidates[0] if candidates else None
 
 
+def find_incomplete_crates() -> list[Path]:
+    """Archive folders without a mission_record.json: saves cut off mid-way.
+
+    They are neither listed nor indexed (reindex keys on mission_record.json),
+    so without this they sit in the archive unnoticed.
+    """
+    root = paths.archive_dir()
+    if not root.is_dir():
+        return []
+    return sorted(p for p in root.iterdir()
+                  if p.is_dir() and not p.name.startswith(".")
+                  and not (p / "mission_record.json").is_file())
+
+
+def _commit(staging: Path, final: Path) -> None:
+    """Durably rename a finished staging tree into the archive.
+
+    Everything is flushed first, so a power cut either leaves the staging copy
+    (resumable) or a complete crate — never a renamed tree of empty files.
+    """
+    fsio.fsync_tree(staging)
+    staging.rename(final)
+    try:  # past the commit point: a flush failure must not report a failure
+        fsio.fsync_dir(final.parent)
+        fsio.fsync_dir(staging.parent)
+    except OSError:
+        pass
+
+
 def resume_commit(staging: Path) -> Path:
     """Commit a previously interrupted staging directory."""
     final = paths.archive_dir() / staging.name
@@ -144,7 +173,7 @@ def resume_commit(staging: Path) -> Path:
         raise AssemblyError(
             f"A mission named {staging.name} already exists in the archive; "
             f"the interrupted copy is still in {staging}.")
-    staging.rename(final)
+    _commit(staging, final)
     record_file = final / "mission_record.json"
     if record_file.is_file():
         record = MissionRecord.model_validate(
@@ -346,7 +375,7 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
 
     # Step 5: commit point
     try:
-        staging.rename(final)
+        _commit(staging, final)
     except OSError as exc:
         raise AssemblyError(
             f"Saving was interrupted; your data is safe in {staging}. "
@@ -366,4 +395,10 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
             leftover.unlink(missing_ok=True)
         except OSError:
             pass
+    # Make the clearing durable too: a spool that survives a power cut hands
+    # this mission's harvest and bag list to the next one.
+    try:
+        fsio.fsync_dir(paths.spool_dir())
+    except OSError:
+        pass
     return final

@@ -171,6 +171,29 @@ def test_parameter_changes_rendered(fairy_dirs):
     assert "10.0" in out
 
 
+def test_matching_parameters_say_so_instead_of_vanishing(fairy_dirs):
+    """With other changes present, an absent Parameters section looked like
+    'not captured' when the parameters had simply matched."""
+    def mutate(h, c):
+        c["intent"]["goal"] = "Something else"
+    params = {"/navsat": {"/navsat": {"ros__parameters": {"rate": 5.0}}},
+              "/imu": {"/imu": {"ros__parameters": {"hz": 100}}}}
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["parameters"] = params
+    a = builder.build(h1, c1)
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    mutate(h2, c2)
+    b = builder.build(h2, c2)
+    out = _render(a, b)
+    assert "Parameters" in out
+    assert "no changes across 2 shared nodes" in out
+    assert out.index("Mission context") < out.index("Parameters")
+    # identical missions still say so plainly
+    assert "No differences found." in _render(a, builder.build(h1, c1))
+    # and the machine-readable diff carries no synthetic row
+    assert "parameters" not in diff_ui.diff_as_dict(a, b)["changes"]
+
+
 def test_nested_parameter_diff_shows_only_the_changed_leaf(fairy_dirs):
     """A nav2-style plugin param is one whole nested dict in the raw dump;
     the diff must drill down to the single leaf that changed rather than

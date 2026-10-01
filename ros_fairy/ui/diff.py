@@ -306,6 +306,12 @@ def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     return rows
 
 
+def _shared_param_nodes(a: MissionRecord, b: MissionRecord) -> int:
+    """How many nodes had their parameters captured in both missions."""
+    return len(set(_flatten_params(a.ros_graph.parameters))
+               & set(_flatten_params(b.ros_graph.parameters)))
+
+
 def _diff_recordings(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     rows: list[tuple] = []
 
@@ -353,6 +359,15 @@ def show_diff(a: MissionRecord, b: MissionRecord,
         ("Recordings",            _diff_recordings(a, b)),
     ]
     changed = [(title, rows) for title, rows in sections if rows]
+
+    # An omitted Parameters section reads as "not captured"; when other
+    # sections changed, say explicitly that the parameters matched.
+    shared = _shared_param_nodes(a, b)
+    if changed and shared and "Parameters" not in dict(changed):
+        note = [(f"no changes across {shared} shared "
+                 f"node{'s' if shared != 1 else ''}", "", "")]
+        changed = [(t, note if t == "Parameters" else rows)
+                   for t, rows in sections if rows or t == "Parameters"]
 
     if not changed:
         body = Group(header, Text(""),

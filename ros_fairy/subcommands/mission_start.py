@@ -30,6 +30,51 @@ def _last_operator() -> str | None:
         return None
 
 
+def _blocks_replacing(console: Console) -> bool:
+    """Whether the unfinished mission can't be replaced without losing data.
+
+    A live recording belongs to whichever mission is open, and recordings
+    ros-fairy saved into the spool exist nowhere else; both must be resolved
+    with mission_close first rather than silently mixed into the new mission.
+    """
+    state = wd.read_state()
+    if state and state.get("state") in ("RECORDING", "FINALISING"):
+        from ros_fairy.ui.status import _pid_alive
+        if _pid_alive(state.get("pid")):
+            console.print("[yellow]A recording is in progress. Stop it first, "
+                          "then run this again.[/yellow]")
+            return True
+    bags = paths.bags_dir()
+    spool_bags = [p for p in bags.iterdir() if p.is_dir()] \
+        if bags.is_dir() else []
+    if spool_bags:
+        n = len(spool_bags)
+        console.print(f"[yellow]The unfinished mission still has {n} "
+                      f"recording{'s' if n != 1 else ''} saved by ros-fairy. "
+                      "Save or discard it first with "
+                      "[bold]ros2 fairy mission_close[/bold].[/yellow]")
+        return True
+    return False
+
+
+def _drop_previous_harvest(console: Console) -> None:
+    """Forget the replaced mission's harvest (graph snapshot + bag list).
+
+    Without this the new mission inherits recordings and a ROS-graph capture
+    from before it started. Recordings referenced in place (made outside
+    ros-fairy) stay on disk and can be attached again with ``adopt``.
+    """
+    harvest = builder.load_spool()[0]
+    foreign = [b["path"] for b in (harvest or {}).get("bags", [])]
+    if foreign:
+        console.print("These recordings are no longer attached to a mission "
+                      "(they are still on disk; attach one with "
+                      "[bold]ros2 fairy adopt <folder>[/bold]):")
+        for path in foreign:
+            console.print(f"  {path}")
+    paths.harvest_json_path().unlink(missing_ok=True)
+
+
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
@@ -45,6 +90,8 @@ def run(args, console: Console | None = None) -> int:
     if context_path.is_file():
         existing = builder.load_spool()[1]
         if existing:
+            if _blocks_replacing(console):
+                return 1
             identity = existing.get("identity", {})
             when = identity.get("created_at", "")
             try:
@@ -58,6 +105,7 @@ def run(args, console: Console | None = None) -> int:
                 f"one and replace it?", default=False, console=console)
             if not replace:
                 return 0
+            _drop_previous_harvest(console)
 
     answers = briefing.ask_briefing(console=console,
                                     default_operator=_last_operator())

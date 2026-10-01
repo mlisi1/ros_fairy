@@ -90,6 +90,65 @@ def test_mission_start_keeps_existing_when_declined(fairy_dirs):
     assert context["identity"]["operator_name"] == "Sam"
 
 
+def _old_mission_with_foreign_bag():
+    """An unfinished mission whose only recording was referenced in place."""
+    fsio.atomic_write_json(paths.mission_context_path(),
+                           builder.new_mission_context("Sam", "Old", "Lab"))
+    harvest = builder.compose_harvest(
+        None, None, None, None, None,
+        {m: "ok" for m in builder.HARVEST_MODULES})
+    harvest["bags"] = [{"path": "/home/op/bags/old_run", "source": "detected"}]
+    fsio.atomic_write_json(paths.harvest_json_path(), harvest)
+
+
+def test_mission_start_replace_drops_previous_harvest(fairy_dirs):
+    """Replacing must not hand the old graph snapshot and bag list to the new
+    mission (seen 2026-09-30: a mission archived a bag from the day before)."""
+    _old_mission_with_foreign_bag()
+    answers = {"operator_name": "Jane", "goal": "New", "location_name": "L",
+               "environment": None, "notes": None}
+    console = _console()
+    with mock.patch.object(mission_start.Confirm, "ask", return_value=True), \
+            mock.patch.object(mission_start.briefing, "ask_briefing",
+                              return_value=answers):
+        assert mission_start.run(ARGS, console=console) == 0
+    assert not paths.harvest_json_path().exists()
+    assert "/home/op/bags/old_run" in console.file.getvalue()
+    context = json.loads(paths.mission_context_path().read_text())
+    assert context["intent"]["goal"] == "New"
+
+
+def test_mission_start_declined_keeps_previous_harvest(fairy_dirs):
+    _old_mission_with_foreign_bag()
+    with mock.patch.object(mission_start.Confirm, "ask", return_value=False):
+        assert mission_start.run(ARGS, console=_console()) == 0
+    assert paths.harvest_json_path().exists()
+
+
+def test_mission_start_refuses_replace_with_spool_recordings(fairy_dirs):
+    """Spool bags exist nowhere else: close the old mission first."""
+    _spool(fairy_dirs)
+    fsio.atomic_write_json(paths.mission_context_path(),
+                           builder.new_mission_context("Sam", "Old", "Lab"))
+    console = _console()
+    with mock.patch.object(mission_start.Confirm, "ask") as ask:
+        assert mission_start.run(ARGS, console=console) == 1
+    ask.assert_not_called()
+    assert "mission_close" in console.file.getvalue()
+    assert paths.harvest_json_path().exists()
+
+
+def test_mission_start_refuses_replace_while_recording(fairy_dirs):
+    _old_mission_with_foreign_bag()
+    fsio.atomic_write_json(paths.watchdog_state_path(),
+                           {"state": "RECORDING", "pid": os.getpid()})
+    console = _console()
+    with mock.patch.object(mission_start.Confirm, "ask") as ask:
+        assert mission_start.run(ARGS, console=console) == 1
+    ask.assert_not_called()
+    assert "recording is in progress" in console.file.getvalue()
+
+
 # --- mission_record ----------------------------------------------------------
 
 def test_mission_record_requires_ros2(fairy_dirs):
@@ -325,6 +384,18 @@ def test_list_shows_missions(fairy_dirs):
     args.operator = "nobody"
     assert list_missions.run(args, console=console) == 0
     assert "No missions found" in console.file.getvalue()
+
+
+def test_list_flags_incomplete_saves(fairy_dirs):
+    harvest, context = _spool(fairy_dirs)
+    from ros_fairy.archive import assembler
+    assembler.assemble(builder.build(harvest, context), harvest)
+    (paths.archive_dir() / "2026-09-29_17-04-31_cut-off").mkdir()
+    console = Console(file=io.StringIO(), width=160, force_terminal=False)
+    args = SimpleNamespace(operator=None, location=None, since=None,
+                           until=None, limit=20, path=False)
+    assert list_missions.run(args, console=console) == 0
+    assert "1 incomplete mission save not shown" in console.file.getvalue()
 
 
 def test_list_divides_different_days_with_a_rule(fairy_dirs):
@@ -1139,6 +1210,21 @@ def test_doctor_check_that_raises_becomes_fail():
         results = doctor.diagnose()
     assert results[0]["status"] == doctor.FAIL
     assert "nope" in results[0]["detail"]
+
+
+def test_doctor_archive_check(fairy_dirs):
+    paths.archive_dir().mkdir(parents=True, exist_ok=True)
+    (paths.archive_dir() / ".staging").mkdir()
+    assert doctor._check_archive()["status"] == doctor.OK
+    good = paths.archive_dir() / "good"
+    good.mkdir()
+    (good / "mission_record.json").write_text("{}")
+    assert doctor._check_archive()["status"] == doctor.OK
+    (paths.archive_dir() / "2026-09-29_17-04-31_cut-off").mkdir()
+    result = doctor._check_archive()
+    assert result["status"] == doctor.WARN
+    assert "2026-09-29_17-04-31_cut-off" in result["detail"]
+    assert "adopt" in result["hint"]
 
 
 def test_doctor_run_not_ready_exit_and_json(capsys):

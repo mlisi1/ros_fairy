@@ -231,9 +231,26 @@ def _check_docker() -> dict:
             "hint": ""}
 
 
+def _check_archive() -> dict:
+    from ros_fairy.archive import assembler
+    broken = assembler.find_incomplete_crates()
+    if not broken:
+        return {"status": OK, "title": "Saved missions are complete",
+                "detail": "", "hint": ""}
+    n = len(broken)
+    return {"status": WARN,
+            "title": f"{n} incomplete mission save{'s' if n != 1 else ''}",
+            "detail": ", ".join(p.name for p in broken),
+            "hint": "a save was cut off (e.g. power loss) — these are missing "
+                    "from `ros2 fairy list`. Recordings made outside ros-fairy "
+                    "are still where they were recorded and can be attached "
+                    "to a mission with `ros2 fairy adopt`; check the folders "
+                    f"in {paths.archive_dir()} before removing them"}
+
+
 _CHECKS = (_check_identity, _check_watchdog, _check_ros_reachable,
            _check_ros_environment, _check_service_env, _check_service_harvest,
-           _check_clock, _check_mcap, _check_disk, _check_docker)
+           _check_clock, _check_mcap, _check_disk, _check_docker, _check_archive)
 
 
 def diagnose() -> list[dict]:
