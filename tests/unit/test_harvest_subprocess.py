@@ -46,6 +46,18 @@ def test_ros_graph_ros_down():
             ros_graph.harvest()
 
 
+def test_ros_graph_no_nodes_is_a_failure_not_an_empty_capture():
+    """`ros2 node list` exits 0 with no output when discovery can't reach the
+    robot; that was archived as a complete, empty graph (2026-10-01)."""
+    def fake_run(cmd, **kw):
+        return _completed({"node": "", "topic": "/rosout [rcl_interfaces/msg/"
+                           "Log]\n", "pkg": PKG_LIST}[cmd[1]])
+
+    with mock.patch("subprocess.run", side_effect=fake_run):
+        with pytest.raises(RosGraphError, match="no ROS nodes visible"):
+            ros_graph.harvest()
+
+
 def test_ros_graph_param_dump_failure_degrades():
     def fake_run(cmd, **kw):
         if cmd[1] == "param":

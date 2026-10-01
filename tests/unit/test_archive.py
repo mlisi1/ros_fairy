@@ -41,7 +41,9 @@ def _spool(fairy_dirs, n_bags=1, with_cal=True):
                "nodes": ["/navsat"],
                "topics": [{"name": "/fix",
                            "type": "sensor_msgs/msg/NavSatFix"}],
-               "ros_packages": ["rclpy"], "parameters": {}, "complete": True},
+               "ros_packages": ["rclpy"], "complete": True,
+               "parameters": {"/navsat": {"/navsat": {
+                   "ros__parameters": {"frame_id": "gps_link"}}}}},
         docker={"docker_containers": [
             {"name": "navstack", "image": "example/navstack:1.4",
              "digest": "example/navstack@sha256:7be1",

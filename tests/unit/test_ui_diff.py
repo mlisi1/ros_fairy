@@ -322,8 +322,12 @@ def test_parameter_capture_gap_flagged_not_silently_ignored(fairy_dirs):
         "/bt_navigator": {"/bt_navigator": {"ros__parameters": {"rate": 5.0}}}}
     a = builder.build(h1, c1)
 
+    h1["ros_graph"]["parameters"]["/navsat"] = {
+        "/navsat": {"ros__parameters": {"frame_id": "gps_link"}}}
+    a = builder.build(h1, c1)
+
     h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
-    h2["ros_graph"]["parameters"] = {}  # capture failed entirely this run
+    del h2["ros_graph"]["parameters"]["/bt_navigator"]  # its dump failed
     b = builder.build(h2, c2)
 
     out = _render(a, b)
@@ -331,6 +335,39 @@ def test_parameter_capture_gap_flagged_not_silently_ignored(fairy_dirs):
     assert "/bt_navigator: parameters captured" in out
     # must not fabricate a "rate" value diff — there's nothing to compare to
     assert "/bt_navigator: rate" not in out
+
+
+def test_failed_graph_capture_flagged_once_not_as_removed_nodes(fairy_dirs):
+    """A mission whose graph harvest saw nothing (DDS discovery failed,
+    2026-10-01) must read as "not captured", not as every node removed."""
+    def mutate(h, c):
+        h["ros_graph"]["nodes"] = []
+        h["ros_graph"]["topics"] = []
+        h["ros_graph"]["parameters"] = {}
+    a, b = _pair(fairy_dirs, mutate)
+    out = " ".join(_render(a, b).split())
+    assert "ROS graph captured yes no" in out
+    assert "parameters captured yes no" in out
+    assert "/navsat" not in out
+    changes = diff_ui.diff_as_dict(a, b)["changes"]
+    assert {"ros_graph", "parameters"} <= set(changes)
+
+
+def test_graph_missing_in_both_missions_is_said_not_hidden(fairy_dirs):
+    """The 2026-10-01 report: two missions with no graph captured rendered
+    only the Recordings section, as if the parameters had matched."""
+    def empty(h):
+        h["ros_graph"]["nodes"] = []
+        h["ros_graph"]["topics"] = []
+        h["ros_graph"]["parameters"] = {}
+    h1, c1 = _spool(fairy_dirs)
+    empty(h1)
+    a = builder.build(h1, c1)
+    b = builder.build(copy.deepcopy(h1), copy.deepcopy(c1))
+    out = " ".join(_render(a, b).split())
+    assert "No differences found." not in out
+    assert out.count("not captured in either mission") == 2
+    assert diff_ui.diff_as_dict(a, b)["changes"] == {}  # notes aren't changes
 
 
 def test_parameter_gap_note_skipped_for_brand_new_nodes(fairy_dirs):

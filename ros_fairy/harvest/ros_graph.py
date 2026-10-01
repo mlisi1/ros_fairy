@@ -87,8 +87,15 @@ def dump_params(node: str, timeout: float = ROS2_CLI_TIMEOUT_S) -> dict:
 def harvest() -> dict[str, Any]:
     """Full graph snapshot.
 
-    Raises RosGraphError only if the basic listing commands fail (ROS down).
-    Individual param dump failures degrade to complete=False instead.
+    Raises RosGraphError if the basic listing commands fail (ROS down) or see
+    no nodes at all. Individual param dump failures degrade to complete=False
+    instead.
+
+    An empty node list is a failure, not an empty graph: the harvest runs
+    while a recorder is live, and the recorder is itself a node. The ros2 CLI
+    exits 0 with no output when DDS discovery can't reach the robot's
+    participants, which used to be archived as a complete, empty capture
+    ("ok"), hiding the failure and stopping the retries (2026-10-01).
 
     Node param dumps run concurrently (bounded pool) against a shared
     wall-clock deadline rather than one-at-a-time against a shared budget: a
@@ -98,6 +105,9 @@ def harvest() -> dict[str, Any]:
     only costs its own slot, not everyone else's turn.
     """
     nodes = list_nodes()
+    if not nodes:
+        raise RosGraphError("no ROS nodes visible: ROS is not running, or "
+                            "DDS discovery cannot reach it from here")
     topics = list_topics()
     packages = list_packages()
 

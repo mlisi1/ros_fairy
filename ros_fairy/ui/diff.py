@@ -139,11 +139,21 @@ def _diff_sensors(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     return rows
 
 
+def _captured_row(label: str, a, b) -> tuple:
+    return (label, "yes" if a else "no", "yes" if b else "no")
+
+
 def _diff_graph(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     rows: list[tuple] = []
 
     nodes_a = {n for n in a.ros_graph.nodes if not _RANDOM_ID_NODE.search(n)}
     nodes_b = {n for n in b.ros_graph.nodes if not _RANDOM_ID_NODE.search(n)}
+    # No nodes means the graph wasn't captured (a live mission always has at
+    # least its recorder) — not that every node was removed or added.
+    if not nodes_a or not nodes_b:
+        if not nodes_a and not nodes_b:
+            return []  # nothing to compare; show_diff says so
+        return [_captured_row("ROS graph captured", nodes_a, nodes_b)]
     for n in sorted(nodes_a - nodes_b):
         rows.append((n, "running", ""))
     for n in sorted(nodes_b - nodes_a):
@@ -278,6 +288,11 @@ def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     rows: list[tuple] = []
     flat_a = _flatten_params(a.ros_graph.parameters)
     flat_b = _flatten_params(b.ros_graph.parameters)
+    # Nothing captured on a side (graph harvest failed) is not "no changes".
+    if not flat_a or not flat_b:
+        if not flat_a and not flat_b:
+            return []  # nothing to compare; show_diff says so
+        return [_captured_row("parameters captured", flat_a, flat_b)]
     for node in sorted(set(flat_a) & set(flat_b)):
         leaves_a = dict(_leaves("", flat_a[node]))
         leaves_b = dict(_leaves("", flat_b[node]))
@@ -306,10 +321,22 @@ def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     return rows
 
 
-def _shared_param_nodes(a: MissionRecord, b: MissionRecord) -> int:
-    """How many nodes had their parameters captured in both missions."""
-    return len(set(_flatten_params(a.ros_graph.parameters))
-               & set(_flatten_params(b.ros_graph.parameters)))
+def _notes(a: MissionRecord, b: MissionRecord, has_changes: bool) -> dict:
+    """Display-only notes for sections that would otherwise be silently
+    omitted, so "identical" and "never captured" don't look the same. Not
+    changes, so diff_as_dict leaves them out."""
+    notes = {}
+    if not a.ros_graph.nodes and not b.ros_graph.nodes:
+        notes["ROS graph"] = "not captured in either mission"
+    flat_a = _flatten_params(a.ros_graph.parameters)
+    flat_b = _flatten_params(b.ros_graph.parameters)
+    if not flat_a and not flat_b:
+        notes["Parameters"] = "not captured in either mission"
+    elif has_changes and set(flat_a) & set(flat_b):
+        shared = len(set(flat_a) & set(flat_b))
+        notes["Parameters"] = (f"no changes across {shared} shared "
+                               f"node{'s' if shared != 1 else ''}")
+    return notes
 
 
 def _diff_recordings(a: MissionRecord, b: MissionRecord) -> list[tuple]:
@@ -358,16 +385,12 @@ def show_diff(a: MissionRecord, b: MissionRecord,
         ("Static transforms",     _diff_tf_static(a, b)),
         ("Recordings",            _diff_recordings(a, b)),
     ]
-    changed = [(title, rows) for title, rows in sections if rows]
-
-    # An omitted Parameters section reads as "not captured"; when other
-    # sections changed, say explicitly that the parameters matched.
-    shared = _shared_param_nodes(a, b)
-    if changed and shared and "Parameters" not in dict(changed):
-        note = [(f"no changes across {shared} shared "
-                 f"node{'s' if shared != 1 else ''}", "", "")]
-        changed = [(t, note if t == "Parameters" else rows)
-                   for t, rows in sections if rows or t == "Parameters"]
+    rows_by_title = dict(sections)
+    for title, note in _notes(a, b, any(rows for _, rows in sections)).items():
+        if not rows_by_title[title]:
+            rows_by_title[title] = [(note, "", "")]
+    changed = [(title, rows_by_title[title]) for title, _ in sections
+               if rows_by_title[title]]
 
     if not changed:
         body = Group(header, Text(""),
