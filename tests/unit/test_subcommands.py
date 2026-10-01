@@ -416,8 +416,8 @@ def test_list_divides_different_days_with_a_rule(fairy_dirs):
                                until=None, limit=20, path=False)
         assert list_missions.run(args, console=console) == 0
         out = console.file.getvalue()
-        # newest first: 06-11 row, rule (different day), the two 06-10 rows,
-        # no rule between them (same day)
+        # oldest first: the two 06-10 rows with no rule between them (same
+        # day), a rule (different day), then the 06-11 row
         assert out.count("├") == 1
     finally:
         if old_tz is None:
@@ -425,6 +425,33 @@ def test_list_divides_different_days_with_a_rule(fairy_dirs):
         else:
             os.environ["TZ"] = old_tz
         time.tzset()
+
+
+def test_list_prints_latest_last_and_all_lifts_limit(fairy_dirs):
+    from ros_fairy.archive import index
+    for day in range(3):
+        _make_archive(fairy_dirs, created_at=f"2026-06-1{day}T09:00:00+00:00")
+    oldest, middle, newest = [r["mission_id"] for r in index.query()[0]][::-1]
+
+    def render(**overrides):
+        console = Console(file=io.StringIO(), width=160, force_terminal=False)
+        args = SimpleNamespace(operator=None, location=None, since=None,
+                               until=None, limit=20, path=False)
+        vars(args).update(overrides)
+        assert list_missions.run(args, console=console) == 0
+        return console.file.getvalue()
+
+    out = render()
+    assert out.index(oldest) < out.index(middle) < out.index(newest)
+
+    out = render(limit=2)  # keeps the latest two, still oldest first
+    assert oldest not in out
+    assert out.index(middle) < out.index(newest)
+    assert "latest 2 of 3" in out and "--all" in out
+
+    out = render(limit=2, all=True)
+    assert all(m in out for m in (oldest, middle, newest))
+    assert "Showing" not in out
 
 
 def test_list_json(fairy_dirs, capsys):

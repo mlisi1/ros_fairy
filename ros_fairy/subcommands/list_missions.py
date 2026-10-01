@@ -60,7 +60,8 @@ def run(args, console: Console | None = None) -> int:
             since=getattr(args, "since", None),
             until=getattr(args, "until", None),
             quality=getattr(args, "quality", None),
-            limit=getattr(args, "limit", 20) or 20)
+            limit=None if getattr(args, "all", False)
+            else getattr(args, "limit", 20) or 20)
     except index.IndexUnavailableError as exc:
         console.print(f"[red]{exc}[/red]")
         return 1
@@ -74,6 +75,10 @@ def run(args, console: Console | None = None) -> int:
     if not rows:
         console.print("No missions found.")
         return 0
+
+    # The query picks the newest missions; print them oldest first so the
+    # latest lands at the bottom, right above the prompt.
+    rows = rows[::-1]
 
     show_path = getattr(args, "path", False)
     table = Table(border_style="dim")
@@ -118,7 +123,8 @@ def run(args, console: Console | None = None) -> int:
         table.add_row(*cells, end_section=end_section)
     console.print(table)
     if total > len(rows):
-        console.print(f"Showing {len(rows)} of {total} missions")
+        console.print(f"Showing the latest {len(rows)} of {total} missions "
+                      "(--all to show every one)")
     broken = assembler.find_incomplete_crates()
     if broken:
         n = len(broken)
@@ -143,7 +149,9 @@ class ListVerb(VerbExtension):
         parser.add_argument("--quality", choices=["ok", "degraded", "poor"],
                             help="only missions with this data-quality verdict")
         parser.add_argument("--limit", type=int, default=20,
-                            help="maximum rows to show (default 20)")
+                            help="show the latest N missions (default 20)")
+        parser.add_argument("--all", action="store_true",
+                            help="show every mission (overrides --limit)")
         parser.add_argument("--path", action="store_true",
                             help="also show archive directory paths")
         parser.add_argument("--json", action="store_true",

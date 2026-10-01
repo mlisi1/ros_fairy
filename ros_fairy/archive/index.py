@@ -233,8 +233,11 @@ def exported_mission_ids() -> set[str]:
 def query(operator: str | None = None, location: str | None = None,
           since: str | None = None, until: str | None = None,
           quality: str | None = None,
-          limit: int = 20) -> tuple[list[dict[str, Any]], int]:
-    """Filtered mission rows, newest first. Returns (rows, total_matching)."""
+          limit: int | None = 20) -> tuple[list[dict[str, Any]], int]:
+    """Filtered mission rows, newest first. Returns (rows, total_matching).
+
+    ``limit=None`` returns every matching row.
+    """
     where, params = [], []
     if operator:
         where.append("operator LIKE ? COLLATE NOCASE")
@@ -268,7 +271,7 @@ def query(operator: str | None = None, location: str | None = None,
                 f"SELECT COUNT(*) FROM missions{clause}", params).fetchone()[0]
             rows = con.execute(
                 f"SELECT * FROM missions{clause} ORDER BY created_at DESC "
-                f"LIMIT ?", [*params, limit]).fetchall()
+                f"LIMIT ?", [*params, -1 if limit is None else limit]).fetchall()
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc):
             return [], 0
