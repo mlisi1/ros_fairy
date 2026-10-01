@@ -61,6 +61,7 @@ it just reminds you where they are.
 ros2 fairy mission_start       # five questions describing the run
 ros2 fairy mission_record      # wraps `ros2 bag record` with safety checks
 ros2 fairy mission_close       # review the briefing, then save or discard
+ros2 fairy mission_abort       # abandon a mission that couldn't go ahead
 ros2 fairy list                # latest missions saved on this robot, newest last (--all for every one)
 ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 ```
@@ -75,6 +76,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `mission_record` | Record mission data (wraps `ros2 bag record`) |
 | `mission_status` | Show what the recording assistant is doing right now |
 | `mission_close` | Review the finished mission and save it or discard it |
+| `mission_abort` | Abandon the open mission without saving (asks first; asks again before deleting recordings) |
 | `list` | List the missions saved on this robot, newest last (latest 20 by default; `--limit N`, `--all`) |
 | `diff` | Compare two missions and show what changed |
 | `verify` | Check that a saved archive is complete and unmodified |

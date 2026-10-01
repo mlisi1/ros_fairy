@@ -15,6 +15,7 @@ from ros_fairy.subcommands import (
     doctor,
     export,
     list_missions,
+    mission_abort,
     mission_close,
     mission_diff,
     mission_record,
@@ -147,6 +148,89 @@ def test_mission_start_refuses_replace_while_recording(fairy_dirs):
         assert mission_start.run(ARGS, console=console) == 1
     ask.assert_not_called()
     assert "recording is in progress" in console.file.getvalue()
+
+
+# --- mission_abort -----------------------------------------------------------
+
+def _abort(answers):
+    """Run mission_abort with scripted confirmations; returns (rc, output,
+    times asked). Questions are folded into the output (the prompt itself is
+    mocked away) and whitespace is normalised against console wrapping."""
+    console = _console()
+    with mock.patch.object(mission_abort.Confirm, "ask",
+                           side_effect=answers) as ask:
+        rc = mission_abort.run(ARGS, console=console)
+    text = console.file.getvalue() + " ".join(c.args[0]
+                                              for c in ask.call_args_list)
+    return rc, " ".join(text.split()), ask.call_count
+
+
+def _open_mission():
+    fsio.atomic_write_json(paths.mission_context_path(),
+                           builder.new_mission_context("Sam", "Survey", "Lab"))
+
+
+def test_mission_abort_nothing_open(fairy_dirs):
+    rc, out, asked = _abort([])
+    assert rc == 0 and asked == 0
+    assert "no mission in progress" in out
+
+
+def test_mission_abort_briefing_only_asks_once(fairy_dirs):
+    _open_mission()
+    rc, out, asked = _abort([True])
+    assert rc == 0 and asked == 1
+    assert "'Survey'" in out and "Mission aborted" in out
+    assert not paths.mission_context_path().exists()
+
+
+def test_mission_abort_declined_changes_nothing(fairy_dirs):
+    _open_mission()
+    rc, out, asked = _abort([False])
+    assert rc == 0 and asked == 1
+    assert paths.mission_context_path().exists()
+
+
+def test_mission_abort_with_recording_asks_again(fairy_dirs):
+    _spool(fairy_dirs)
+    bag = paths.bags_dir() / "rosbag2_0"
+    assert bag.is_dir()
+
+    rc, out, asked = _abort([True, False])  # second thoughts at the bag list
+    assert rc == 0 and asked == 2
+    assert "rosbag2_0" in out and "deleted permanently" in out
+    assert bag.is_dir() and paths.harvest_json_path().exists()
+
+    rc, out, asked = _abort([True, True])
+    assert rc == 0 and asked == 2
+    assert not bag.exists()
+    assert not paths.harvest_json_path().exists()
+    assert not paths.mission_context_path().exists()
+
+
+def test_mission_abort_leaves_foreign_recordings_on_disk(fairy_dirs, tmp_path):
+    _old_mission_with_foreign_bag()  # references /home/op/bags/old_run
+    foreign = tmp_path / "ops" / "mistake_run"
+    foreign.mkdir(parents=True)
+    harvest = json.loads(paths.harvest_json_path().read_text())
+    harvest["bags"] = [{"path": str(foreign), "source": "detected"}]
+    fsio.atomic_write_json(paths.harvest_json_path(), harvest)
+
+    rc, out, asked = _abort([True, True])
+    assert rc == 0 and asked == 2
+    assert "stays on disk" in out
+    assert foreign.is_dir()
+    assert not paths.harvest_json_path().exists()
+
+
+def test_mission_abort_refuses_while_recording(fairy_dirs):
+    _open_mission()
+    fsio.atomic_write_json(paths.watchdog_state_path(),
+                           {"state": "RECORDING", "pid": os.getpid()})
+    rc, out, asked = _abort([])
+    assert rc == 1 and asked == 0
+    assert "still in progress" in out
+    assert paths.mission_context_path().exists()
 
 
 # --- mission_record ----------------------------------------------------------
@@ -1396,7 +1480,8 @@ def test_all_verb_wrappers_are_guarded():
 
     from ros_fairy import subcommands as pkg
     from ros_fairy.subcommands import adopt, reindex, verify
-    modules = [adopt, doctor, export, list_missions, mission_close,
+    modules = [adopt, doctor, export, list_missions, mission_abort,
+               mission_close,
                mission_diff, mission_record, mission_start, mission_status,
                reindex, repair, setup_cmd, verify]
     for module in modules:
