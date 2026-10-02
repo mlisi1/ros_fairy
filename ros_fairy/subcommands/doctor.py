@@ -160,19 +160,36 @@ def _check_service_harvest() -> dict:
         return {"status": SKIP, "title": "Service has not harvested yet",
                 "detail": "no harvest recorded since the watchdog started",
                 "hint": "start a short recording to trigger a harvest"}
+    # This is history — what the service saw during the last recording —
+    # not the graph right now (that's _check_ros_reachable). Say when, so
+    # "no nodes running now" next to it doesn't read as a contradiction.
+    when = _when(state.get("harvest_captured_at"))
+    count = state.get("harvest_node_count")
     graph = status.get("ros_graph")
-    if graph == "ok":
+    if graph in ("ok", "partial"):
+        detail = f"last capture{when} saw {count} node(s)" if count \
+            else f"last capture{when} succeeded"
+        if graph == "partial":
+            detail += "; a few nodes' parameters were not captured"
         return {"status": OK, "title": "Background service can reach ROS",
-                "detail": "last graph harvest succeeded", "hint": ""}
-    if graph == "partial":
-        return {"status": WARN, "title": "Background service can reach ROS",
-                "detail": "graph harvest succeeded, but parameter capture "
-                          "timed out for some nodes", "hint": ""}
+                "detail": detail, "hint": ""}
     return {"status": FAIL,
-            "title": "Background service cannot reach ROS",
-            "detail": f"last graph harvest: {graph}",
-            "hint": "the service has no ROS env — re-run setup: "
+            "title": "Background service could not reach ROS",
+            "detail": f"last capture{when}: {graph}",
+            "hint": "if the robot software was running at that time, the "
+                    "service may lack a ROS environment — re-run "
                     "`ros2 fairy setup`"}
+
+
+def _when(iso: str | None) -> str:
+    """" at 10:22" (today) / " on 01 Oct, 17:20"; "" if unknown."""
+    try:
+        t = datetime.fromisoformat(iso).astimezone()
+    except (TypeError, ValueError):
+        return ""
+    if t.date() == datetime.now().astimezone().date():
+        return f" at {t:%H:%M}"
+    return f" on {t:%d %b, %H:%M}"
 
 
 def _check_clock() -> dict:
@@ -247,8 +264,10 @@ def _check_archive() -> dict:
             "hint": "a save was cut off (e.g. power loss) — these are missing "
                     "from `ros2 fairy list`. Recordings made outside ros-fairy "
                     "are still where they were recorded and can be attached "
-                    "to a mission with `ros2 fairy adopt`; check the folders "
-                    f"in {paths.archive_dir()} before removing them"}
+                    "to a mission with `ros2 fairy adopt`. If you don't need "
+                    "them, delete the folder"
+                    f"{'s' if n != 1 else ''} to clear this: "
+                    + " ".join(f"`rm -r {p}`" for p in broken)}
 
 
 _CHECKS = (_check_identity, _check_watchdog, _check_ros_reachable,

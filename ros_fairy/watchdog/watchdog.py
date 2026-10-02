@@ -592,6 +592,7 @@ class Watchdog:
         harvest_doc, _ = builder.load_spool()
         status = (harvest_doc or {}).get("provenance", {}).get(
             "harvest_status", {})
+        graph = (harvest_doc or {}).get("ros_graph") or {}
         fsio.atomic_write_json(paths.watchdog_state_path(), {
             "version": 1,
             "pid": os.getpid(),
@@ -602,6 +603,10 @@ class Watchdog:
             if self.active_bag_dir else None,
             "last_bag_event_at": self.last_bag_event_iso,
             "harvest_status": status,
+            # when that status was produced, and what it saw — so readers
+            # (doctor) can say "last capture at 10:22", not imply it's live
+            "harvest_captured_at": graph.get("captured_at"),
+            "harvest_node_count": len(graph.get("nodes") or []),
         })
 
 

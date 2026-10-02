@@ -76,6 +76,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `mission_record` | Record mission data (wraps `ros2 bag record`) |
 | `mission_status` | Show what the recording assistant is doing right now |
 | `mission_close` | Review the finished mission and save it or discard it |
+| `mission_delete` | Permanently delete saved missions: one by ID, `--today` or `--all` (batch forms need sudo); always asks you to type a confirmation phrase |
 | `mission_abort` | Abandon the open mission without saving (asks first; asks again before deleting recordings) |
 | `list` | List the missions saved on this robot, newest last (latest 20 by default; `--limit N`, `--all`) |
 | `diff` | Compare two missions and show what changed |

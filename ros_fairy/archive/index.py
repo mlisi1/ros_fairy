@@ -281,6 +281,18 @@ def query(operator: str | None = None, location: str | None = None,
     return [dict(r) for r in rows], total
 
 
+def delete(mission_id: str) -> None:
+    """Forget a mission: its row, bag fingerprints and export record."""
+    con = _connect()
+    try:
+        with con:
+            for table in ("missions", "mission_bags", "exports"):
+                con.execute(f"DELETE FROM {table} WHERE mission_id = ?",
+                            (mission_id,))
+    finally:
+        con.close()
+
+
 def reindex(archive_root: Path | None = None) -> int:
     """Rebuild the index by scanning archive dirs for mission_record.json."""
     archive_root = archive_root or paths.archive_dir()

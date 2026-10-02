@@ -2,6 +2,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -17,6 +18,7 @@ from ros_fairy.subcommands import (
     list_missions,
     mission_abort,
     mission_close,
+    mission_delete,
     mission_diff,
     mission_record,
     mission_start,
@@ -1301,6 +1303,21 @@ def test_doctor_service_harvest_distinguishes_service_context():
         assert doctor._check_service_harvest()["status"] == doctor.SKIP
 
 
+def test_doctor_service_harvest_partial_is_history_not_a_warning():
+    """2026-10-02: "parameter capture timed out" warned next to "no nodes are
+    running" — it described the last recording, not now. A partial capture
+    still proves the service reaches ROS."""
+    from ros_fairy.watchdog import watchdog as wd
+    captured = datetime.now(timezone.utc).isoformat()
+    state = {"harvest_status": {"ros_graph": "partial"},
+             "harvest_captured_at": captured, "harvest_node_count": 38}
+    with mock.patch.object(wd, "read_state", return_value=state):
+        c = doctor._check_service_harvest()
+    assert c["status"] == doctor.OK
+    assert c["detail"].startswith("last capture at ")
+    assert "38 node(s)" in c["detail"] and "parameters" in c["detail"]
+
+
 def test_doctor_service_env_missing_file_fails(fairy_dirs):
     # watchdog.env doesn't exist → the service started blind.
     c = doctor._check_service_env()
@@ -1513,7 +1530,7 @@ def test_all_verb_wrappers_are_guarded():
     from ros_fairy import subcommands as pkg
     from ros_fairy.subcommands import adopt, reindex, verify
     modules = [adopt, doctor, export, list_missions, mission_abort,
-               mission_close,
+               mission_close, mission_delete,
                mission_diff, mission_record, mission_start, mission_status,
                reindex, repair, setup_cmd, verify]
     for module in modules:
@@ -1554,3 +1571,146 @@ def test_reindex_verb_json_and_empty_archive(fairy_dirs, capsys):
     data = json.loads(capsys.readouterr().out)
     assert data["ok"] is True
     assert data["missions"] == 0
+
+
+# --- mission_delete -------------------------------------------------------------
+
+def _delete(args, confirm=(True,), phrase=mission_delete.PHRASE, tty=True,
+            sudo_ok=True):
+    """Run mission_delete with scripted answers; sudo is simulated (sudo -v
+    succeeds or not, `sudo rm -rf` really removes). Returns (rc, output,
+    subprocess calls)."""
+    import shutil as _shutil
+    calls = []
+
+    def fake_run(cmd, **kw):
+        calls.append(cmd)
+        if cmd[:2] == ["sudo", "-v"]:
+            return subprocess.CompletedProcess(cmd, 0 if sudo_ok else 1)
+        if cmd[:3] == ["sudo", "rm", "-rf"]:
+            _shutil.rmtree(cmd[-1])
+            return subprocess.CompletedProcess(cmd, 0)
+        raise AssertionError(f"unexpected command {cmd}")
+
+    console = _console()
+    with mock.patch.object(mission_delete.sys.stdin, "isatty",
+                           return_value=tty), \
+            mock.patch.object(mission_delete.Confirm, "ask",
+                              side_effect=list(confirm)), \
+            mock.patch.object(mission_delete.Prompt, "ask",
+                              return_value=phrase) as prompt, \
+            mock.patch.object(mission_delete.subprocess, "run",
+                              side_effect=fake_run), \
+            mock.patch.object(mission_delete.os, "geteuid",
+                              return_value=1000):
+        rc = mission_delete.run(SimpleNamespace(**{
+            "mission_id": None, "all": False, "today": False, **args}),
+            console=console)
+    out = " ".join(console.file.getvalue().split())
+    return rc, out, calls, prompt.call_count
+
+
+def _saved(fairy_dirs, *created):
+    from ros_fairy.archive import index
+    for c in created:
+        _make_archive(fairy_dirs, created_at=c)
+    rows, _ = index.query(limit=None)
+    return {r["mission_id"]: Path(r["archive_path"]) for r in rows}
+
+
+def test_mission_delete_one_by_id(fairy_dirs):
+    from ros_fairy.archive import index
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00",
+                   "2026-06-11T09:00:00+00:00")
+    victim, keep = sorted(saved)
+    rc, out, calls, phrased = _delete({"mission_id": victim})
+    assert rc == 0 and phrased == 1
+    assert "There is no undo" in out and "recordings made outside" in out
+    assert not saved[victim].exists() and saved[keep].exists()
+    assert [r["mission_id"] for r in index.query()[0]] == [keep]
+    assert calls == []  # a single delete needs no sudo
+
+
+def test_mission_delete_wrong_phrase_or_no_deletes_nothing(fairy_dirs):
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00")
+    (mid, path), = saved.items()
+    rc, out, _, _ = _delete({"mission_id": mid},
+                            phrase="I understand flames and fire")
+    assert rc == 1 and "nothing was deleted" in out and path.exists()
+    rc, out, _, phrased = _delete({"mission_id": mid}, confirm=(False,))
+    assert rc == 0 and phrased == 0 and path.exists()
+
+
+def test_mission_delete_takes_exact_ids_only(fairy_dirs):
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00")
+    for bad in ("1", str(next(iter(saved.values()))), "m-nope"):
+        rc, out, _, phrased = _delete({"mission_id": bad}, confirm=())
+        assert rc == 1 and phrased == 0
+    assert next(iter(saved.values())).exists()
+
+
+def test_mission_delete_all_asks_for_sudo_first(fairy_dirs):
+    from ros_fairy.archive import index
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00",
+                   "2026-06-11T09:00:00+00:00")
+    rc, out, calls, _ = _delete({"all": True})
+    assert rc == 0 and "needs administrator (sudo)" in out
+    assert calls[0] == ["sudo", "-v"]
+    assert [c[:3] for c in calls[1:]] == [["sudo", "rm", "-rf"]] * 2
+    assert not any(p.exists() for p in saved.values())
+    assert index.query()[1] == 0
+
+
+def test_mission_delete_all_without_sudo_deletes_nothing(fairy_dirs):
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00")
+    rc, out, calls, _ = _delete({"all": True}, sudo_ok=False)
+    assert rc == 1 and calls == [["sudo", "-v"]]
+    assert all(p.exists() for p in saved.values())
+
+
+def test_mission_delete_today_only_today(fairy_dirs):
+    import time
+    old_tz = os.environ.get("TZ")
+    os.environ["TZ"] = "UTC"
+    time.tzset()
+    try:
+        today = datetime.now(timezone.utc).replace(hour=0, minute=30)
+        saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00",
+                       today.isoformat())
+        rc, _, calls, _ = _delete({"today": True})
+        assert rc == 0 and calls[0] == ["sudo", "-v"]
+        from ros_fairy.archive import index
+        remaining = [r["created_at"] for r in index.query()[0]]
+        assert remaining == ["2026-06-10T09:00:00+00:00"]
+        assert sum(p.exists() for p in saved.values()) == 1
+    finally:
+        if old_tz is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = old_tz
+        time.tzset()
+
+
+def test_mission_delete_refuses_without_a_terminal(fairy_dirs):
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00")
+    rc, out, _, _ = _delete({"all": True}, confirm=(), tty=False)
+    assert rc == 1 and "interactive terminal" in out
+    assert all(p.exists() for p in saved.values())
+
+
+def test_mission_delete_never_leaves_the_archive(fairy_dirs, tmp_path):
+    """An index row pointing outside the archive (corrupt or hand-edited)
+    must not turn into an rm -rf of that path."""
+    import sqlite3
+    saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00")
+    (mid, _), = saved.items()
+    outside = tmp_path / "precious"
+    outside.mkdir()
+    con = sqlite3.connect(paths.index_db_path())
+    con.execute("UPDATE missions SET archive_path = ?", (str(outside),))
+    con.commit()
+    con.close()
+    rc, out, calls, _ = _delete({"all": True})
+    assert rc == 1 and "not inside the archive" in out
+    assert outside.is_dir()
+    assert not any(c[:2] == ["sudo", "rm"] for c in calls)
