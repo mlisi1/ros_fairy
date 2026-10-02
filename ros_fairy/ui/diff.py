@@ -290,6 +290,11 @@ def _leaves(prefix: str, value) -> list[tuple[str, object]]:
     return [(prefix, value)]
 
 
+def _param_text(value) -> str:
+    """A declared parameter with no value is captured as None."""
+    return "(not set)" if value is None else str(value)
+
+
 def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     rows: list[tuple] = []
     flat_a = _flatten_params(a.ros_graph.parameters)
@@ -306,8 +311,8 @@ def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
             va, vb = leaves_a.get(key), leaves_b.get(key)
             if va != vb:
                 rows.append((f"{node}: {key}",
-                             str(va) if key in leaves_a else "",
-                             str(vb) if key in leaves_b else ""))
+                             _param_text(va) if key in leaves_a else "",
+                             _param_text(vb) if key in leaves_b else ""))
 
     # A node missing from ros_graph.parameters isn't necessarily unchanged —
     # `ros2 param dump` may simply have timed out for it that run

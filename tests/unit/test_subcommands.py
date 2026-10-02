@@ -995,6 +995,24 @@ def test_quality_ok_for_healthy_mission(fairy_dirs):
     assert quality.assess(record, harvest).level == quality.OK
 
 
+def test_sensor_silent_in_one_recording_only_is_not_silent(fairy_dirs):
+    """2026-10-02: an unrelated recording without sensor topics made every
+    sensor of the mission count as 'produced no data at all'."""
+    from ros_fairy.manifest import quality
+    from ros_fairy.manifest.schema import HealthWarning
+    harvest, context = _spool(fairy_dirs, n_bags=2)
+    record = builder.build(harvest, context)
+    silent = HealthWarning(topic="/fix", sensor_id="gps0",
+                           kind="never_published", plain_text="no data")
+    record.bags[0].health_warnings = [silent]
+    record.bags[1].health_warnings = []
+    reasons = quality.assess(record, harvest).reasons
+    assert not any("produced no data" in r for r in reasons)
+    record.bags[1].health_warnings = [silent]
+    reasons = quality.assess(record, harvest).reasons
+    assert any("1 sensor(s) produced no data" in r for r in reasons)
+
+
 def test_quality_poor_without_ros_context(fairy_dirs):
     from ros_fairy.manifest import quality
     harvest, context = _spool(fairy_dirs)
@@ -1321,6 +1339,20 @@ def test_doctor_check_that_raises_becomes_fail():
         results = doctor.diagnose()
     assert results[0]["status"] == doctor.FAIL
     assert "nope" in results[0]["detail"]
+
+
+@pytest.mark.parametrize("error, status, title", [
+    ("no ROS nodes visible: ROS is not running", "warn", "no nodes"),
+    ("rclpy is not available: No module named 'rclpy'", "fail", "not on PATH"),
+    ("could not join the ROS graph: boom", "fail", "not reachable"),
+])
+def test_doctor_ros_reachable_classifies_snapshot_errors(error, status, title):
+    from ros_fairy.harvest import ros_graph
+    with mock.patch.object(ros_graph, "list_nodes",
+                           side_effect=ros_graph.RosGraphError(error)):
+        result = doctor._check_ros_reachable()
+    assert result["status"] == status
+    assert title in result["title"]
 
 
 def test_doctor_archive_check(fairy_dirs):

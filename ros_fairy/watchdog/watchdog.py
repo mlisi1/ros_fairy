@@ -31,15 +31,13 @@ DOCKER_TIMEOUT_S = 10
 PIP_TIMEOUT_S = 30
 HARDWARE_CMD_TIMEOUT_S = 10
 HARDWARE_TOTAL_TIMEOUT_S = 60
-ROS2_CLI_TIMEOUT_S = 20
-PARAM_DUMP_BUDGET_S = 60
 ROS_RETRY_INTERVAL_S = 60
 HEARTBEAT_S = 60
 FOREIGN_SCAN_INTERVAL_S = 5
 # Upper bound on waiting for an in-flight harvest at finalise time. The
-# pipeline's own module timeouts sum to ~210 s worst case (including
-# ros_descriptions.RCLPY_TIMEOUT_S); past this the harvest is considered hung
-# and the bag is finalised with whatever is on disk.
+# pipeline's own module timeouts sum to well under this (the ROS snapshot is
+# hard-killed after ~50 s); past this the harvest is considered hung and the
+# bag is finalised with whatever is on disk.
 HARVEST_WAIT_S = 240
 
 STORAGE_SUFFIXES = (".db3", ".mcap")
@@ -65,7 +63,6 @@ def run_pipeline() -> dict[str, Any]:
         hardware_devices,
         python_env,
         robot_identity,
-        ros_descriptions,
         ros_graph,
         system_info,
     )
@@ -97,6 +94,17 @@ def run_pipeline() -> dict[str, Any]:
     attempt("ros_graph", ros_graph.harvest)
     if status["ros_graph"] == "ok" and not results["ros_graph"]["complete"]:
         status["ros_graph"] = "partial"
+    # The URDF and static transforms come from the same single-participant
+    # snapshot; a failed snapshot is "failed" (its reason is logged above),
+    # not a "timeout" that hides why (2026-10-01).
+    descriptions = None
+    if results["ros_graph"] is None:
+        status["ros_descriptions"] = "failed"
+    else:
+        descriptions = {k: results["ros_graph"].pop(k, None)
+                        for k in ("robot_description", "tf_static")}
+        status["ros_descriptions"] = "timeout" if all(
+            v is None for v in descriptions.values()) else "ok"
     if results["ros_graph"] is None:
         # `ros2 pkg list` reads the local install, no DDS involved: a failed
         # discovery must not cost the mission its installed-package record.
@@ -108,18 +116,13 @@ def run_pipeline() -> dict[str, Any]:
     if status["docker_info"] == "ok" and \
             not results["docker_info"]["available"]:
         status["docker_info"] = "skipped"
-    attempt("ros_descriptions", ros_descriptions.harvest)
-    if status["ros_descriptions"] == "ok" and \
-            results["ros_descriptions"]["robot_description"] is None and \
-            results["ros_descriptions"]["tf_static"] is None:
-        status["ros_descriptions"] = "timeout"
 
     return builder.compose_harvest(
         identity=results["robot_identity"],
         system=results["system_info"],
         graph=results["ros_graph"],
         docker=results["docker_info"],
-        descriptions=results["ros_descriptions"],
+        descriptions=descriptions,
         harvest_status=status,
         python_env=results["python_env"],
         hardware_devices=results["hardware_devices"],
@@ -136,13 +139,9 @@ _ROS_MODULE_FIELDS = {
 }
 
 
-def _param_count(doc: dict) -> int:
-    return len((doc.get("ros_graph") or {}).get("parameters") or {})
-
-
 def _keep_better_ros_capture(existing: dict, new: dict) -> dict:
     """``new`` with each ROS module's result replaced by ``existing``'s where
-    that one was better.
+    this run captured nothing for it and the earlier one did.
 
     Harvests repeat (one per recording, plus retries), and a later one can run
     after the stack went down: its empty result used to overwrite a good
@@ -154,12 +153,13 @@ def _keep_better_ros_capture(existing: dict, new: dict) -> dict:
               "provenance": {**new.get("provenance", {}),
                              "harvest_status": dict(new_status)}}
     for module, fields in _ROS_MODULE_FIELDS.items():
-        old_rank = _STATUS_RANK.get(old_status.get(module), 0)
-        new_rank = _STATUS_RANK.get(new_status.get(module), 0)
-        better = old_rank > new_rank or (
-            module == "ros_graph" and old_rank == new_rank == 2
-            and _param_count(existing) > _param_count(new))
-        if not better:
+        # Only an empty-handed run defers to an earlier capture. Ranking two
+        # real captures against each other is wrong — they may be different
+        # graphs entirely (2026-10-02: a stale 4-node "ok" test capture beat
+        # the operator's live 38-node "partial" one).
+        captured_before = _STATUS_RANK.get(old_status.get(module), 0) > 0
+        captured_now = _STATUS_RANK.get(new_status.get(module), 0) > 0
+        if captured_now or not captured_before:
             continue
         for field in fields:
             merged["ros_graph"][field] = (existing.get("ros_graph") or {}).get(

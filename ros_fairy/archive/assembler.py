@@ -128,6 +128,22 @@ def _render_readme(record: MissionRecord, warnings: list[str]) -> str:
     return "\n".join(lines)
 
 
+def unique_names(names: list[str]) -> list[str]:
+    """``names`` with repeats suffixed _2, _3... The first of each keeps its
+    name, and a suffix never takes a name another folder really has."""
+    real = set(names)
+    used: set[str] = set()
+    out = []
+    for name in names:
+        candidate, n = name, 1
+        while candidate in used or (candidate != name and candidate in real):
+            n += 1
+            candidate = f"{name}_{n}"
+        used.add(candidate)
+        out.append(candidate)
+    return out
+
+
 def find_interrupted_staging() -> Path | None:
     """An archive left in staging by a crash after bags were moved."""
     staging_root = paths.staging_dir()
@@ -210,6 +226,10 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
                    if b.source not in FOREIGN_SOURCES or Path(b.path).is_dir()]
 
     spool_bags = [Path(b.path) for b in record.bags]
+    # Folder names inside the crate. Foreign recordings come from anywhere, so
+    # two can share a name ("test", "ext_live"); they must not collide
+    # (2026-10-02: the second copy failed with "File exists").
+    crate_names = unique_names([p.name for p in spool_bags])
     moved: list[tuple[Path, Path]] = []
     try:
         # Steps 1-3: small artifacts + manifests into staging
@@ -314,28 +334,34 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
         # that vanished since the pre-assembly check is dropped here with a
         # warning rather than aborting the whole save (issue #35). The manifests
         # below then describe exactly the bags that made it into the crate.
-        surviving_bags, surviving_spool = [], []
-        for bag, spool_bag in zip(record.bags, spool_bags, strict=True):
+        surviving_bags, surviving_spool, surviving_names = [], [], []
+        for bag, spool_bag, name in zip(record.bags, spool_bags, crate_names,
+                                        strict=True):
             if bag.source in FOREIGN_SOURCES:
                 if progress:
                     progress(f"Copying recording {spool_bag.name}")
                 try:
-                    shutil.copytree(spool_bag, staging / "bags" / spool_bag.name)
+                    shutil.copytree(spool_bag, staging / "bags" / name)
                 except OSError as exc:
-                    log.warning("foreign recording %s vanished during assembly "
-                                "(%s); dropping it from the mission",
-                                spool_bag, exc)
+                    shutil.rmtree(staging / "bags" / name, ignore_errors=True)
+                    what = "vanished during assembly" if not spool_bag.exists() \
+                        else "could not be copied"
+                    log.warning("foreign recording %s %s (%s); dropping it "
+                                "from the mission", spool_bag, what, exc)
                     continue
             surviving_bags.append(bag)
             surviving_spool.append(spool_bag)
+            surviving_names.append(name)
         record.bags, spool_bags = surviving_bags, surviving_spool
+        crate_names = surviving_names
 
         # Crate-relative bag paths + per-file checksums (spool bags are moved
         # verbatim and foreign bags are now copied into staging, so hashing the
         # source pins the archived bytes) + assembly provenance, then manifests.
-        for bag, spool_bag in zip(record.bags, spool_bags, strict=True):
+        for bag, spool_bag, name in zip(record.bags, spool_bags, crate_names,
+                                        strict=True):
             bag.file_sha256 = _bag_file_hashes(spool_bag)
-            bag.path = f"bags/{spool_bag.name}"
+            bag.path = f"bags/{name}"
         record.provenance.assembled_at = datetime.now(timezone.utc)
 
         from ros_fairy.manifest import builder
@@ -361,10 +387,11 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
     # recordings were already copied into staging in step 3a (their original
     # belongs to the operator), so they are skipped here.
     try:
-        for bag, src in zip(record.bags, spool_bags, strict=True):
+        for bag, src, name in zip(record.bags, spool_bags, crate_names,
+                                  strict=True):
             if bag.source in FOREIGN_SOURCES:
                 continue
-            dest = staging / "bags" / src.name
+            dest = staging / "bags" / name
             _move_bag(src, dest, progress)
             moved.append((src, dest))
     except (OSError, AssemblyError) as exc:

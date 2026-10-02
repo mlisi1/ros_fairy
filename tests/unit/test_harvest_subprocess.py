@@ -15,82 +15,58 @@ def _completed(stdout="", returncode=0, stderr=""):
     return subprocess.CompletedProcess([], returncode, stdout, stderr)
 
 
-# --- ros_graph ---------------------------------------------------------------
+# --- ros_graph (wraps the single-participant snapshot) -----------------------
 
-NODE_LIST = "/navsat\n/controller\n"
-TOPIC_LIST = "/fix [sensor_msgs/msg/NavSatFix]\n/depth [ping_msgs/msg/Ping]\n"
+from ros_fairy.harvest import ros_snapshot  # noqa: E402
+
 PKG_LIST = "rclpy\nnav2_core\n"
-PARAM_DUMP = "/navsat:\n  ros__parameters:\n    rate: 5.0\n"
+SNAP = {
+    "error": None,
+    "captured_at": "2026-10-01T15:00:00+00:00",
+    "nodes": ["/controller", "/navsat"],
+    "topics": [{"name": "/fix", "type": "sensor_msgs/msg/NavSatFix"}],
+    "parameters": {"/navsat": {"/navsat": {"ros__parameters": {"rate": 5.0}}},
+                   "/controller": {"/controller": {
+                       "ros__parameters": {"hz": 20}}}},
+    "params_missing": [],
+    "robot_description": "<robot/>",
+    "tf_static": [{"parent_frame": "base", "child_frame": "gps"}],
+}
+
+
+def _graph(snap=None, pkg=None):
+    with mock.patch.object(ros_snapshot, "take", return_value=snap or SNAP), \
+            mock.patch("subprocess.run",
+                       return_value=pkg or _completed(PKG_LIST)):
+        return ros_graph.harvest()
 
 
 def test_ros_graph_harvest():
-    def fake_run(cmd, **kw):
-        out = {"node": NODE_LIST, "topic": TOPIC_LIST,
-               "pkg": PKG_LIST, "param": PARAM_DUMP}[cmd[1]]
-        return _completed(out)
-
-    with mock.patch("subprocess.run", side_effect=fake_run):
-        data = ros_graph.harvest()
-
+    data = _graph()
     assert data["nodes"] == ["/controller", "/navsat"]
     assert {"name": "/fix", "type": "sensor_msgs/msg/NavSatFix"} in data["topics"]
     assert data["ros_packages"] == ["nav2_core", "rclpy"]
     assert data["parameters"]["/navsat"]["/navsat"]["ros__parameters"]["rate"] == 5.0
     assert data["complete"] is True
-    assert data["captured_at"]
+    assert data["robot_description"] == "<robot/>"
+    assert data["tf_static"][0]["child_frame"] == "gps"
 
 
-def test_ros_graph_ros_down():
-    with mock.patch("subprocess.run", side_effect=FileNotFoundError):
-        with pytest.raises(RosGraphError, match="not found"):
+def test_ros_graph_snapshot_failure_raises_with_reason():
+    with mock.patch.object(ros_snapshot, "take", side_effect=ros_snapshot
+                           .SnapshotError("could not join the ROS graph")):
+        with pytest.raises(RosGraphError, match="could not join"):
             ros_graph.harvest()
 
 
 def test_ros_graph_no_nodes_is_a_failure_not_an_empty_capture():
-    """`ros2 node list` exits 0 with no output when discovery can't reach the
-    robot; that was archived as a complete, empty graph (2026-10-01)."""
-    def fake_run(cmd, **kw):
-        return _completed({"node": "", "topic": "/rosout [rcl_interfaces/msg/"
-                           "Log]\n", "pkg": PKG_LIST}[cmd[1]])
-
-    with mock.patch("subprocess.run", side_effect=fake_run):
-        with pytest.raises(RosGraphError, match="no ROS nodes visible"):
-            ros_graph.harvest()
+    """An empty graph used to be archived as a complete capture (2026-10-01);
+    a live recording always has at least the recorder node."""
+    with pytest.raises(RosGraphError, match="no ROS nodes visible"):
+        _graph({**SNAP, "nodes": [], "parameters": {}})
 
 
-def test_ros_graph_listings_bypass_the_ros2_daemon():
-    """The daemon is chosen by domain ID only and may run with someone else's
-    discovery settings; listings must use the watchdog's adopted env."""
-    calls = []
-
-    def fake_run(cmd, **kw):
-        calls.append(cmd)
-        return _completed({"node": NODE_LIST, "topic": TOPIC_LIST,
-                           "pkg": PKG_LIST, "param": PARAM_DUMP}[cmd[1]])
-
-    with mock.patch("subprocess.run", side_effect=fake_run):
-        ros_graph.harvest()
-    listings = [c for c in calls if c[1] in ("node", "topic")]
-    assert len(listings) == 2
-    assert all("--no-daemon" in c and "--spin-time" in c for c in listings)
-
-
-def test_ros_graph_param_dump_failure_degrades():
-    def fake_run(cmd, **kw):
-        if cmd[1] == "param":
-            return _completed("", returncode=1, stderr="boom")
-        return _completed({"node": NODE_LIST, "topic": TOPIC_LIST,
-                           "pkg": PKG_LIST}[cmd[1]])
-
-    with mock.patch("subprocess.run", side_effect=fake_run):
-        data = ros_graph.harvest()
-    assert data["complete"] is False
-    assert data["parameters"] == {}
-
-
-def test_ros_graph_logs_which_nodes_lack_parameters():
-    """Per-node failures were debug-only, so they never reached the journal
-    or the archived watchdog.log."""
+def test_ros_graph_missing_parameters_degrade_and_are_logged():
     import logging
 
     class Collect(logging.Handler):
@@ -101,81 +77,137 @@ def test_ros_graph_logs_which_nodes_lack_parameters():
         def emit(self, record):
             self.lines.append(record.getMessage())
 
-    def fake_run(cmd, **kw):
-        if cmd[1] == "param" and cmd[3] == "/controller":
-            return _completed("", returncode=1, stderr="timed out")
-        return _completed({"node": NODE_LIST, "topic": TOPIC_LIST,
-                           "pkg": PKG_LIST, "param": PARAM_DUMP}[cmd[1]])
-
+    snap = {**SNAP, "parameters": {"/navsat": SNAP["parameters"]["/navsat"]},
+            "params_missing": ["/controller"]}
     logger = logging.getLogger("ros_fairy.harvest.ros_graph")
     collect, old_level = Collect(), logger.level
     logger.addHandler(collect)
     logger.setLevel(logging.INFO)
     try:
-        with mock.patch("subprocess.run", side_effect=fake_run):
-            ros_graph.harvest()
+        data = _graph(snap)
     finally:
         logger.removeHandler(collect)
         logger.setLevel(old_level)
+    assert data["complete"] is False
     assert "parameters not captured for 1 of 2 node(s): /controller" \
         in collect.lines
 
 
-def test_ros_graph_timeout():
+def test_ros_graph_package_list_failure_is_not_captured_not_fatal():
+    data = _graph(pkg=_completed("", returncode=1, stderr="boom"))
+    assert data["ros_packages"] is None
+    assert data["nodes"] == ["/controller", "/navsat"]
+
+
+def test_ros_graph_list_nodes_asks_for_a_nodes_only_snapshot():
+    with mock.patch.object(ros_snapshot, "take", return_value=SNAP) as take:
+        assert ros_graph.list_nodes() == ["/controller", "/navsat"]
+    take.assert_called_once_with(nodes_only=True)
+
+
+def test_ros_graph_package_list_timeout():
     with mock.patch("subprocess.run",
                     side_effect=subprocess.TimeoutExpired("ros2", 20)):
         with pytest.raises(RosGraphError, match="timed out"):
-            ros_graph.list_nodes()
+            ros_graph.list_packages()
 
 
-def test_ros_graph_skips_tf_listener_nodes():
-    # tf2's TransformListener never declares parameters; dumping it wastes
-    # a timeout for nothing, so it should never even be attempted.
-    nodes_out = "/navsat\n/transform_listener_impl_5c1d50edeb00\n"
-    dumped = []
+# --- ros_snapshot (the child process boundary) --------------------------------
 
-    def fake_run(cmd, **kw):
-        if cmd[1] == "param":
-            dumped.append(cmd[3])
-            return _completed(PARAM_DUMP)
-        return _completed({"node": nodes_out, "topic": TOPIC_LIST,
-                           "pkg": PKG_LIST}[cmd[1]])
-
-    with mock.patch("subprocess.run", side_effect=fake_run):
-        data = ros_graph.harvest()
-
-    assert data["nodes"] == [
-        "/navsat", "/transform_listener_impl_5c1d50edeb00"]
-    assert dumped == ["/navsat"]
-    assert data["complete"] is True
+def test_snapshot_child_opts_out_of_cyclone_participant_slots(monkeypatch):
+    """The robot can use every CycloneDDS participant slot; ros-fairy's own
+    participant must not need one, and must not touch the robot's config."""
+    monkeypatch.delenv("CYCLONEDDS_URI", raising=False)
+    assert ros_snapshot.child_env()["CYCLONEDDS_URI"] == \
+        ros_snapshot.CYCLONE_NO_INDEX
+    monkeypatch.setenv("CYCLONEDDS_URI", "file:///robot/cyclonedds.xml")
+    uri = ros_snapshot.child_env()["CYCLONEDDS_URI"]
+    assert uri == "file:///robot/cyclonedds.xml," + ros_snapshot.CYCLONE_NO_INDEX
+    import os
+    assert os.environ["CYCLONEDDS_URI"] == "file:///robot/cyclonedds.xml"
 
 
-def test_ros_graph_slow_node_does_not_starve_others(monkeypatch):
-    # Regression test: param dumps used to run one at a time against a
-    # shared budget, so one unresponsive node (sorted first, here) used to
-    # exhaust the whole budget and leave every node sorted after it
-    # unattempted. They now run concurrently, so a slow node only costs its
-    # own slot.
-    monkeypatch.setattr(ros_graph, "PARAM_DUMP_BUDGET_S", 0.3)
-    nodes_out = "/aaa_slow\n/zzz_fast\n"
+def test_snapshot_take_parses_child_output():
+    out = "some rcl warning on stdout\n" + json.dumps(SNAP) + "\n"
+    with mock.patch("subprocess.run", return_value=_completed(out)) as run:
+        assert ros_snapshot.take(nodes_only=True)["nodes"] == SNAP["nodes"]
+    cmd = run.call_args.args[0]
+    assert cmd[1:3] == ["-m", "ros_fairy.harvest.ros_snapshot"]
+    assert "--nodes-only" in cmd
+    assert "ParticipantIndex" in run.call_args.kwargs["env"]["CYCLONEDDS_URI"]
 
-    def fake_run(cmd, **kw):
-        if cmd[1] == "param":
-            if cmd[3] == "/aaa_slow":
-                time.sleep(1.0)
-            return _completed(PARAM_DUMP)
-        return _completed({"node": nodes_out, "topic": TOPIC_LIST,
-                           "pkg": PKG_LIST}[cmd[1]])
 
-    with mock.patch("subprocess.run", side_effect=fake_run):
-        started = time.monotonic()
-        data = ros_graph.harvest()
-        elapsed = time.monotonic() - started
+@pytest.mark.parametrize("result, match", [
+    (_completed(json.dumps({"error": "could not join the ROS graph: x"})),
+     "could not join"),
+    (_completed("", returncode=1, stderr="Segmentation fault"),
+     "Segmentation fault"),
+])
+def test_snapshot_take_failures(result, match):
+    with mock.patch("subprocess.run", return_value=result):
+        with pytest.raises(ros_snapshot.SnapshotError, match=match):
+            ros_snapshot.take()
 
-    assert data["complete"] is False
-    assert "/zzz_fast" in data["parameters"]
-    assert "/aaa_slow" not in data["parameters"]
-    assert elapsed < 1.0  # didn't block on the slow node to return
+
+def test_snapshot_take_kills_a_hung_child():
+    with mock.patch("subprocess.run",
+                    side_effect=subprocess.TimeoutExpired("python3", 48)):
+        with pytest.raises(ros_snapshot.SnapshotError, match="timed out"):
+            ros_snapshot.take()
+
+
+def test_snapshot_nests_dotted_names_like_ros2_param_dump():
+    assert ros_snapshot.nest({"rate": 5, "qos.depth": 1, "qos.history": "x",
+                              "a.b.c": True}) == {
+        "rate": 5, "qos": {"depth": 1, "history": "x"},
+        "a": {"b": {"c": True}}}
+
+
+def test_snapshot_records_unset_parameters_as_none():
+    """robot_localization declares unused slots (pose0, twist0...) without a
+    value; one such name made rclcpp reject the whole batch get, losing every
+    EKF parameter (2026-10-02). Unset is recorded, not dropped."""
+    names = ["frequency", "pose0", "odom0"]
+    assert ros_snapshot.complete_values(names, {"frequency": 30.1,
+                                                "odom0": "/odom"}) == {
+        "frequency": 30.1, "pose0": None, "odom0": "/odom"}
+
+
+def test_snapshot_merges_every_tf_static_publisher():
+    """Each /tf_static publisher (robot_state_publisher, every camera driver)
+    sends its own latched message; keeping only the last made each mission
+    capture a different publisher's frames (2026-10-02)."""
+    def tf(parent, child, x=0.0):
+        return {"parent_frame": parent, "child_frame": child,
+                "translation": {"x": x, "y": 0.0, "z": 0.0},
+                "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0}}
+    acc = {}
+    ros_snapshot.merge_transforms(acc, [tf("base_link", "velodyne"),
+                                        tf("base_link", "imu_link")])
+    ros_snapshot.merge_transforms(acc, [tf("front_camera_link",
+                                           "front_camera_color_frame")])
+    ros_snapshot.merge_transforms(acc, [tf("base_link", "velodyne", x=0.2)])
+    assert sorted(c for _, c in acc) == ["front_camera_color_frame",
+                                         "imu_link", "velodyne"]
+    assert acc[("base_link", "velodyne")]["translation"]["x"] == 0.2
+
+
+def test_snapshot_parameter_values():
+    from types import SimpleNamespace as V
+    assert ros_snapshot._value(V(type=1, bool_value=True)) is True
+    assert ros_snapshot._value(V(type=3, double_value=2.5)) == 2.5
+    assert ros_snapshot._value(V(type=5, byte_array_value=[b"\x01", 2])) \
+        == [1, 2]
+    assert ros_snapshot._value(V(type=9, string_array_value=["a"])) == ["a"]
+    assert ros_snapshot._value(V(type=0)) is None
+
+
+def test_snapshot_hidden_nodes():
+    assert ros_snapshot.is_hidden("/_ros2cli_24980")
+    assert ros_snapshot.is_hidden("/ns/_private")
+    assert not ros_snapshot.is_hidden("/bt_navigator")
+    assert ros_snapshot.TF_LISTENER_NODE.search(
+        "/visodom/transform_listener_impl_592e0b6f7070")
 
 
 # --- docker_info -------------------------------------------------------------

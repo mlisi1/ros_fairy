@@ -465,7 +465,6 @@ def test_run_pipeline_marks_ros_graph_partial_when_incomplete(fairy_dirs,
         hardware_devices,
         python_env,
         robot_identity,
-        ros_descriptions,
         ros_graph,
         system_info,
     )
@@ -485,14 +484,16 @@ def test_run_pipeline_marks_ros_graph_partial_when_incomplete(fairy_dirs,
         "status": "ok"})
     monkeypatch.setattr(ros_graph, "harvest", lambda: {
         "captured_at": None, "nodes": ["/n"], "topics": [],
-        "ros_packages": [], "parameters": {}, "complete": False})
+        "ros_packages": [], "parameters": {}, "complete": False,
+        "robot_description": "<robot/>", "tf_static": []})
     monkeypatch.setattr(docker_info, "harvest", lambda: {
         "docker_containers": [], "raw_inspect": [], "available": False})
-    monkeypatch.setattr(ros_descriptions, "harvest", lambda: {
-        "robot_description": "<robot/>", "tf_static": []})
 
     doc = wd_mod.run_pipeline()
     assert doc["provenance"]["harvest_status"]["ros_graph"] == "partial"
+    # the URDF rides in the same snapshot and lands in its own section
+    assert doc["provenance"]["harvest_status"]["ros_descriptions"] == "ok"
+    assert doc["ros_graph"]["robot_description"] == "<robot/>"
 
 
 # -- repeated harvests must not degrade the capture (2026-10-01) ---------------
@@ -587,7 +588,6 @@ def test_run_pipeline_keeps_packages_when_graph_discovery_fails(fairy_dirs,
         hardware_devices,
         python_env,
         robot_identity,
-        ros_descriptions,
         ros_graph,
         system_info,
     )
@@ -602,16 +602,14 @@ def test_run_pipeline_keeps_packages_when_graph_discovery_fails(fairy_dirs,
     def no_nodes():
         raise ros_graph.RosGraphError("no ROS nodes visible")
 
-    def no_descriptions():
-        raise RuntimeError("timed out")
-
     monkeypatch.setattr(ros_graph, "harvest", no_nodes)
     monkeypatch.setattr(ros_graph, "list_packages", lambda: ["nav2_core",
                                                              "rclpy"])
-    monkeypatch.setattr(ros_descriptions, "harvest", no_descriptions)
 
     doc = wd_mod.run_pipeline()
     assert doc["provenance"]["harvest_status"]["ros_graph"] == "failed"
+    # a failed snapshot is a failure with a logged reason, not a "timeout"
+    assert doc["provenance"]["harvest_status"]["ros_descriptions"] == "failed"
     assert doc["software"]["ros_packages"] == ["nav2_core", "rclpy"]
     assert doc["ros_graph"]["nodes"] == []
 
@@ -646,3 +644,21 @@ def test_spool_log_handler_mirrors_and_caps(fairy_dirs, monkeypatch):
         assert text.rstrip().endswith("INFO line 199")
     finally:
         logger.removeHandler(handler)
+
+
+def test_a_real_capture_is_never_replaced_by_an_older_one(fairy_dirs):
+    """2026-10-02: a stale 4-node "ok" capture (a test run's) was kept over
+    the operator's live 38-node "partial" one. Only an empty-handed run may
+    defer to an earlier capture."""
+    ino, clock = FakeINotify(), FakeClock()
+    dog = Watchdog(inotify=ino, clock=clock,
+                   pipeline=_graph_pipeline(["/talker"]),
+                   harvest_in_thread=False)
+    dog.start()
+    _record_bag((ino, clock, dog), with_metadata=False)
+    live = [f"/node_{i}" for i in range(38)]
+    dog.pipeline = _graph_pipeline(live, status="partial")
+    dog._harvest_once()
+    harvest, _ = builder.load_spool()
+    assert harvest["ros_graph"]["nodes"] == live
+    assert harvest["provenance"]["harvest_status"]["ros_graph"] == "partial"

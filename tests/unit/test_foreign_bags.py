@@ -1,6 +1,7 @@
 """Foreign-bag detection: /proc recorder scan, watchdog adoption, `adopt`,
 assembler copy-not-move, and the vanished-source warning."""
 
+import json
 import os
 import shutil
 from pathlib import Path
@@ -202,6 +203,22 @@ def test_scan_detects_host_recorder_in_fake_proc(tmp_path, monkeypatch):
     found = _patched_scan(monkeypatch, proc)
     assert found == [{"pid": 100, "output_dir": bag.resolve(),
                       "discovery": {"ROS_DOMAIN_ID": "7"}}]
+
+
+def test_scan_skips_recorders_that_opted_out(tmp_path, monkeypatch):
+    """ROS_FAIRY_IGNORE keeps a throwaway recording (or a test suite run on a
+    robot) out of the open mission; "0" or empty does not opt out."""
+    bag = make_bag(tmp_path / "throwaway", {"/t": [1.0]})
+    (bag / "metadata.yaml").unlink()
+    proc = _fake_proc(tmp_path)
+    argv = ["ros2", "bag", "record", "-o", str(bag), "/t"]
+    _fake_recorder(proc, 100, argv, cwd=str(tmp_path),
+                   environ="ROS_FAIRY_IGNORE=1\0")
+    assert _patched_scan(monkeypatch, proc) == []
+    for value in ("0", ""):
+        (proc / "100" / "environ").write_bytes(
+            f"ROS_FAIRY_IGNORE={value}\0".encode())
+        assert [f["pid"] for f in _patched_scan(monkeypatch, proc)] == [100]
 
 
 def test_scan_detects_containerised_recorder_node(tmp_path, monkeypatch):
@@ -466,6 +483,28 @@ def test_foreign_bag_copied_not_moved(fairy_dirs, tmp_path):
     crate = assembler.assemble(record, harvest)
     assert (crate / "bags" / "ext" / "metadata.yaml").is_file()
     assert bag.is_dir()  # original left in place
+
+
+def test_same_named_foreign_bags_both_archived(fairy_dirs, tmp_path):
+    """Two recordings from different folders, same folder name: the second
+    copy used to fail with "File exists" and be dropped as "vanished"."""
+    first = make_bag(tmp_path / "a" / "test", {"/fix": [T0, T0 + 1]})
+    second = make_bag(tmp_path / "b" / "test", {"/fix": [T0 + 5, T0 + 6]})
+    record, harvest = _record_with_bags(
+        good_pipeline(), _bag_entry(first, "detected"),
+        _bag_entry(second, "detected"))
+    crate = assembler.assemble(record, harvest)
+    assert (crate / "bags" / "test" / "metadata.yaml").is_file()
+    assert (crate / "bags" / "test_2" / "metadata.yaml").is_file()
+    saved = json.loads((crate / "mission_record.json").read_text())
+    assert [b["path"] for b in saved["bags"]] == ["bags/test", "bags/test_2"]
+
+
+def test_unique_crate_names():
+    assert assembler.unique_names(["a", "b", "a", "a"]) == \
+        ["a", "b", "a_2", "a_3"]
+    # a generated suffix never takes a name another folder really has
+    assert assembler.unique_names(["x", "x", "x_2"]) == ["x", "x_3", "x_2"]
 
 
 def test_vanished_foreign_bag_skipped(fairy_dirs, tmp_path):

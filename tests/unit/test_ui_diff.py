@@ -424,3 +424,23 @@ def test_missing_host_package_list_is_one_row_not_every_package_removed(
     out = " ".join(_render(a, b).split())
     assert "host packages captured yes no" in out
     assert "host pkg" not in out
+
+
+def test_ekf_frequency_and_newly_set_parameter_are_diffed(fairy_dirs):
+    """The 2026-10-02 validation: one EKF parameter changed between missions,
+    plus a sensor slot going from unset (None) to configured."""
+    def ekf(freq, pose0):
+        return {"/ekf_filter_node_odom": {"/ekf_filter_node_odom": {
+            "ros__parameters": {"frequency": freq, "pose0": pose0,
+                                "two_d_mode": True}}}}
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["nodes"] = ["/navsat", "/ekf_filter_node_odom"]
+    h1["ros_graph"]["parameters"].update(ekf(30.0, None))
+    a = builder.build(h1, c1)
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["ros_graph"]["parameters"].update(ekf(30.1, "/gnss_pose"))
+    b = builder.build(h2, c2)
+    out = " ".join(_render(a, b).split())
+    assert "/ekf_filter_node_odom: frequency 30.0 30.1" in out
+    assert "/ekf_filter_node_odom: pose0 (not set) /gnss_pose" in out
+    assert "two_d_mode" not in out

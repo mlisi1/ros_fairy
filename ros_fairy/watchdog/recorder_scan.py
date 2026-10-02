@@ -220,6 +220,23 @@ def _discovery_env(pid: str) -> dict[str, str]:
     return env
 
 
+# A recorder started with this set (to anything but "" or "0") is not
+# captured: an operator's throwaway recording, or a test suite running on a
+# robot, whose bags would otherwise join the open mission (2026-10-02).
+# Module-level so tests that exercise the scanner itself can rename it.
+IGNORE_ENV = "ROS_FAIRY_IGNORE"
+
+
+def _opted_out(pid: str) -> bool:
+    try:
+        raw = (PROC / pid / "environ").read_bytes()
+    except OSError:
+        return False
+    prefix = IGNORE_ENV.encode() + b"="
+    return any(entry.startswith(prefix) and entry[len(prefix):] not in
+               (b"", b"0") for entry in raw.split(b"\0"))
+
+
 def _is_active_bag(bag_dir: Path) -> bool:
     """A directory currently being recorded: storage file present, no metadata.
 
@@ -343,6 +360,11 @@ def scan() -> list[FoundRecorder]:
     for pid in pids:
         argv = _read_cmdline(pid)
         if not _is_record_cmd(argv):
+            continue
+        if _opted_out(pid):
+            _report_once(f"ignored:{pid}", logging.INFO,
+                         "recorder process %s has %s set; not capturing it",
+                         pid, IGNORE_ENV)
             continue
         cwd = _proc_cwd(pid)
         if cwd is None:

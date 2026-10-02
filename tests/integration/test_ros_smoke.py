@@ -2,8 +2,9 @@
 
 These validate the parts mocked tests cannot:
   - the `ros2 fairy` verb is actually discovered by ros2cli (entry_points);
-  - the subprocess-based ROS graph harvest sees a real running node;
-  - the rclpy `/robot_description` capture reads a latched publisher;
+  - the single-participant ROS snapshot sees a real running node, its
+    parameters and a latched `/robot_description`, even with every
+    CycloneDDS participant slot already taken;
   - the full record -> harvest -> archive -> verify pipeline runs against a
     real `ros2 bag record` output (Jazzy's default MCAP storage).
 
@@ -18,6 +19,7 @@ The graph and lifecycle tests need
 `demo_nodes_cpp` (talker) and skip if it is not installed.
 """
 
+import os
 import signal
 import subprocess
 import time
@@ -26,7 +28,7 @@ from contextlib import contextmanager
 import pytest
 
 from ros_fairy.archive import assembler
-from ros_fairy.harvest import ros_descriptions, ros_graph
+from ros_fairy.harvest import ros_graph
 from ros_fairy.manifest import builder
 from ros_fairy.subcommands import verify
 from ros_fairy.utils import fsio, paths
@@ -36,6 +38,17 @@ from ros_fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
 pytestmark = pytest.mark.ros
 
 
+@pytest.fixture(autouse=True)
+def _invisible_to_the_real_watchdog(monkeypatch):
+    """Every process these tests start carries the opt-out, so a robot's own
+    watchdog never files the test recordings into its real spool (it did,
+    twice, on 2026-10-01/02). The scanner under test looks for a different
+    variable, so it still sees them."""
+    monkeypatch.setenv(recorder_scan.IGNORE_ENV, "1")
+    monkeypatch.setattr(recorder_scan, "IGNORE_ENV",
+                        "ROS_FAIRY_SMOKE_TEST_NEVER_SET")
+
+
 @contextmanager
 def _background(cmd: list[str]):
     """Run a ROS process in the background; stop it cleanly with SIGINT.
@@ -43,17 +56,27 @@ def _background(cmd: list[str]):
     rosbag2 needs SIGINT (not SIGTERM) to flush metadata.yaml on stop, so all
     background processes are stopped that way.
     """
+    # Own process group, signalled as a whole: `ros2 run` is a wrapper whose
+    # node child otherwise survives it, orphaned, still holding a DDS
+    # participant slot on the robot (found 8 left behind on 2026-10-01).
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
-                            stderr=subprocess.DEVNULL)
+                            stderr=subprocess.DEVNULL, start_new_session=True)
     try:
         yield proc
     finally:
-        proc.send_signal(signal.SIGINT)
+        _signal_group(proc, signal.SIGINT)
         try:
             proc.wait(timeout=15)
         except subprocess.TimeoutExpired:
-            proc.kill()
+            _signal_group(proc, signal.SIGKILL)
             proc.wait()
+
+
+def _signal_group(proc: subprocess.Popen, sig: int) -> None:
+    try:
+        os.killpg(proc.pid, sig)
+    except ProcessLookupError:
+        pass
 
 
 def _wait_for_node(substr: str, timeout: float = 15) -> bool:
@@ -99,10 +122,47 @@ def test_ros_graph_harvest_sees_live_node(talker):
     assert chatter is not None, "no /chatter topic in the live graph"
     assert "String" in chatter["type"]
     assert graph["ros_packages"], "expected a non-empty package list"
+    # parameters come from the same single participant as the listing
+    talker_node = next(n for n in graph["nodes"] if "talker" in n)
+    assert "use_sim_time" in \
+        graph["parameters"][talker_node][talker_node]["ros__parameters"]
+
+
+def test_ros_graph_harvest_ignores_participant_slot_limit(talker):
+    """With CycloneDDS's participant slots exhausted by the robot, the
+    snapshot must still join the graph (2026-10-01). Skips on other RMWs."""
+    if os.environ.get("RMW_IMPLEMENTATION") != "rmw_cyclonedds_cpp":
+        pytest.skip("participant slots are a CycloneDDS concept")
+    prefix = subprocess.run(["ros2", "pkg", "prefix", "demo_nodes_cpp"],
+                            capture_output=True, text=True).stdout.strip()
+    listener = f"{prefix}/lib/demo_nodes_cpp/listener"
+    fillers = []
+    try:
+        # the binary itself, not `ros2 run` (whose wrapper may outlive a
+        # signal and leave the node holding its slot)
+        for i in range(40):
+            fillers.append(subprocess.Popen(
+                [listener, "--ros-args", "-r", f"__node:=fairy_smoke_fill_{i}"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL))
+        time.sleep(8)
+        assert any(p.poll() is not None for p in fillers), \
+            "the fillers never hit the participant limit"
+        graph = ros_graph.harvest()
+        assert sum("fairy_smoke_fill_" in n for n in graph["nodes"]) >= 20
+    finally:
+        for p in fillers:
+            p.terminate()
+        deadline = time.monotonic() + 10
+        for p in fillers:
+            try:
+                p.wait(timeout=max(0.1, deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                p.kill()
+                p.wait()
 
 
 def test_ros_descriptions_captures_latched_urdf():
-    """Publish a latched /robot_description; confirm the rclpy harvest reads it."""
+    """Publish a latched /robot_description; confirm the snapshot reads it."""
     rclpy = pytest.importorskip("rclpy")
     from rclpy.qos import (
         DurabilityPolicy,
@@ -126,9 +186,8 @@ def test_ros_descriptions_captures_latched_urdf():
         end = time.monotonic() + 1.0
         while time.monotonic() < end:
             rclpy.spin_once(node, timeout_sec=0.1)
-        # harvest uses its own private rclpy context and a late-joining sub
-        result = ros_descriptions.harvest(timeout_s=5)
-        captured = result["robot_description"]
+        # the snapshot is a separate process with a late-joining subscriber
+        captured = ros_graph.harvest()["robot_description"]
         # On a bare graph our latched publisher is the only source, so we read
         # it back verbatim. On a real robot a transient-local
         # /robot_description publisher already exists and the late-joining sub

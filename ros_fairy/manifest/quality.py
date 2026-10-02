@@ -54,9 +54,14 @@ def assess(record: MissionRecord, harvest: dict | None = None) -> Quality:
         major.append("This robot hasn't been set up, so there's no robot or "
                      "sensor information.")
 
-    # Sensors that produced no data at all.
-    silent = {w.sensor_id for b in bags for w in b.health_warnings
-              if w.kind == "never_published" and w.sensor_id}
+    # Sensors that produced no data at all, in every one of the mission's
+    # recordings. A sensor missing from one short recording but present in
+    # another did produce data (2026-10-02: one unrelated recording made
+    # every sensor look silent); the per-recording warnings still say which.
+    silent_per_bag = [{w.sensor_id for w in b.health_warnings
+                       if w.kind == "never_published" and w.sensor_id}
+                      for b in bags]
+    silent = set.intersection(*silent_per_bag) if silent_per_bag else set()
     if silent:
         minor.append(f"{len(silent)} sensor(s) produced no data at all.")
 

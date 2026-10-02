@@ -77,16 +77,19 @@ def _check_ros_reachable() -> dict:
         nodes = ros_graph.list_nodes()
     except ros_graph.RosGraphError as exc:
         msg = str(exc)
-        if "not found" in msg:
+        if "no ROS nodes visible" in msg:
+            nodes = []
+        elif "not found" in msg or "rclpy is not available" in msg:
             return {"status": FAIL, "title": "ROS 2 is not on PATH",
                     "detail": msg,
                     "hint": "source your ROS 2 environment, e.g. "
                             "`source /opt/ros/<distro>/setup.bash`"}
-        return {"status": FAIL, "title": "ROS 2 is not reachable",
-                "detail": msg, "hint": "is the robot software started?"}
+        else:
+            return {"status": FAIL, "title": "ROS 2 is not reachable",
+                    "detail": msg, "hint": "is the robot software started?"}
     if not nodes:
         return {"status": WARN, "title": "ROS 2 works but no nodes are running",
-                "detail": "`ros2 node list` is empty",
+                "detail": "no nodes are visible on the ROS graph",
                 "hint": "start the robot software before recording, or check "
                         "ROS_DOMAIN_ID / RMW_IMPLEMENTATION match it"}
     return {"status": OK, "title": "ROS 2 graph is reachable",
