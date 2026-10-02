@@ -88,6 +88,17 @@ IMAGE_TRANSPORT_SUFFIXES = ("compressed", "compressedDepth", "theora")
 INFO_KINDS = frozenset({"compressed_transport"})
 
 
+# Topics that only carry messages when something happens (a log line, a
+# parameter change, a lifecycle transition). Gaps and low rates on them are
+# meaningless — "/rosout dropped out 9 times" was pure noise (2026-10-02).
+EVENT_TOPICS = frozenset({"/rosout", "/parameter_events"})
+EVENT_TOPIC_SUFFIXES = ("/transition_event",)
+
+
+def is_event_topic(topic: str) -> bool:
+    return topic in EVENT_TOPICS or topic.endswith(EVENT_TOPIC_SUFFIXES)
+
+
 def humanize_duration(seconds: float) -> str:
     seconds = max(0.0, seconds)
     if seconds < 90:
@@ -397,6 +408,8 @@ def analyse_bag(bag_dir: Path, sensors: list[dict] | None = None, *,
         return warnings
     for topic, stamps in series.items():
         topic_sensor = by_topic.get(topic)
+        if topic_sensor is None and is_event_topic(topic):
+            continue  # silence between events is normal, not a dropout
         gaps = _gap_warnings(topic, topic_sensor, stamps, bag_start, bag_end)
         warnings.extend(gaps)
         if not gaps:

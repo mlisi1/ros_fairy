@@ -160,6 +160,20 @@ def is_hidden(fqn: str) -> bool:
     return any(part.startswith("_") for part in fqn.split("/") if part)
 
 
+def offers_parameters(node, fqn: str) -> bool:
+    """Whether the graph shows ``fqn`` serving ``<fqn>/list_parameters``.
+
+    If the graph can't say (lookup error), assume yes and let the call try.
+    """
+    namespace, _, name = fqn.rpartition("/")
+    try:
+        services = node.get_service_names_and_types_by_node(
+            name, namespace or "/")
+    except Exception:
+        return True
+    return any(srv == f"{fqn}/list_parameters" for srv, _ in services)
+
+
 def _fqn(name: str, namespace: str) -> str:
     return (namespace.rstrip("/") + "/" + name) if namespace != "/" \
         else "/" + name
@@ -261,8 +275,15 @@ def snapshot(nodes_only: bool = False) -> dict[str, Any]:  # pragma: no cover
     queue: dict[str, list[str]] = {}         # fqn -> names still to ask
     get_cli: dict[str, Any] = {}
     clients = []
+    # Nodes that advertise no parameter service at all (rviz's helper nodes,
+    # bt_navigator's internal ones...) have nothing to capture; asking them
+    # only burned the budget and then flagged the capture "incomplete".
+    out["no_param_service"] = []
     for fqn in out["nodes"]:
         if TF_LISTENER_NODE.search(fqn):
+            continue
+        if not offers_parameters(node, fqn):
+            out["no_param_service"].append(fqn)
             continue
         cli = node.create_client(ListParameters, f"{fqn}/list_parameters")
         clients.append(cli)
@@ -326,7 +347,8 @@ def snapshot(nodes_only: bool = False) -> dict[str, Any]:  # pragma: no cover
         finish(fqn, values)
     out["params_missing"] = sorted(
         fqn for fqn in out["nodes"]
-        if not TF_LISTENER_NODE.search(fqn) and fqn not in out["parameters"])
+        if not TF_LISTENER_NODE.search(fqn) and fqn not in out["parameters"]
+        and fqn not in out["no_param_service"])
 
     # Latched topics usually arrived during the above; give them the rest of
     # their budget — until every /tf_static publisher has been heard from.

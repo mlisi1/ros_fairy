@@ -64,6 +64,10 @@ def harvest() -> dict[str, Any]:
     Nodes whose parameters couldn't be fetched degrade to complete=False.
     """
     snap = _take(nodes_only=False)
+    no_service = snap.get("no_param_service") or []
+    if no_service:
+        log.info("%d node(s) offer no parameter service (nothing to "
+                 "capture): %s", len(no_service), ", ".join(no_service))
     missing = snap.get("params_missing") or []
     if missing:
         log.info("parameters not captured for %d of %d node(s): %s",

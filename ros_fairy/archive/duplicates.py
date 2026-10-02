@@ -78,18 +78,30 @@ def find_similar(record: MissionRecord,
     return matches
 
 
-def describe(record: MissionRecord, row: dict) -> str:
-    """A plain-language one-liner about a likely-duplicate saved mission."""
+def describe(record: MissionRecord, rows: list[dict]) -> str | None:
+    """One plain-language warning for all likely duplicates (``find_similar``
+    output, newest first), or None if there are none.
+
+    One line per match buried the review under near-identical warnings during
+    a session of repeated test missions (2026-10-02); the newest match is the
+    one the operator most likely re-saved, the rest are just counted.
+    """
+    if not rows:
+        return None
+    row = rows[0]
     try:
         when = datetime.fromisoformat(row["created_at"])
         elapsed = (record.identity.created_at - when).total_seconds()
         ago = f"{humanize_duration(elapsed)} ago"
     except (ValueError, TypeError):
         ago = "earlier"
-    return (f'You already saved a mission {ago} at "{row["location"]}" '
-            f'("{row["goal"]}"). Save this only if it really is a different '
-            "mission — otherwise you may be duplicating it (check for a typo "
-            "in the place name).")
+    more = len(rows) - 1
+    others = f" (and {more} more there recently)" if more else ""
+    typo = "" if _norm(row["location"]) == _norm(record.intent.location_name) \
+        else " — check for a typo in the place name"
+    return (f'You already saved a mission at "{row["location"]}" {ago}'
+            f"{others}. Save this only if it really is a different "
+            f"mission{typo}.")
 
 
 def find_exact_duplicate(record: MissionRecord) -> dict | None:

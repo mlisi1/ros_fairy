@@ -167,8 +167,8 @@ def run(args, console: Console | None = None) -> int:
     record.provenance.data_quality = quality.level
 
     from ros_fairy.archive import duplicates
-    dup_msgs = [duplicates.describe(record, row)
-                for row in duplicates.find_similar(record)]
+    dup_msg = duplicates.describe(record, duplicates.find_similar(record))
+    dup_msgs = [dup_msg] if dup_msg else []
     exact_row = duplicates.find_exact_duplicate(record)
     exact_msg = duplicates.describe_exact(exact_row) if exact_row else None
 

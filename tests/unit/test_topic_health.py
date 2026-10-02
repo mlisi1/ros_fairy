@@ -96,6 +96,29 @@ def test_never_published_disambiguates_same_type_sensors(tmp_path):
         "Camera (cam1) produced no data at all during this recording.")
 
 
+def test_event_topics_are_not_checked_for_dropouts(tmp_path):
+    """/rosout only carries log lines; "/rosout dropped out 9 times" on every
+    mission was pure noise (2026-10-02). A sensor's gap is still reported."""
+    bursty = (_steady(T0, T0 + 5, 20) + _steady(T0 + 200, T0 + 205, 20)
+              + _steady(T0 + 500, T0 + 505, 20))
+    bag = make_bag(tmp_path / "bag", {
+        "/rosout": bursty,
+        "/parameter_events": bursty,
+        "/controller_server/transition_event": bursty,
+        "/fix": _steady(T0, T0 + 120, 10) + _steady(T0 + 360, T0 + 720, 10),
+        "/depth": _steady(T0, T0 + 720, 5),
+    })
+    warnings = topic_health.analyse_bag(bag, SENSORS)
+    assert [w["topic"] for w in warnings] == ["/fix"]
+
+
+def test_is_event_topic():
+    assert topic_health.is_event_topic("/rosout")
+    assert topic_health.is_event_topic("/bt_navigator/transition_event")
+    assert not topic_health.is_event_topic("/diagnostics")
+    assert not topic_health.is_event_topic("/rosout_agg_custom")
+
+
 def test_gap_warning_disambiguates_same_type_sensors(tmp_path):
     stamps = _steady(T0, T0 + 120, 10) + _steady(T0 + 360, T0 + 720, 10)
     bag = make_bag(tmp_path / "bag", {

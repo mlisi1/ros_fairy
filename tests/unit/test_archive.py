@@ -505,7 +505,26 @@ def test_find_similar_flags_mistyped_location(fairy_dirs):
     matches = duplicates.find_similar(record2)
     assert len(matches) == 1
     assert matches[0]["location"] == "Crosslab"
-    assert "typo" in duplicates.describe(record2, matches[0])
+    assert "typo" in duplicates.describe(record2, matches)
+
+
+def test_duplicate_warning_is_one_line_however_many_matches(fairy_dirs):
+    """2026-10-02: seven test missions in a session produced seven near-
+    identical "Possible duplicate" warnings; the operator gets one."""
+    from datetime import datetime, timedelta
+    from ros_fairy.archive import duplicates
+    harvest, context = _spool(fairy_dirs)
+    record = builder.build(harvest, context)
+    now = record.identity.created_at
+    rows = [{"location": loc, "goal": "val",
+             "created_at": (now - timedelta(minutes=m)).isoformat()}
+            for loc, m in (("Crosslab", 2), ("Crosslab", 23), ("Crosslab", 51))]
+    record.intent.location_name = "Crosslab"
+    msg = duplicates.describe(record, rows)
+    assert msg.count("You already saved") == 1
+    assert "2 minutes ago" in msg and "2 more" in msg
+    assert "typo" not in msg  # same place name: nothing to suggest a typo
+    assert duplicates.describe(record, []) is None
 
 
 def test_find_similar_ignores_unrelated(fairy_dirs):

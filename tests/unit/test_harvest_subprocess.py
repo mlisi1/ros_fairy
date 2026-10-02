@@ -93,6 +93,16 @@ def test_ros_graph_missing_parameters_degrade_and_are_logged():
         in collect.lines
 
 
+def test_ros_graph_nodes_without_parameter_service_keep_it_complete():
+    """rviz's and bt_navigator's helper nodes serve no parameters; they made
+    every mission "missing a few details" (2026-10-02)."""
+    snap = {**SNAP, "nodes": SNAP["nodes"] + ["/rviz_viewer"],
+            "no_param_service": ["/rviz_viewer"], "params_missing": []}
+    assert _graph(snap)["complete"] is True
+    snap["params_missing"] = ["/controller"]  # advertised but didn't answer
+    assert _graph(snap)["complete"] is False
+
+
 def test_ros_graph_package_list_failure_is_not_captured_not_fatal():
     data = _graph(pkg=_completed("", returncode=1, stderr="boom"))
     assert data["ros_packages"] is None
