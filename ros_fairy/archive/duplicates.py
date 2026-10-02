@@ -115,9 +115,10 @@ def find_exact_duplicate(record: MissionRecord) -> dict | None:
     if not record.bags:
         return None
     fingerprints = [bag_fingerprint(b) for b in record.bags]
+    # No exclusion of this mission's own ID: a retried mission_close reuses
+    # it, and that retry is exactly the double save this check exists for.
     try:
-        return index.find_bag_duplicate(
-            fingerprints, exclude_mission_id=record.identity.mission_id)
+        return index.find_bag_duplicate(fingerprints)
     except Exception:
         return None
 

@@ -86,24 +86,93 @@ def _discard_spool() -> None:
         f.unlink(missing_ok=True)
 
 
+def _recover_pending(console: Console) -> int | None:
+    """Deal with saves a crash, power cut or Ctrl-C left unfinished.
+
+    Returns an exit code when this run should stop here, None to carry on
+    with the current mission.
+    """
+    for pending in assembler.pending_saves():
+        if pending.kind == assembler.DISCARD:
+            # Only copies were made; the originals are untouched.
+            assembler.discard_pending(pending)
+            continue
+        if pending.kind == assembler.STUCK:
+            console.print(f"[yellow]An earlier save ({pending.name}) was cut "
+                          f"off and can't be finished automatically: "
+                          f"{pending.reason}. It is left as it is; ask your "
+                          "robot engineer to look at it.[/yellow]")
+            continue
+        notices: list[str] = []
+        if pending.kind == assembler.TIDY:
+            final = assembler.finish_pending(pending, warn=notices.append)
+            console.print(f"Finished tidying up after saving {final.name}.")
+            _print_notices(console, notices)
+            continue
+        what = f'"{pending.goal}"' if pending.goal else pending.name
+        console.print(f"A previous save ({what}) was interrupted. Your "
+                      "recordings are safe.")
+        if not Confirm.ask("Finish saving it now?", default=True,
+                           console=console):
+            console.print("Nothing was changed. The interrupted save is "
+                          "kept and will be offered again the next time you "
+                          "run mission_close.")
+            return 0
+        try:
+            final = assembler.finish_pending(pending, warn=notices.append)
+        except assembler.AssemblyError as exc:
+            console.print(f"[red]{exc}[/red]")
+            return 1
+        console.print(Panel(f"Mission saved: [bold]{final.name}[/bold]",
+                            border_style="green"))
+        _print_notices(console, notices)
+        return 0
+    return None
+
+
+def _already_saved(console: Console) -> bool:
+    """The spool still holds a mission that is already in the archive.
+
+    A crash between saving and clearing the spool leaves it behind; saving it
+    again would make a second crate with the same mission ID.
+    """
+    context = builder.load_spool()[1]
+    mission_id = ((context or {}).get("identity") or {}).get("mission_id")
+    crate = assembler.saved_crate_for(mission_id)
+    if crate is None:
+        return False
+    assembler.clear_saved_spool(crate, mission_id)
+    console.print(f"This mission was already saved as [bold]{crate.name}"
+                  "[/bold]; I've cleared what it left behind in the spool. "
+                  "Anything recorded after it is kept for the next save.")
+    return True
+
+
+def _print_notices(console: Console, notices: list[str]) -> None:
+    for notice in notices:
+        console.print(f"[yellow]{notice}[/yellow]")
+
+
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
+    try:
+        with assembler.save_lock():
+            return _run_locked(args, console)
+    except assembler.SaveInProgressError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        return 1
+    except assembler.AssemblyError as exc:  # e.g. no access to the archive
+        console.print(f"[red]{exc}[/red]")
+        return 1
 
-    interrupted = assembler.find_interrupted_staging()
-    if interrupted is not None:
-        resume = Confirm.ask(
-            "A previous save was interrupted but the data is safe. "
-            "Finish saving it now?", default=True, console=console)
-        if resume:
-            try:
-                final = assembler.resume_commit(interrupted)
-                console.print(Panel(f"Mission saved: [bold]{final.name}"
-                                    f"[/bold]", border_style="green"))
-            except assembler.AssemblyError as exc:
-                console.print(f"[red]{exc}[/red]")
-                return 1
-            return 0
+
+def _run_locked(args, console: Console) -> int:
+    rc = _recover_pending(console)
+    if rc is not None:
+        return rc
+    if _already_saved(console):
+        return 0
 
     if _recording_in_progress():
         console.print("[yellow]It looks like recording is still in "
@@ -179,6 +248,7 @@ def run(args, console: Console | None = None) -> int:
         console=console, risky=quality.level == quality_mod.POOR)
 
     if decision == "save":
+        notices: list[str] = []
         try:
             with Progress(SpinnerColumn(),
                           TextColumn("[progress.description]{task.description}"),
@@ -187,12 +257,14 @@ def run(args, console: Console | None = None) -> int:
                 final = assembler.assemble(
                     record, harvest,
                     progress=lambda msg: progress.update(task,
-                                                         description=msg))
+                                                         description=msg),
+                    warn=notices.append)
         except assembler.AssemblyError as exc:
             console.print(f"[red]{exc}[/red]")
             return 1
         console.print(Panel(f"Mission saved: [bold]{final.name}[/bold]",
                             border_style="green"))
+        _print_notices(console, notices)
         return 0
 
     if decision == "discard":

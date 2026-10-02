@@ -313,11 +313,11 @@ def test_bag_move_failure_rolls_back(fairy_dirs, monkeypatch):
     real_move = assembler._move_bag
     calls = {"n": 0}
 
-    def flaky_move(src, dest, progress):
+    def flaky_move(src, dest, progress, *rest):
         calls["n"] += 1
         if calls["n"] == 2:
             raise OSError(5, "Input/output error")
-        real_move(src, dest, progress)
+        real_move(src, dest, progress, *rest)
 
     monkeypatch.setattr(assembler, "_move_bag", flaky_move)
     with pytest.raises(AssemblyError, match="back in the spool"):
@@ -327,19 +327,21 @@ def test_bag_move_failure_rolls_back(fairy_dirs, monkeypatch):
     assert not list(paths.staging_dir().glob("*"))
 
 
-def test_resume_interrupted_staging(fairy_dirs):
+def test_resume_legacy_staging_without_plan(fairy_dirs):
+    """A complete staging tree left by an older version (no plan file)."""
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     name = assembler.archive_name(record)
     staging = paths.staging_dir() / name
     staging.mkdir(parents=True)
+    record.bags = []
     record.provenance.assembled_at = record.identity.created_at
     fsio.atomic_write_json(staging / "mission_record.json",
                            record.model_dump(mode="json"))
 
-    found = assembler.find_interrupted_staging()
-    assert found == staging
-    final = assembler.resume_commit(found)
+    [found] = assembler.pending_saves()
+    assert (found.name, found.kind) == (name, assembler.RESUME)
+    final = assembler.finish_pending(found)
     assert final.name == name
     rows, total = index.query()
     assert total == 1
@@ -364,7 +366,8 @@ def test_commit_flushes_staging_before_rename(fairy_dirs, monkeypatch):
     monkeypatch.setattr(fsio, "fsync_tree", tree)
     monkeypatch.setattr(fsio, "fsync_dir", dirsync)
     final = assembler.assemble(record, harvest)
-    assert events[0] == ("tree", True)  # flushed while still in staging
+    trees = [e for e in events if e[0] == "tree"]
+    assert trees[0] == ("tree", True)  # flushed while still in staging
     assert ("dir", paths.archive_dir()) in events
     assert ("dir", paths.spool_dir()) in events  # spool clearing is durable
     assert (final / "mission_record.json").is_file()

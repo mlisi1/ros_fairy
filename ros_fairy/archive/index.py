@@ -161,6 +161,26 @@ def insert(record: MissionRecord, archive_path: Path) -> None:
         _replace_bag_fingerprints(con, record)
 
 
+def find_mission(mission_id: str) -> dict | None:
+    """The index row of ``mission_id``, or None if it isn't indexed."""
+    if not Path(paths.index_db_path()).exists():
+        return None
+    try:
+        con = _connect()
+    except sqlite3.OperationalError:
+        con = _connect_readonly()
+    try:
+        row = con.execute("SELECT * FROM missions WHERE mission_id = ?",
+                          (mission_id,)).fetchone()
+    except sqlite3.OperationalError as exc:
+        if "no such table" in str(exc):
+            return None
+        raise
+    finally:
+        con.close()
+    return dict(row) if row else None
+
+
 def find_bag_duplicate(fingerprints: list[str],
                        exclude_mission_id: str | None = None) -> dict | None:
     """The most recent already-saved mission sharing any of ``fingerprints``.

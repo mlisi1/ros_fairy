@@ -8,6 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import pytest
 from inotify_simple import flags
 
 from ros_fairy.archive import assembler
@@ -511,9 +512,12 @@ def test_vanished_foreign_bag_skipped(fairy_dirs, tmp_path):
     bag = make_bag(tmp_path / "gone", {"/fix": [T0, T0 + 1]})
     record, harvest = _record_with_bag(bag, "detected")
     shutil.rmtree(bag)  # operator moved/deleted it before saving
-    crate = assembler.assemble(record, harvest)
-    assert not (crate / "bags" / "gone").exists()
-    assert record.bags == []
+    # Its only recording is gone: refuse rather than save an empty mission.
+    with pytest.raises(assembler.AssemblyError, match="nothing to save"):
+        assembler.assemble(record, harvest)
+    assert not any(p for p in paths.archive_dir().iterdir()
+                   if not p.name.startswith("."))
+    assert assembler.pending_saves() == []
 
 
 def test_spool_bag_still_moved(fairy_dirs):
