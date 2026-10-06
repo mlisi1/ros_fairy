@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ros_fairy import build_info
 from ros_fairy.manifest import builder
 from ros_fairy.utils import code_id, fsio, paths, ros_env, topic_health
 from ros_fairy.watchdog import recorder_scan
@@ -916,6 +917,7 @@ class Watchdog:
                     # the code this process runs (doctor compares it with the
                     # installed code to spot a watchdog needing a restart)
                     "code_id": code_id.code_id(),
+                    "build": build_info.short(build_info.build_info()),
                     "state": self.state,
                     "since": self.since,
                     "heartbeat_at": _now_iso(),
@@ -1159,7 +1161,7 @@ _LOG_FORMAT = "%(asctime)s %(name)s %(levelname)s %(message)s"
 
 
 def main() -> None:
-    code_id.code_id()  # pin the id of the code this process started with
+    build_info.build_info()  # pin the build this process started with
     logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT)
     spool_log = SpoolLogHandler(level=logging.INFO)
     spool_log.setFormatter(logging.Formatter(_LOG_FORMAT))

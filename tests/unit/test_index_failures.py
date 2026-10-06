@@ -71,14 +71,15 @@ def test_strict_validation_still_guards_new_records(fairy_dirs):
 
 
 def test_record_format_is_versioned():
-    assert SCHEMA_VERSION == "1.1"
+    major, minor = SCHEMA_VERSION.split(".")
+    assert int(major) == 1 and int(minor) >= 2
     record, _ = read_record(json.loads(json.dumps({
         "identity": {"mission_id": "m", "created_at": "2026-10-06T08:00:00Z",
                      "operator_name": "J"},
         "intent": {"goal": "g", "location_name": "l"},
         "software": {"ros_fairy_version": "0.1.0"},
         "provenance": {"ros_fairy_version": "0.1.0"}})))
-    assert record.schema_version == "1.1"  # written records carry it
+    assert record.schema_version == SCHEMA_VERSION  # records carry it
 
 
 def test_same_mission_saved_twice_is_reported(fairy_dirs):

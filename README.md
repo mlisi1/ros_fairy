@@ -15,7 +15,8 @@
 service. An operator answers five questions before a run; everything else —
 robot identity, ROS graph and node descriptions, sensors seen publishing,
 Python environment, Docker images, hardware devices, the robot's own udev
-rules and how each USB device and port is managed, system info — is harvested
+rules and how each USB device and port is managed, system info, and the exact
+ros-fairy build (version, git commit) that captured and saved it — is harvested
 automatically and written alongside the bags as an
 [RO-Crate](https://www.researchobject.org/ro-crate/) archive that can be
 verified, diffed, and shared as a single checksummed file.

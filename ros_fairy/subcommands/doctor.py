@@ -286,11 +286,13 @@ def _check_archive() -> dict:
 
 def _check_watchdog_code() -> dict:
     """Is the watchdog running the code that is installed now?"""
-    from ros_fairy.utils import code_id
+    from ros_fairy.build_info import build_info, short
     from ros_fairy.watchdog import watchdog as wd
     state = wd.read_state() or {}
     running = state.get("code_id")
-    installed = code_id.code_id()
+    mine = build_info()
+    installed = mine["code_id"]
+    running_label = state.get("build") or f"code {running}"
     if running is None:
         return {"status": SKIP, "title": "Watchdog code version unknown",
                 "detail": "the watchdog predates this check", "hint":
@@ -298,10 +300,11 @@ def _check_watchdog_code() -> dict:
                 "restart ros-fairy-watchdog`"}
     if running == installed:
         return {"status": OK, "title": "Watchdog runs the installed code",
-                "detail": f"code {installed}", "hint": ""}
+                "detail": f"{short(mine)} (code {installed})", "hint": ""}
     return {"status": WARN, "title": "Watchdog runs different code than this "
                                      "command",
-            "detail": f"watchdog {running}, this command {installed}",
+            "detail": f"watchdog {running_label}, this command {short(mine)} "
+                      f"(code {installed})",
             "hint": "after installing a new version, restart the watchdog: "
                     "`sudo systemctl restart ros-fairy-watchdog`. If it is "
                     "still different, this command runs from another "

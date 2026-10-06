@@ -323,6 +323,20 @@ class Bag(_Model):
     file_sha256: dict[str, str] = Field(default_factory=dict)
 
 
+class SoftwareBuild(_Model):
+    """One ros-fairy build (see ros_fairy/build_info.py). ``code_id`` hashes
+    the source files, so it also tells apart builds of the same commit with
+    local edits."""
+    version: str
+    commit: str | None = None
+    describe: str | None = None
+    branch: str | None = None
+    dirty: bool | None = None
+    built_at: AwareDatetime | None = None
+    code_id: str | None = None
+    source: str | None = None    # "install" | "checkout" | "unknown"
+
+
 class Provenance(_Model):
     ros_fairy_version: str
     schema_version: str = SCHEMA_VERSION
@@ -340,6 +354,11 @@ class Provenance(_Model):
     # Overall data-quality verdict from manifest/quality.assess at close time:
     # "ok" | "degraded" | "poor". None for records written before 1.0.
     data_quality: str | None = None
+    # The build that captured the context (the watchdog, or the CLI for an
+    # adopted or salvaged recording) and the one that saved the crate
+    # (mission_close). None in records written before 1.2.
+    harvested_by: SoftwareBuild | None = None
+    assembled_by: SoftwareBuild | None = None
 
 
 class MissionRecord(_Model):

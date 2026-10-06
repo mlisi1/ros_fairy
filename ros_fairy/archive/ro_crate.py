@@ -212,9 +212,17 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
         mission["endTime"] = max(ends).isoformat()
     graph.append(mission)
 
-    graph.append({"@id": ROS_FAIRY_ID, "@type": "SoftwareApplication",
-                  "name": "ros-fairy",
-                  "version": record.provenance.ros_fairy_version})
+    software = {"@id": ROS_FAIRY_ID, "@type": "SoftwareApplication",
+                "name": "ros-fairy",
+                "version": record.provenance.ros_fairy_version}
+    built = record.provenance.assembled_by
+    if built is not None:
+        # the exact build that wrote this crate
+        if built.describe or built.commit:
+            software["softwareVersion"] = built.describe or built.commit
+        if built.commit:
+            software["identifier"] = built.commit
+    graph.append(software)
     if record.software.ros_distro:
         graph.append({"@id": "#ros2", "@type": "SoftwareApplication",
                       "name": "ROS 2", "version": record.software.ros_distro,

@@ -35,10 +35,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from ros_fairy import build_info
 from ros_fairy.archive import index, ro_crate
 from ros_fairy.manifest.schema import (
     FOREIGN_SOURCES,
     MissionRecord,
+    SoftwareBuild,
     read_record,
 )
 from ros_fairy.utils import fsio, paths
@@ -897,6 +899,8 @@ def _stage(record: MissionRecord, harvest_doc: dict[str, Any], staging: Path,
             to_move.append((src, name))
         bag.path = f"bags/{name}"
     record.provenance.assembled_at = datetime.now(timezone.utc)
+    record.provenance.assembled_by = SoftwareBuild.model_validate(
+        build_info.build_info())
 
     from ros_fairy.manifest import builder
     warnings = builder.harvest_level_warnings(harvest_doc) + warnings

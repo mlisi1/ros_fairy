@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import ros_fairy
+from ros_fairy import build_info
 from ros_fairy.manifest import validator
 from ros_fairy.manifest.schema import FOREIGN_SOURCES, MissionRecord
 from ros_fairy.utils import paths
@@ -142,6 +143,9 @@ def compose_harvest(identity: dict | None, system: dict | None,
             "arch": system.get("arch", ""),
             "clock_synchronized": system.get("clock_synchronized"),
             "harvest_status": harvest_status,
+            # whoever composes the harvest captured it: the watchdog, or the
+            # CLI for an adopted/salvaged recording
+            "harvested_by": build_info.build_info(),
         },
         "raw_docker_inspect": docker.get("raw_inspect", []),
         "raw_python_env": {
@@ -306,6 +310,15 @@ def harvest_level_warnings(harvest: dict | None) -> list[str]:
                         "published but didn't arrive in time, so it isn't "
                         "included.")
     warnings += _udev_not_in_effect(harvest.get("usb"))
+    captured_by = (harvest.get("provenance") or {}).get("harvested_by")
+    if captured_by and not build_info.same_code(captured_by,
+                                                build_info.build_info()):
+        warnings.append(
+            "The background details were captured by a different ros-fairy "
+            f"build ({build_info.short(captured_by)}) than the one saving "
+            f"them ({build_info.short(build_info.build_info())}). After "
+            "installing an update, restart the recording assistant: "
+            "`sudo systemctl restart ros-fairy-watchdog`.")
     containers = (harvest.get("software") or {}).get("docker_containers") \
         or []
     if any(c.get("digest") is None for c in containers):

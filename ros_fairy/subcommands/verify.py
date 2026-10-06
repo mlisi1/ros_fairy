@@ -61,6 +61,11 @@ def verify_archive(crate: Path) -> list[dict]:
     if set_aside:
         add(WARN, "Saved by a newer ros-fairy: some details can't be read "
                   "by this version", ", ".join(set_aside))
+    built = record.provenance.assembled_by
+    if built is not None:
+        from ros_fairy.build_info import short
+        add(OK, f"Saved by ros-fairy {short(built.model_dump())}",
+            f"code {built.code_id}" if built.code_id else "")
 
     # 2. RO-Crate metadata well-formed (deep-load with rocrate if present).
     crate_meta = crate / "ro-crate-metadata.json"

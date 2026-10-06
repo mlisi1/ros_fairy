@@ -14,6 +14,7 @@ from rich.rule import Rule
 from rich.table import Table
 from rich.text import Text
 
+from ros_fairy.build_info import short
 from ros_fairy.manifest.schema import MissionRecord
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils.topic_health import humanize_duration
@@ -66,6 +67,17 @@ def _diff_context(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     ]:
         if va != vb:
             rows.append((label, va or "(none)", vb or "(none)"))
+    # Which ros-fairy build captured and saved each mission (records from
+    # 1.2 on): a capture difference may come from the tool, not the robot.
+    for label, ba, bb in [
+        ("Captured by ros-fairy", a.provenance.harvested_by,
+         b.provenance.harvested_by),
+        ("Saved by ros-fairy", a.provenance.assembled_by,
+         b.provenance.assembled_by),
+    ]:
+        if ba is not None and bb is not None and ba.code_id != bb.code_id:
+            rows.append((label, short(ba.model_dump()),
+                         short(bb.model_dump())))
     return rows
 
 
