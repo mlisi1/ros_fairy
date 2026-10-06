@@ -8,6 +8,7 @@ import logging
 import re
 import shutil
 import subprocess
+import time
 from glob import glob
 from pathlib import Path
 
@@ -15,27 +16,42 @@ log = logging.getLogger("ros_fairy.harvest.hardware_devices")
 
 HARDWARE_CMD_TIMEOUT_S = 10
 _LSUSB_VERBOSE_TIMEOUT_S = 20
-HARDWARE_TOTAL_TIMEOUT_S = 60
+HARDWARE_TOTAL_TIMEOUT_S = 60   # the whole module, enforced
+UDEV_BUDGET_S = 10              # all udevadm lookups together
 
 _UDEV_WHITELIST = frozenset({
     "DEVNAME", "DEVTYPE", "SUBSYSTEM", "ID_BUS",
     "ID_VENDOR", "ID_VENDOR_ID", "ID_MODEL", "ID_MODEL_ID",
+    "ID_VENDOR_FROM_DATABASE", "ID_MODEL_FROM_DATABASE",
     "ID_SERIAL_SHORT", "ID_USB_CLASS", "ID_USB_SUBCLASS",
-    "ID_DRIVER", "ID_PATH", "MAJOR", "MINOR",
+    "ID_DRIVER", "DRIVER", "ID_PATH", "MAJOR", "MINOR",
 })
+
+# Which devices udev details matter most for: the sensors (serial ports,
+# cameras) first, then USB, then the PCI chipset.
+_UDEV_PRIORITY = {"serial": 0, "video": 1, "usb": 2, "pci": 3}
 
 _DMESG_PATTERN = re.compile(
     r"usb|video|tty|camera|serial|sensor", re.IGNORECASE)
 
 
-def _run(cmd: list[str], timeout: float = HARDWARE_CMD_TIMEOUT_S
+def _run(cmd: list[str], timeout: float = HARDWARE_CMD_TIMEOUT_S,
+         deadline: float | None = None
          ) -> "subprocess.CompletedProcess | None":
-    """Run a command; return None if binary missing, timed out, or OS error."""
+    """Run a command; return None if binary missing, timed out, OS error, or
+    the module's ``deadline`` has passed. Output is decoded leniently: one
+    non-UTF-8 byte in a device string must not lose every device."""
     if not shutil.which(cmd[0]):
         return None
+    if deadline is not None:
+        timeout = min(timeout, deadline - time.monotonic())
+        if timeout <= 0.2:
+            log.debug("no time left for: %s", " ".join(cmd))
+            return None
     try:
         return subprocess.run(
-            cmd, capture_output=True, text=True, timeout=timeout)
+            cmd, capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace")
     except subprocess.TimeoutExpired:
         log.debug("timed out: %s", " ".join(cmd))
         return None
@@ -176,32 +192,56 @@ def _parse_udev_props(stdout: str) -> dict[str, str]:
     return props
 
 
-def _enrich_udev(devices: list[dict], max_devices: int = 10) -> None:
-    """Add udev properties to the first `max_devices` entries with a path."""
+def _udev_target(dev: dict) -> str | None:
+    """How to ask udevadm about ``dev``: a device node, or a sysfs path for
+    PCI (its slot isn't a device name). None if there is no way."""
+    path, cls = dev.get("device_path"), dev.get("device_class")
+    if cls == "pci" and path:
+        slot = path if path.count(":") >= 2 else f"0000:{path}"
+        return f"--path=/sys/bus/pci/devices/{slot}"
+    if cls == "usb" and not path:
+        m = re.match(r"Bus (\d+) Device (\d+)$", dev.get("bus_path") or "")
+        return f"--name=/dev/bus/usb/{m.group(1)}/{m.group(2)}" if m else None
+    return f"--name={path}" if path else None
+
+
+def _enrich_udev(devices: list[dict], deadline: float | None = None) -> bool:
+    """Add udev properties, sensors first, within ``UDEV_BUDGET_S``.
+
+    Returns False when the budget ran out before every device was done.
+    """
     if not shutil.which("udevadm"):
-        return
-    enriched = 0
-    for dev in devices:
-        if enriched >= max_devices:
-            break
-        path = dev.get("device_path")
-        if not path:
+        return True
+    end = time.monotonic() + UDEV_BUDGET_S
+    if deadline is not None:
+        end = min(end, deadline)
+    ordered = sorted(devices, key=lambda d: _UDEV_PRIORITY.get(
+        d.get("device_class") or "", len(_UDEV_PRIORITY)))
+    for dev in ordered:
+        target = _udev_target(dev)
+        if target is None:
             continue
-        r = _run(["udevadm", "info", "--query=property", f"--name={path}"],
-                 timeout=5)
-        enriched += 1
+        if time.monotonic() >= end:
+            log.debug("udev budget spent; %s not enriched", target)
+            return False
+        r = _run(["udevadm", "info", "--query=property", target],
+                 timeout=2, deadline=end)
         if r is None or r.returncode != 0:
             continue
         props = _parse_udev_props(r.stdout)
         if not props:
             continue
         dev["udev_properties"] = props
-        dev["driver"] = dev["driver"] or props.get("ID_DRIVER")
+        dev["driver"] = dev["driver"] or props.get("ID_DRIVER") \
+            or props.get("DRIVER")
         dev["serial_number"] = dev["serial_number"] or props.get("ID_SERIAL_SHORT")
-        dev["vendor_name"] = dev["vendor_name"] or props.get("ID_VENDOR")
+        dev["vendor_name"] = dev["vendor_name"] or props.get("ID_VENDOR") \
+            or props.get("ID_VENDOR_FROM_DATABASE")
         dev["vendor_id"] = dev["vendor_id"] or props.get("ID_VENDOR_ID")
-        dev["product_name"] = dev["product_name"] or props.get("ID_MODEL")
+        dev["product_name"] = dev["product_name"] or props.get("ID_MODEL") \
+            or props.get("ID_MODEL_FROM_DATABASE")
         dev["product_id"] = dev["product_id"] or props.get("ID_MODEL_ID")
+    return True
 
 
 def harvest() -> dict:
@@ -224,9 +264,10 @@ def harvest() -> dict:
 def _harvest() -> dict:
     devices: list[dict] = []
     partial = False
+    deadline = time.monotonic() + HARDWARE_TOTAL_TIMEOUT_S
 
     # 1. USB — basic list
-    r = _run(["lsusb"])
+    r = _run(["lsusb"], deadline=deadline)
     if r is not None:
         if r.returncode == 0:
             devices.extend(_parse_lsusb(r.stdout))
@@ -235,7 +276,8 @@ def _harvest() -> dict:
 
     # 2. USB — verbose for serial numbers
     lsusb_verbose: str | None = None
-    r_v = _run(["lsusb", "-v"], timeout=_LSUSB_VERBOSE_TIMEOUT_S)
+    r_v = _run(["lsusb", "-v"], timeout=_LSUSB_VERBOSE_TIMEOUT_S,
+               deadline=deadline)
     if r_v is not None:
         if r_v.returncode == 0:
             lsusb_verbose = r_v.stdout
@@ -252,7 +294,7 @@ def _harvest() -> dict:
                       r_v.stderr[:120] if r_v.stderr else "")
 
     # 3. PCI
-    r = _run(["lspci", "-mm"])
+    r = _run(["lspci", "-mm"], deadline=deadline)
     if r is not None:
         if r.returncode == 0:
             devices.extend(_parse_lspci(r.stdout))
@@ -262,7 +304,7 @@ def _harvest() -> dict:
     # 4. Video devices — glob + v4l2-ctl
     video_devs = _glob_devices("/dev/video*", "video")
     existing_video_paths = {d["device_path"] for d in video_devs}
-    r = _run(["v4l2-ctl", "--list-devices"])
+    r = _run(["v4l2-ctl", "--list-devices"], deadline=deadline)
     if r is not None and r.returncode == 0:
         for path in _parse_v4l2_paths(r.stdout):
             if path not in existing_video_paths:
@@ -299,21 +341,27 @@ def _harvest() -> dict:
                 seen.add(target)
             devices.append(dev)
 
-    # 6. udevadm enrichment (caps at 10 devices to avoid O(n) slowdown)
-    _enrich_udev(devices)
+    # 6. udevadm enrichment (sensors first, time-boxed)
+    if not _enrich_udev(devices, deadline):
+        partial = True
 
     # 7. dmesg — USB/video/serial kernel messages only
     dmesg_usb: str | None = None
-    r = _run(["dmesg", "--level=warn,err,info", "-T"])
-    if r is None:
-        # Try without flags (older kernels don't support --level)
-        r = _run(["dmesg"])
+    r = _run(["dmesg", "--level=warn,err,info", "-T"], deadline=deadline)
+    if r is None or r.returncode != 0:
+        # Try without flags (older util-linux doesn't support --level)
+        r = _run(["dmesg"], deadline=deadline) or r
     if r is not None and r.returncode == 0:
         filtered = "\n".join(
             line for line in r.stdout.splitlines()
             if _DMESG_PATTERN.search(line))
         dmesg_usb = filtered or None
     elif r is not None:
+        partial = True
+
+    if time.monotonic() >= deadline:
+        log.warning("listing hardware ran out of time (%ss); the list may be "
+                    "incomplete", HARDWARE_TOTAL_TIMEOUT_S)
         partial = True
 
     # Determine status

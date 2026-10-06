@@ -104,7 +104,8 @@ def compose_harvest(identity: dict | None, system: dict | None,
         "software": {
             "ros_distro": system.get("ros_distro"),
             "ros_packages": graph.get("ros_packages"),
-            "apt_ros_versions": system.get("apt_ros_versions", {}),
+            # None when system_info failed or dpkg couldn't be asked.
+            "apt_ros_versions": system.get("apt_ros_versions"),
             "docker_containers": docker.get("docker_containers", []),
             "ros_fairy_version": ros_fairy.__version__,
             "python_env": py.get("python_env"),
@@ -114,6 +115,8 @@ def compose_harvest(identity: dict | None, system: dict | None,
             "nodes": graph.get("nodes", []),
             "topics": graph.get("topics", []),
             "parameters": graph.get("parameters", {}),
+            "parameters_not_captured": graph.get("parameters_not_captured")
+            or {},
             "robot_description": descriptions.get("robot_description"),
             "tf_static": descriptions.get("tf_static"),
             "complete": graph.get("complete", False),
@@ -256,9 +259,13 @@ def harvest_level_warnings(harvest: dict | None) -> list[str]:
                         "time; the record may be missing a few details.")
     if status.get("python_env") == "failed":
         warnings.append("I couldn't capture the Python environment details.")
-    if status.get("ros_descriptions") == "timeout":
+    if status.get("ros_descriptions") == "absent":
         warnings.append("The robot's physical description wasn't being "
                         "published, so it isn't included.")
+    elif status.get("ros_descriptions") == "timeout":
+        warnings.append("The robot's physical description was being "
+                        "published but didn't arrive in time, so it isn't "
+                        "included.")
     containers = (harvest.get("software") or {}).get("docker_containers", [])
     if any(c.get("digest") is None for c in containers):
         warnings.append("Some software containers couldn't be pinned to an "

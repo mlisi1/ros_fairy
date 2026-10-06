@@ -23,7 +23,8 @@ class RosGraphError(Exception):
 def _run(args: list[str], timeout: float = ROS2_CLI_TIMEOUT_S) -> str:
     try:
         result = subprocess.run(
-            ["ros2", *args], capture_output=True, text=True, timeout=timeout)
+            ["ros2", *args], capture_output=True, text=True, timeout=timeout,
+            encoding="utf-8", errors="replace")
     except FileNotFoundError as exc:
         raise RosGraphError("ros2 CLI not found on PATH") from exc
     except subprocess.TimeoutExpired as exc:
@@ -73,6 +74,17 @@ def harvest() -> dict[str, Any]:
         log.info("parameters not captured for %d of %d node(s): %s",
                  len(missing), len(missing) + len(snap["parameters"]),
                  ", ".join(missing))
+    partial = snap.get("params_partial") or {}
+    for fqn, names in sorted(partial.items()):
+        log.info("%d parameter(s) of %s did not answer in time: %s",
+                 len(names), fqn, ", ".join(names[:10])
+                 + (" …" if len(names) > 10 else ""))
+    for conflict in snap.get("tf_static_conflicts") or []:
+        log.warning("two static transforms give one frame different "
+                    "parents (%s); kept the later one", conflict)
+    topic = snap.get("robot_description_topic")
+    if topic and topic != "/robot_description":
+        log.info("robot description read from %s", topic)
     try:
         packages = list_packages()
     except RosGraphError as exc:
@@ -84,7 +96,11 @@ def harvest() -> dict[str, Any]:
         "topics": snap.get("topics", []),
         "ros_packages": packages,
         "parameters": snap.get("parameters", {}),
-        "complete": not missing,
+        # Names a node listed but never returned a value for: "not
+        # captured", so the diff doesn't report them as removed.
+        "parameters_not_captured": partial,
+        "complete": not missing and not partial,
         "robot_description": snap.get("robot_description"),
         "tf_static": snap.get("tf_static"),
+        "description_publishers": snap.get("description_publishers"),
     }

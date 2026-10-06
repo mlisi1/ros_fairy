@@ -112,8 +112,16 @@ def run_pipeline() -> dict[str, Any]:
     else:
         descriptions = {k: results["ros_graph"].pop(k, None)
                         for k in ("robot_description", "tf_static")}
-        status["ros_descriptions"] = "timeout" if all(
-            v is None for v in descriptions.values()) else "ok"
+        publishers = results["ros_graph"].pop("description_publishers",
+                                              None) or {}
+        if descriptions["robot_description"] or descriptions["tf_static"]:
+            status["ros_descriptions"] = "ok"
+        elif publishers and not any(publishers.values()):
+            # Nobody publishes a URDF or static transforms: a known answer,
+            # not a capture that timed out, and nothing a retry would fix.
+            status["ros_descriptions"] = "absent"
+        else:
+            status["ros_descriptions"] = "timeout"
     if results["ros_graph"] is None:
         # `ros2 pkg list` reads the local install, no DDS involved: a failed
         # discovery must not cost the mission its installed-package record.
@@ -143,7 +151,8 @@ _STATUS_RANK = {"ok": 3, "partial": 2}  # anything else: nothing captured
 # Which parts of harvest.json each ROS module produces. Only these modules are
 # retried, so only they can be clobbered by a later, worse run.
 _ROS_MODULE_FIELDS = {
-    "ros_graph": ("captured_at", "nodes", "topics", "parameters", "complete"),
+    "ros_graph": ("captured_at", "nodes", "topics", "parameters",
+                  "parameters_not_captured", "complete"),
     "ros_descriptions": ("robot_description", "tf_static"),
 }
 

@@ -80,7 +80,7 @@ def harvest_lines(state: dict | None) -> list[str]:
             lines.append(f"✓ {label}")
         elif result == "partial":
             lines.append(f"⚠ {label} (partial)")
-        elif result == "skipped":
+        elif result in ("skipped", "absent"):
             lines.append(f"– {label} (not used on this robot)")
         else:
             lines.append(f"✗ {label} — will keep trying")

@@ -76,12 +76,17 @@ def _diff_software(a: MissionRecord, b: MissionRecord) -> list[tuple]:
                      a.software.ros_distro or "(unknown)",
                      b.software.ros_distro or "(unknown)"))
 
-    for pkg in sorted(set(a.software.apt_ros_versions) |
-                      set(b.software.apt_ros_versions)):
-        va = a.software.apt_ros_versions.get(pkg)
-        vb = b.software.apt_ros_versions.get(pkg)
-        if va != vb:
-            rows.append((pkg, va or "", vb or ""))
+    # None means the deb list wasn't captured: say so rather than listing
+    # every package as removed.
+    apt_a, apt_b = a.software.apt_ros_versions, b.software.apt_ros_versions
+    if apt_a is not None and apt_b is not None:
+        for pkg in sorted(set(apt_a) | set(apt_b)):
+            va, vb = apt_a.get(pkg), apt_b.get(pkg)
+            if va != vb:
+                rows.append((pkg, va or "", vb or ""))
+    elif (apt_a is None) != (apt_b is None):
+        rows.append(("ROS debs captured", "no" if apt_a is None else "yes",
+                     "no" if apt_b is None else "yes"))
 
     # None (or [] in older records — a ROS host is never empty) means the
     # package list wasn't captured; diffing it would list every package as
@@ -307,7 +312,13 @@ def _diff_parameters(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     for node in sorted(set(flat_a) & set(flat_b)):
         leaves_a = dict(_leaves("", flat_a[node]))
         leaves_b = dict(_leaves("", flat_b[node]))
+        # A name one capture never got a value for is unknown there, not
+        # removed: compare it only where both sides have it.
+        unknown = set(a.ros_graph.parameters_not_captured.get(node, [])) | \
+            set(b.ros_graph.parameters_not_captured.get(node, []))
         for key in sorted(set(leaves_a) | set(leaves_b)):
+            if key in unknown and (key not in leaves_a or key not in leaves_b):
+                continue
             va, vb = leaves_a.get(key), leaves_b.get(key)
             if va != vb:
                 rows.append((f"{node}: {key}",

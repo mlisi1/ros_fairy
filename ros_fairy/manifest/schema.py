@@ -60,6 +60,11 @@ class DockerContainer(_Model):
     # found, or the probe failed) — distinct from Software.ros_packages,
     # which only ever reflects the host (see harvest/ros_graph.py).
     ros_packages: list[str] | None = None
+    # The Python distributions this container's python3 sees (name/version),
+    # read for containers running ROS: the robot's Python, which
+    # Software.python_env (the host interpreter running ros-fairy) is not.
+    # None = not probed or couldn't be read.
+    python_packages: list["PythonPackage"] | None = None
 
 
 class PythonPackage(_Model):
@@ -99,7 +104,9 @@ class Software(_Model):
     # `ros2 pkg list` on the host. None = not captured (probe failed); an
     # empty list never happens on a ROS host, so old records' [] means the same.
     ros_packages: list[str] | None = None
-    apt_ros_versions: dict[str, str] = Field(default_factory=dict)
+    # Installed ros-* debs. None = not captured (dpkg couldn't be asked);
+    # {} = none installed.
+    apt_ros_versions: dict[str, str] | None = Field(default_factory=dict)
     docker_containers: list[DockerContainer] = Field(default_factory=list)
     ros_fairy_version: str
     python_env: PythonEnv | None = None
@@ -115,6 +122,10 @@ class RosGraph(_Model):
     nodes: list[str] = Field(default_factory=list)
     topics: list[TopicInfo] = Field(default_factory=list)
     parameters: dict[str, dict] = Field(default_factory=dict)
+    # node -> parameter names it listed but never returned a value for (the
+    # call timed out): "not captured", unlike a None value in `parameters`,
+    # which means "declared without a value".
+    parameters_not_captured: dict[str, list[str]] = Field(default_factory=dict)
     robot_description: str | None = None
     tf_static: list[dict] | None = None
     complete: bool = False

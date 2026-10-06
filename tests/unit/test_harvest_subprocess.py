@@ -15,6 +15,11 @@ def _completed(stdout="", returncode=0, stderr=""):
     return subprocess.CompletedProcess([], returncode, stdout, stderr)
 
 
+def _child(stdout="", returncode=0, stderr=""):
+    """The snapshot child's result: it is read as bytes."""
+    return _completed(stdout.encode(), returncode, stderr.encode())
+
+
 # --- ros_graph (wraps the single-participant snapshot) -----------------------
 
 from ros_fairy.harvest import ros_snapshot  # noqa: E402
@@ -139,7 +144,7 @@ def test_snapshot_child_opts_out_of_cyclone_participant_slots(monkeypatch):
 
 def test_snapshot_take_parses_child_output():
     out = "some rcl warning on stdout\n" + json.dumps(SNAP) + "\n"
-    with mock.patch("subprocess.run", return_value=_completed(out)) as run:
+    with mock.patch("subprocess.run", return_value=_child(out)) as run:
         assert ros_snapshot.take(nodes_only=True)["nodes"] == SNAP["nodes"]
     cmd = run.call_args.args[0]
     assert cmd[1:3] == ["-m", "ros_fairy.harvest.ros_snapshot"]
@@ -148,9 +153,9 @@ def test_snapshot_take_parses_child_output():
 
 
 @pytest.mark.parametrize("result, match", [
-    (_completed(json.dumps({"error": "could not join the ROS graph: x"})),
+    (_child(json.dumps({"error": "could not join the ROS graph: x"})),
      "could not join"),
-    (_completed("", returncode=1, stderr="Segmentation fault"),
+    (_child("", returncode=1, stderr="Segmentation fault"),
      "Segmentation fault"),
 ])
 def test_snapshot_take_failures(result, match):
@@ -197,9 +202,9 @@ def test_snapshot_merges_every_tf_static_publisher():
     ros_snapshot.merge_transforms(acc, [tf("front_camera_link",
                                            "front_camera_color_frame")])
     ros_snapshot.merge_transforms(acc, [tf("base_link", "velodyne", x=0.2)])
-    assert sorted(c for _, c in acc) == ["front_camera_color_frame",
-                                         "imu_link", "velodyne"]
-    assert acc[("base_link", "velodyne")]["translation"]["x"] == 0.2
+    assert sorted(acc) == ["front_camera_color_frame", "imu_link",
+                           "velodyne"]
+    assert acc["velodyne"]["translation"]["x"] == 0.2
 
 
 def test_snapshot_parameter_values():
@@ -235,15 +240,33 @@ INSPECT = [{
 }]
 
 
-def test_docker_harvest():
+def _docker(inspect, exec_answer=lambda login, script: None,
+            inspect_rc=0, seen=None):
+    """A fake docker CLI. ``exec_answer(login_shell, script)`` is what the
+    container prints for a probe (None: the command isn't there)."""
     def fake_run(cmd, **kw):
+        if seen is not None:
+            seen.append(cmd)
         if cmd[1] == "ps":
-            return _completed("c0ffee\n")
-        if "--format" in cmd:
-            return _completed('["example/navstack@sha256:7be1"]')
-        return _completed(json.dumps(INSPECT))
+            return _completed("c0ffee\nfeed\n")
+        if cmd[1] == "image":
+            return _completed('sha256:abc ["example/navstack@sha256:7be1"]\n')
+        if cmd[1] == "exec":
+            body = exec_answer("bash" in cmd, cmd[-1])
+            if body is None:
+                return _completed("", returncode=127, stderr="not found")
+            # A login shell's .bashrc talks before the probe runs.
+            return _completed("Welcome to the robot!\n"
+                              f"{docker_info._BEGIN}\n{body}\n"
+                              f"{docker_info._END}\n")
+        return _completed(json.dumps(inspect), returncode=inspect_rc,
+                          stderr="Error: No such object: feed"
+                          if inspect_rc else "")
+    return fake_run
 
-    with mock.patch("subprocess.run", side_effect=fake_run):
+
+def test_docker_harvest():
+    with mock.patch("subprocess.run", side_effect=_docker(INSPECT)):
         data = docker_info.harvest()
 
     assert data["available"] is True
@@ -253,6 +276,15 @@ def test_docker_harvest():
     assert c["digest"] == "example/navstack@sha256:7be1"
     assert c["compose_project"] == "robot"
     assert c["compose_file"] == "/opt/robot/compose.yml"
+
+
+def test_docker_keeps_containers_when_one_stopped_mid_inspect():
+    """H7: `docker inspect a b` exits 1 if b has gone, but prints a."""
+    with mock.patch("subprocess.run",
+                    side_effect=_docker(INSPECT, inspect_rc=1)):
+        data = docker_info.harvest()
+    assert data["available"] is True
+    assert [c["name"] for c in data["docker_containers"]] == ["navstack"]
 
 
 def test_docker_absent():
@@ -286,46 +318,53 @@ RUNNING_INSPECT = [{
 def test_docker_probes_running_container_for_ros_packages():
     """A robot whose ROS stack lives entirely in a container (nothing on
     the host) should still get a real package list — probed inside the
-    container, not the host's mostly-empty one."""
-    def fake_run(cmd, **kw):
-        if cmd[1] == "ps":
-            return _completed("c0ffee\n")
-        if cmd[1] == "exec":
-            assert cmd[2] == "c0ffee"
-            assert cmd[3:] == ["ros2", "pkg", "list"]
-            return _completed("nav2_bringup\nnav2_msgs\n")
-        if "--format" in cmd:
-            return _completed('["example/navstack@sha256:7be1"]')
-        return _completed(json.dumps(RUNNING_INSPECT))
+    container, not the host's mostly-empty one — and the Python packages
+    of that container (H12)."""
+    seen = []
 
-    with mock.patch("subprocess.run", side_effect=fake_run):
+    def answer(login, script):
+        if "ros2 pkg list" in script:
+            return "nav2_bringup\nnav2_msgs"
+        return json.dumps([["numpy", "1.26.4"]])
+
+    with mock.patch("subprocess.run",
+                    side_effect=_docker(RUNNING_INSPECT, answer, seen=seen)):
         data = docker_info.harvest()
 
-    assert data["docker_containers"][0]["ros_packages"] == [
-        "nav2_bringup", "nav2_msgs"]
+    c = data["docker_containers"][0]
+    assert c["ros_packages"] == ["nav2_bringup", "nav2_msgs"]
+    assert c["python_packages"] == [{"name": "numpy", "version": "1.26.4"}]
+    execs = [cmd for cmd in seen if cmd[1] == "exec"]
+    assert all(cmd[2] == "c0ffee" for cmd in execs)
+    # H9: the probe runs under the container's own `timeout`.
+    assert all("timeout" in cmd[5] for cmd in execs)
 
 
 def test_docker_falls_back_to_interactive_shell_for_ros_packages():
     """Many hand-rolled robot images only source ROS from ~/.bashrc, so a
     bare `docker exec ... ros2 pkg list` finds nothing — fall back to a
     login+interactive shell, same as an operator attaching manually would
-    get."""
-    def fake_run(cmd, **kw):
-        if cmd[1] == "ps":
-            return _completed("c0ffee\n")
-        if cmd[1] == "exec":
-            if "bash" in cmd:
-                assert cmd[-1] == "ros2 pkg list"
-                return _completed("nav2_bringup\n")
-            return _completed("", returncode=127, stderr="ros2: not found")
-        if "--format" in cmd:
-            return _completed('["example/navstack@sha256:7be1"]')
-        return _completed(json.dumps(RUNNING_INSPECT))
+    get. Its banner is not a package (H8)."""
+    def answer(login, script):
+        if "ros2 pkg list" not in script:
+            return None
+        return "nav2_bringup\nSourcing ROS 2 jazzy..." if login else None
 
-    with mock.patch("subprocess.run", side_effect=fake_run):
+    with mock.patch("subprocess.run",
+                    side_effect=_docker(RUNNING_INSPECT, answer)):
         data = docker_info.harvest()
 
     assert data["docker_containers"][0]["ros_packages"] == ["nav2_bringup"]
+
+
+def test_docker_probe_cut_short_is_not_an_answer():
+    def fake_run(cmd, **kw):
+        if cmd[1] == "exec":  # no end marker: killed half-way
+            return _completed(f"{docker_info._BEGIN}\nnav2_bringup\n")
+        return _docker(RUNNING_INSPECT)(cmd, **kw)
+    with mock.patch("subprocess.run", side_effect=fake_run):
+        data = docker_info.harvest()
+    assert data["docker_containers"][0]["ros_packages"] is None
 
 
 def test_docker_ros_packages_none_when_container_has_no_ros():
@@ -364,22 +403,34 @@ def test_docker_does_not_exec_into_a_stopped_container():
 
 def test_system_info(monkeypatch):
     monkeypatch.setenv("ROS_DISTRO", "jazzy")
-    dpkg = _completed("ros-jazzy-rclpy 7.1.0\nros-jazzy-nav2 1.3.0\n")
+    dpkg = _completed("ii |ros-jazzy-rclpy 7.1.0\nii |ros-jazzy-nav2 1.3.0\n"
+                      "rc |ros-jazzy-old 0.1\nun |ros-jazzy-gone \n")
     with mock.patch("subprocess.run", return_value=dpkg):
         data = system_info.harvest()
     assert data["ros_distro"] == "jazzy"
-    assert data["apt_ros_versions"]["ros-jazzy-rclpy"] == "7.1.0"
+    # H18: removed packages left in dpkg's database are not installed
+    assert data["apt_ros_versions"] == {"ros-jazzy-rclpy": "7.1.0",
+                                        "ros-jazzy-nav2": "1.3.0"}
     assert data["hostname"]
     assert data["kernel"].startswith("Linux")
     assert data["arch"]
 
 
 def test_system_info_no_dpkg(monkeypatch):
+    """H18: dpkg that can't be asked is "not captured" (None), not "no ROS
+    debs" ({}), which the diff would read as every package removed."""
     monkeypatch.delenv("ROS_DISTRO", raising=False)
     with mock.patch("subprocess.run", side_effect=FileNotFoundError):
         data = system_info.harvest()
     assert data["ros_distro"] is None
-    assert data["apt_ros_versions"] == {}
+    assert data["apt_ros_versions"] is None
+
+
+def test_system_info_no_ros_debs():
+    nothing = _completed("", returncode=1,
+                         stderr="dpkg-query: no packages found matching ros-*")
+    with mock.patch("subprocess.run", return_value=nothing):
+        assert system_info.harvest()["apt_ros_versions"] == {}
 
 
 def test_system_info_records_clock_sync():

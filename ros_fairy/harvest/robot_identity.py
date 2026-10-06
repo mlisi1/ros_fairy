@@ -50,6 +50,36 @@ def _require(section: dict, keys: tuple, where: str) -> None:
             raise RobotIdentityError(f"missing or empty '{key}' in {where}")
 
 
+def _mapping(value: Any, where: str) -> dict:
+    """``value`` if it is a mapping (or absent), else a plain-language error
+    — a hand-edited ``robot: Jo`` must not crash with an AttributeError."""
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise RobotIdentityError(f"'{where}' must be a section with named "
+                                 f"fields, not {type(value).__name__}")
+    return value
+
+
+def _entries(value: Any, where: str) -> list[dict]:
+    """A list of mappings (or nothing), else a plain-language error."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise RobotIdentityError(f"'{where}' must be a list")
+    for i, entry in enumerate(value, 1):
+        if not isinstance(entry, dict):
+            raise RobotIdentityError(f"entry {i} of '{where}' must be a "
+                                     "section with named fields")
+    return value
+
+
+def _topic(name: str) -> str:
+    """ROS topic names are absolute in the graph: `fix` is `/fix`."""
+    name = name.strip()
+    return name if name.startswith("/") else "/" + name
+
+
 def harvest() -> dict[str, Any]:
     """Return the typed identity dict, raising RobotIdentityError on problems.
 
@@ -64,19 +94,21 @@ def harvest() -> dict[str, Any]:
     if not path.is_file():
         raise RobotIdentityError(f"identity file not found: {path}")
     try:
-        raw = yaml.safe_load(path.read_text())
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     except yaml.YAMLError as exc:
         raise RobotIdentityError(f"identity file is not valid YAML: {exc}") from exc
+    except (OSError, UnicodeDecodeError) as exc:
+        raise RobotIdentityError(f"identity file can't be read: {exc}") from exc
     if not isinstance(raw, dict):
         raise RobotIdentityError("identity file must be a YAML mapping")
 
-    robot = raw.get("robot") or {}
-    owner = raw.get("owner") or {}
+    robot = _mapping(raw.get("robot"), "robot")
+    owner = _mapping(raw.get("owner"), "owner")
     _require(robot, _REQUIRED_ROBOT, "robot")
     _require(owner, _REQUIRED_OWNER, "owner")
 
     calibrations = []
-    for cal in raw.get("calibrations") or []:
+    for cal in _entries(raw.get("calibrations"), "calibrations"):
         _require(cal, _REQUIRED_CAL, "calibrations")
         calibrations.append({
             "name": cal["name"],
@@ -87,7 +119,7 @@ def harvest() -> dict[str, Any]:
 
     sensors = []
     seen_ids: set[str] = set()
-    for sensor in raw.get("sensors") or []:
+    for sensor in _entries(raw.get("sensors"), "sensors"):
         _require(sensor, _REQUIRED_SENSOR, "sensors")
         sid = sensor["sensor_id"]
         if sid in seen_ids:
@@ -101,12 +133,26 @@ def harvest() -> dict[str, Any]:
             "sensor_id": sid,
             "type": sensor["type"],
             "make_model": sensor["make_model"],
-            "topic": sensor["topic"],
+            "topic": _topic(sensor["topic"]),
             "frame_id": sensor.get("frame_id"),
             "calibration_ref": cal_ref,
         })
 
-    recording = raw.get("recording") or {}
+    recording = _mapping(raw.get("recording"), "recording")
+    topics = recording.get("topics")
+    if topics is not None:
+        # A bare string would be recorded character by character.
+        if isinstance(topics, str):
+            topics = [topics]
+        if not isinstance(topics, list) or \
+                not all(isinstance(t, str) and t.strip() for t in topics):
+            raise RobotIdentityError("'recording.topics' must be a list of "
+                                     "topic names")
+        topics = [_topic(t) for t in topics]
+    storage = recording.get("storage")
+    if storage is not None and not isinstance(storage, str):
+        raise RobotIdentityError("'recording.storage' must be a name such as "
+                                 "mcap or sqlite3")
     return {
         "robot": {
             "name": robot["name"],
@@ -117,9 +163,6 @@ def harvest() -> dict[str, Any]:
         },
         "sensors": sensors,
         "calibrations": calibrations,
-        "recording": {
-            "topics": recording.get("topics"),
-            "storage": recording.get("storage"),
-        },
+        "recording": {"topics": topics, "storage": storage},
         "default_license": owner.get("default_license"),
     }
