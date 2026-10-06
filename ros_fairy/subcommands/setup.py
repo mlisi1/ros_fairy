@@ -275,8 +275,13 @@ def write_watchdog_env(env: dict[str, str]) -> None:
     ``ros_env.capture()`` from whichever shell actually has ROS 2 sourced
     (normally the unprivileged operator's) and hand it in. Validation/abort
     of that source is the caller's job (:func:`_check_ros_visible`).
+
+    The service runs as root, so search-path entries an ordinary user can
+    write to (``~/.local/bin`` from the operator's PATH) are dropped: root
+    would otherwise run whatever that user puts there.
     """
-    ros_env.write_file(paths.watchdog_env_path(), env)
+    safe, _ = ros_env.root_safe_env(env)
+    ros_env.write_file(paths.watchdog_env_path(), safe)
 
 
 def _ensure_ros_environment(console: Console, explicit: str | None) -> bool:

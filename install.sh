@@ -38,6 +38,21 @@ fi
 LOG="$(mktemp)"
 trap 'rm -f "$LOG"' EXIT
 
+# pip builds in-tree and reuses an existing build/ directory, so a module
+# deleted from the source would be installed again from build/lib (it
+# happened: harvest/ros_descriptions.py outlived its removal). Start clean.
+# An earlier `sudo` install leaves these owned by root.
+STALE=("$REPO_DIR/build" "$REPO_DIR"/*.egg-info)
+if ! rm -rf "${STALE[@]}" 2>/dev/null; then
+    if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
+        echo "Removing an old build directory left by a root install." >&2
+        sudo rm -rf "${STALE[@]}"
+    else
+        echo "Couldn't remove ${STALE[*]} — delete it and re-run." >&2
+        exit 1
+    fi
+fi
+
 echo "Installing ros_fairy..."
 if python3 -m pip install "$TARGET" >"$LOG" 2>&1; then
     cat "$LOG"

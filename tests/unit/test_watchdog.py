@@ -173,7 +173,10 @@ def test_inactivity_finalises_crashed_bag(rig):
     assert dog.state == IDLE
     harvest, _ = builder.load_spool()
     rec = harvest["bags"][0]
-    assert rec["storage_format"] == "unknown"
+    # No metadata.yaml, but the storage still says what was recorded.
+    assert rec["storage_format"] == "sqlite3"
+    assert [t["name"] for t in rec["topics"]] == ["/fix"]
+    assert rec["message_count"] > 0
     assert any("unexpectedly" in w["plain_text"]
                for w in rec["health_warnings"])
 
@@ -324,6 +327,13 @@ def test_short_recording_waits_for_inflight_harvest(fairy_dirs):
     threading.Timer(0.1, release.set).start()
     ino.emit_file(bag, "metadata.yaml", flags.CLOSE_WRITE)
     dog.step(0)
+    # Waiting doesn't block the loop: FINALISING until the harvest lands.
+    assert dog.state == "FINALISING"
+    import time
+    deadline = time.monotonic() + 5
+    while dog.state != IDLE and time.monotonic() < deadline:
+        time.sleep(0.02)
+        dog.step(0)
 
     assert dog.state == IDLE
     harvest, _ = builder.load_spool()

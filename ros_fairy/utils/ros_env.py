@@ -21,6 +21,8 @@ import subprocess
 from collections.abc import Mapping
 from pathlib import Path
 
+from ros_fairy.utils import fsio
+
 # Every ROS/build-tool variable plus the search paths ros2 and rclpy need to
 # find their plugins and libraries. Keep in sync with the unit documentation.
 ROS_ENV_PREFIXES = ("ROS_", "AMENT_", "RMW_", "COLCON_")
@@ -151,9 +153,45 @@ def read_file(path: Path) -> dict[str, str]:
 
 
 def write_file(path: Path, env: dict[str, str], mode: int = 0o644) -> None:
+    """Write an env file atomically with ``mode``.
+
+    Atomic so a reader (the watchdog) never sees half a file, and by rename
+    so a file left by another operator is replaced even when this account
+    can't write to it (the spool directory is group-writable).
+    """
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(serialize(env))
+    fsio.atomic_write_text(path, serialize(env), mode=mode)
+
+
+# Search-path variables a root process must not take from user-writable
+# directories: an entry like ~/.local/bin would let that user's files run as
+# root (the watchdog resolves `ros2`, `docker` and `bash` through PATH).
+ROOT_SAFE_PATH_KEYS = ("PATH", "PYTHONPATH", "LD_LIBRARY_PATH")
+
+
+def _root_safe_dir(entry: str) -> bool:
+    """A directory only root can change: root-owned, not writable by others
+    (group-writable only when the group is root too)."""
     try:
-        os.chmod(path, mode)
+        st = os.stat(entry)
     except OSError:
-        pass
+        return False
+    if st.st_uid != 0 or st.st_mode & 0o002:
+        return False
+    return not (st.st_mode & 0o020) or st.st_gid == 0
+
+
+def root_safe_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
+    """``env`` with user-writable entries dropped from the search paths, and
+    the dropped entries. ``LD_PRELOAD`` is dropped entirely."""
+    out = dict(env)
+    dropped: list[str] = []
+    out.pop("LD_PRELOAD", None)
+    for key in ROOT_SAFE_PATH_KEYS:
+        if key not in out:
+            continue
+        entries = [e for e in out[key].split(os.pathsep) if e]
+        keep = [e for e in entries if _root_safe_dir(e)]
+        dropped += [e for e in entries if e not in keep]
+        out[key] = os.pathsep.join(keep)
+    return out, dropped

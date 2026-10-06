@@ -43,10 +43,23 @@ PROC = Path("/proc")
 _reported: set[str] = set()
 
 
-class FoundRecorder(TypedDict):
+class FoundRecorder(TypedDict, total=False):
     pid: int
-    output_dir: Path
+    # Process start time (clock ticks since boot, /proc/<pid>/stat field 22):
+    # with the pid it names one process, so a reused pid is not mistaken for
+    # the recorder.
+    start: int | None
+    # Host path of the bag directory. None only for a pending recorder whose
+    # directory isn't visible yet.
+    output_dir: Path | None
     discovery: dict[str, str]
+    # Present (False) only on a pending recorder: its output path is known
+    # from its arguments but nothing is recorded there yet. ``ns_path`` and
+    # ``mountinfo`` let ``pending_output`` find the directory after the
+    # recorder has exited (its /proc portal is gone by then).
+    active: bool
+    ns_path: str
+    mountinfo: str | None
 
 
 def _report_once(key: str, level: int, msg: str, *args) -> None:
@@ -252,22 +265,55 @@ def _is_active_bag(bag_dir: Path) -> bool:
         return False
 
 
+def _explicit_output(argv: list[str], cwd: Path,
+                     view=lambda p: p) -> Path | None:
+    """The output directory named in the recorder's arguments, if any (in
+    the recorder's namespace)."""
+    arg = _node_output(argv, cwd, view) if _is_recorder_node(argv) \
+        else _output_arg(argv)
+    if arg is None:
+        return None
+    bag_dir = Path(arg)
+    return bag_dir if bag_dir.is_absolute() else cwd / bag_dir
+
+
+def _open_bag_dir(pid: str, cwd: Path) -> Path | None:
+    """The ``rosbag2_*`` directory in ``cwd`` this recorder has a storage
+    file open in (recorder namespace), or None."""
+    try:
+        fds = list((PROC / pid / "fd").iterdir())
+    except OSError:
+        return None
+    for fd in fds:
+        try:
+            target = Path(os.readlink(fd))
+        except OSError:
+            continue
+        if target.name.endswith(STORAGE_SUFFIXES) and \
+                target.parent.parent == cwd and \
+                target.parent.name.startswith("rosbag2_"):
+            return target.parent
+    return None
+
+
 def _resolve_output(argv: list[str], cwd: Path,
-                    view=lambda p: p) -> Path | None:
+                    view=lambda p: p, pid: str | None = None) -> Path | None:
     """The bag directory the recorder is writing into, or None if not yet known.
 
     The result is in the *recorder's* namespace; ``view`` maps such a path to
     one readable from ours (identity on the host, the ``/proc/<pid>/root``
     portal for a containerised recorder).
     """
-    arg = _node_output(argv, cwd, view) if _is_recorder_node(argv) \
-        else _output_arg(argv)
-    if arg is not None:
-        bag_dir = Path(arg)
-        if not bag_dir.is_absolute():
-            bag_dir = cwd / bag_dir
+    bag_dir = _explicit_output(argv, cwd, view)
+    if bag_dir is not None:
         return bag_dir if _is_active_bag(view(bag_dir)) else None
-    # No -o: rosbag2 creates rosbag2_<timestamp>/ in the cwd. Pick the active one.
+    # No -o: rosbag2 creates rosbag2_<timestamp>/ in the cwd. The directory
+    # this recorder has a storage file open in is the answer; two recorders
+    # started in the same folder must not both claim the newest one.
+    if pid is not None:
+        opened = _open_bag_dir(pid, cwd)
+        if opened is not None:
+            return opened if _is_active_bag(view(opened)) else None
     try:
         candidates = [d for d in view(cwd).glob("rosbag2_*")
                       if d.is_dir() and _is_active_bag(d)]
@@ -373,8 +419,25 @@ def scan() -> list[FoundRecorder]:
         foreign_ns = None not in (own_ns, rec_ns) and rec_ns != own_ns
         view = (lambda p, pid=pid: _portal(pid, p)) if foreign_ns \
             else (lambda p: p)
-        bag_dir = _resolve_output(argv, cwd, view)
+        bag_dir = _resolve_output(argv, cwd, view, pid)
+        start = proc_start(pid)
         if bag_dir is None:
+            explicit = _explicit_output(argv, cwd, view)
+            if explicit is not None and \
+                    not (view(explicit) / "metadata.yaml").is_file():
+                # Known destination, nothing recorded yet: remember it, so a
+                # recording that ends before the next scan is still found.
+                mountinfo = None
+                if foreign_ns:
+                    try:
+                        mountinfo = (PROC / pid / "mountinfo").read_text()
+                    except OSError:
+                        continue
+                found.append(FoundRecorder(
+                    pid=int(pid), start=start, output_dir=None,
+                    discovery=_discovery_env(pid), active=False,
+                    ns_path=str(explicit), mountinfo=mountinfo))
+                continue
             _report_once(f"unresolved:{pid}", logging.INFO,
                          "recorder process %s found but its output directory "
                          "is not visible yet; will keep checking", pid)
@@ -390,12 +453,55 @@ def scan() -> list[FoundRecorder]:
                     "recording after copying it out", bag_dir, pid)
                 continue
             bag_dir = host_dir
-        found.append(FoundRecorder(pid=int(pid),
+        found.append(FoundRecorder(pid=int(pid), start=start,
                                    output_dir=bag_dir.resolve(),
                                    discovery=_discovery_env(pid)))
     return found
 
 
-def pid_alive(pid: int) -> bool:
-    """Whether a recorder process is still running (used as a finalise hint)."""
-    return (PROC / str(pid)).exists()
+def pending_output(rec: FoundRecorder) -> Path | None:
+    """Host path of a pending recorder's output directory, once it exists."""
+    ns_path = Path(rec.get("ns_path", ""))
+    mountinfo = rec.get("mountinfo")
+    if mountinfo is None:
+        host: Path | None = ns_path
+    else:
+        try:
+            self_mi = (PROC / "self" / "mountinfo").read_text()
+        except OSError:
+            return None
+        host = _host_path(ns_path, mountinfo, self_mi)
+    if host is None or not host.is_dir():
+        return None
+    return host.resolve()
+
+
+def _proc_stat(pid: int | str) -> tuple[str, int] | None:
+    """(state letter, start time) from /proc/<pid>/stat, or None."""
+    try:
+        text = (PROC / str(pid) / "stat").read_text()
+        fields = text[text.rindex(")") + 2:].split()
+        return fields[0], int(fields[19])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def proc_start(pid: int | str) -> int | None:
+    stat = _proc_stat(pid)
+    return stat[1] if stat else None
+
+
+def pid_alive(pid: int, start: int | None = None) -> bool:
+    """Whether that process is still running.
+
+    A zombie (exited, not yet reaped — common in containers without an init)
+    is not running. With ``start`` (from the scan), a different process that
+    was given the same pid later is not it either.
+    """
+    stat = _proc_stat(pid)
+    if stat is None:
+        return (PROC / str(pid)).exists()
+    state, started = stat
+    if state in ("Z", "X"):
+        return False
+    return start is None or started == start

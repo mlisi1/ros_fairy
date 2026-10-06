@@ -202,7 +202,7 @@ def test_scan_detects_host_recorder_in_fake_proc(tmp_path, monkeypatch):
                    ["ros2", "bag", "record", "-o", str(bag), "/t"],
                    cwd=str(tmp_path), environ="ROS_DOMAIN_ID=7\0X=1\0")
     found = _patched_scan(monkeypatch, proc)
-    assert found == [{"pid": 100, "output_dir": bag.resolve(),
+    assert found == [{"pid": 100, "start": None, "output_dir": bag.resolve(),
                       "discovery": {"ROS_DOMAIN_ID": "7"}}]
 
 
@@ -268,7 +268,7 @@ def test_scan_translates_containerised_recorder(tmp_path, monkeypatch):
     found = _patched_scan(
         monkeypatch, proc,
         self_mountinfo=f"31 1 259:9 /jo/bags {host_bags} rw - ext4 /dev/n rw\n")
-    assert found == [{"pid": 200, "output_dir": bag.resolve(),
+    assert found == [{"pid": 200, "start": None, "output_dir": bag.resolve(),
                       "discovery": {"RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp"}}]
 
 
@@ -313,6 +313,11 @@ def test_foreign_recording_detected_and_finalised(fairy_dirs, tmp_path):
     assert foreign in dog._foreign
 
     ino.emit(foreign, flags.CLOSE_WRITE, "metadata.yaml")
+    dog.step(0)
+    # metadata.yaml is written, but the recorder is still running: wait for
+    # it to exit rather than finalising a bag that may still change.
+    assert dog.state == RECORDING
+    dog._foreign[foreign]["pid"] = 0x7FFFFFFF  # the recorder exits
     dog.step(0)
     assert dog.state == IDLE
     harvest, _ = builder.load_spool()
@@ -400,8 +405,10 @@ def test_poller_ignores_spool_bags(fairy_dirs):
     dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
                    harvest_in_thread=False, scan_recorders=lambda: [])
     spool_bag = (paths.bags_dir() / "rosbag2_x").resolve()
-    assert dog._is_tracked(spool_bag)               # inotify already covers it
-    assert not dog._is_tracked((paths.archive_dir() / "elsewhere").resolve())
+    # inotify already covers spool bags; the poller only notes their recorder
+    assert dog._spool_bag(spool_bag) == paths.bags_dir() / "rosbag2_x"
+    assert dog._spool_bag((paths.archive_dir() / "elsewhere").resolve()) \
+        is None
 
 
 # -- ros2 fairy adopt -----------------------------------------------------------

@@ -28,9 +28,23 @@ def _pid_alive(pid) -> bool:
     return isinstance(pid, int) and Path(f"/proc/{pid}").exists()
 
 
+def watchdog_alive(state: dict | None) -> bool:
+    """Whether the watchdog that wrote ``state`` is still running.
+
+    The state file names the process by pid *and* start time, so a stale file
+    whose pid now belongs to another process (after a reboot), or to a zombie,
+    doesn't count. Files from older versions carry only the pid.
+    """
+    if state is None or not isinstance(state.get("pid"), int):
+        return False
+    from ros_fairy.watchdog import recorder_scan
+    return _pid_alive(state["pid"]) and recorder_scan.pid_alive(
+        state["pid"], state.get("proc_start"))
+
+
 def assistant_line(state: dict | None) -> str:
     """One plain-language line about the watchdog."""
-    if state is None or not _pid_alive(state.get("pid")):
+    if not watchdog_alive(state):
         return "not running — recordings will still work, but background "\
                "details won't be captured"
     try:

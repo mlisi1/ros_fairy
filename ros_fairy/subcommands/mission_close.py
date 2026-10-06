@@ -21,8 +21,8 @@ def _recording_in_progress() -> bool:
     state = wd.read_state()
     if state is None or state.get("state") != "RECORDING":
         return False
-    from ros_fairy.ui.status import _pid_alive
-    return _pid_alive(state.get("pid"))
+    from ros_fairy.ui.status import watchdog_alive
+    return watchdog_alive(state)
 
 
 def _wait_for_finalising(console: Console) -> None:
@@ -69,7 +69,9 @@ def _salvage_bags(harvest: dict | None) -> dict | None:
         harvest = builder.compose_harvest(
             None, None, None, None, None,
             {m: "failed" for m in builder.HARVEST_MODULES})
-    fsio.atomic_write_json(paths.harvest_json_path(), harvest)
+        with fsio.locked(paths.harvest_lock_path()):
+            if not paths.harvest_json_path().exists():
+                fsio.atomic_write_json(paths.harvest_json_path(), harvest)
     for bag_dir in missing:
         if (bag_dir / "metadata.yaml").is_file() or \
                 any(f.suffix in (".db3", ".mcap") for f in bag_dir.iterdir()):
@@ -182,6 +184,8 @@ def _run_locked(args, console: Console) -> int:
 
     _wait_for_finalising(console)
 
+    # A bag finalised before its recorder had closed it is re-read now.
+    wd.refresh_salvaged_records()
     harvest, context = builder.load_spool()
     harvest = _salvage_bags(harvest)
     if not (harvest or {}).get("bags"):

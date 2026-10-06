@@ -46,10 +46,10 @@ def _check_identity() -> dict:
 
 
 def _check_watchdog() -> dict:
-    from ros_fairy.ui.status import STALE_HEARTBEAT_S, _pid_alive
+    from ros_fairy.ui.status import STALE_HEARTBEAT_S, watchdog_alive
     from ros_fairy.watchdog import watchdog as wd
     state = wd.read_state()
-    if state is None or not _pid_alive(state.get("pid")):
+    if not watchdog_alive(state):
         return {"status": FAIL, "title": "Recording assistant is not running",
                 "detail": "the watchdog service is down",
                 "hint": "start it: `sudo systemctl enable --now "

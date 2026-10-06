@@ -33,7 +33,16 @@ HARDWARE_CMD_TIMEOUT_S = 10
 HARDWARE_TOTAL_TIMEOUT_S = 60
 ROS_RETRY_INTERVAL_S = 60
 HEARTBEAT_S = 60
-FOREIGN_SCAN_INTERVAL_S = 5
+# How often /proc is scanned for recorders (~6 ms per scan on Jo). A
+# recorder seen once before it wrote anything is caught even if it ends
+# before the next scan (Watchdog._pending); one whose whole life fits between
+# two scans is not, and a recorder node takes about a second just to start.
+FOREIGN_SCAN_INTERVAL_S = 1
+# A robot that publishes no URDF/static TF: retry the harvest for it only this
+# many times per recording.
+MAX_DESCRIPTION_RETRIES = 2
+# A failing status-file write is logged at most this often.
+STATE_ERROR_LOG_S = 300
 # Upper bound on waiting for an in-flight harvest at finalise time. The
 # pipeline's own module timeouts sum to well under this (the ROS snapshot is
 # hard-killed after ~50 s); past this the harvest is considered hung and the
@@ -139,13 +148,17 @@ _ROS_MODULE_FIELDS = {
 }
 
 
-def _keep_better_ros_capture(existing: dict, new: dict) -> dict:
+def _keep_better_ros_capture(existing: dict, new: dict,
+                             prefer_existing: tuple[str, ...] = ()) -> dict:
     """``new`` with each ROS module's result replaced by ``existing``'s where
     this run captured nothing for it and the earlier one did.
 
     Harvests repeat (one per recording, plus retries), and a later one can run
     after the stack went down: its empty result used to overwrite a good
     capture wholesale, so the mission was archived with no graph (2026-10-01).
+    Modules in ``prefer_existing`` keep an earlier capture even when this run
+    captured one too (a retry that only wanted the robot description must
+    not swap the recording's graph for a later one).
     """
     old_status = existing.get("provenance", {}).get("harvest_status", {})
     new_status = new.get("provenance", {}).get("harvest_status", {})
@@ -158,7 +171,8 @@ def _keep_better_ros_capture(existing: dict, new: dict) -> dict:
         # graphs entirely (2026-10-02: a stale 4-node "ok" test capture beat
         # the operator's live 38-node "partial" one).
         captured_before = _STATUS_RANK.get(old_status.get(module), 0) > 0
-        captured_now = _STATUS_RANK.get(new_status.get(module), 0) > 0
+        captured_now = _STATUS_RANK.get(new_status.get(module), 0) > 0 \
+            and module not in prefer_existing
         if captured_now or not captured_before:
             continue
         for field in fields:
@@ -177,6 +191,48 @@ def _keep_better_ros_capture(existing: dict, new: dict) -> dict:
         merged["software"] = {**new.get("software", {}),
                               "ros_packages": old_pkgs}
     return merged
+
+
+def _resolved(path: Path) -> Path:
+    try:
+        return path.resolve()
+    except OSError:
+        return path
+
+
+def _newest_mtime(bag_dir: Path) -> float | None:
+    try:
+        return max((f.stat().st_mtime for f in bag_dir.iterdir()),
+                   default=None)
+    except OSError:
+        return None
+
+
+def _spool_lock():
+    """Serialises read-modify-write updates of harvest.json across the
+    watchdog's threads and the operator CLIs (adopt, mission_close)."""
+    return fsio.locked(paths.harvest_lock_path())
+
+
+def _load_harvest_for_update() -> dict | None:
+    """harvest.json for an update, or None if there is none.
+
+    An unparseable file is moved aside (``harvest.json.corrupt-<time>``)
+    rather than silently overwritten: it may be the only record of the
+    mission's earlier recordings. Call with ``_spool_lock()`` held.
+    """
+    path = paths.harvest_json_path()
+    if not path.is_file():
+        return None
+    try:
+        return json.loads(path.read_text())
+    except ValueError:
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        aside = path.with_name(f"harvest.json.corrupt-{stamp}")
+        os.replace(path, aside)
+        log.warning("harvest.json was unreadable; kept it as %s and started "
+                    "a new one", aside.name)
+        return None
 
 
 class Watchdog:
@@ -199,9 +255,16 @@ class Watchdog:
         self.active_bag_dir: Path | None = None
         self.queued_bags: list[Path] = []
         # Bag dirs recorded outside mission_record (the /proc poller found them):
-        # path -> {"pid", "discovery"}. Drives in-place referencing, environ
-        # adoption, and the "detected" source tag at finalise.
+        # path -> {"pid", "start", "discovery"}. Drives in-place referencing,
+        # environ adoption, and the "detected" source tag at finalise.
         self._foreign: dict[Path, dict] = {}
+        # Recorder processes writing spool bags (mission_record), found by the
+        # same poller: path -> {"pid", "start"}. A quiet spool bag is not a
+        # finished one while its recorder runs (MCAP buffers whole chunks).
+        self._recorders: dict[Path, dict] = {}
+        # Recorders whose output folder is known but still empty, by pid: a
+        # recording that ends between two scans is caught when they exit.
+        self._pending: dict[int, dict] = {}
         self.last_bag_event: float | None = None
         self.last_bag_event_iso: str | None = None
         self._w1: int | None = None
@@ -209,10 +272,22 @@ class Watchdog:
         self._wd_dirs: dict[int, Path] = {}
         self._candidate_dirs: set[Path] = set()
         self._next_retry: float | None = None
+        self._retry_descriptions_only = False
+        self._description_retries = 0
         self._next_heartbeat: float = self.clock() + HEARTBEAT_S
         self._next_foreign_scan: float = self.clock() + FOREIGN_SCAN_INTERVAL_S
         self._harvest_lock = threading.Lock()
         self._harvest_thread: threading.Thread | None = None
+        # Bumped on every new recording and when finalise stops waiting for a
+        # harvest: a harvest started under an older generation is late, and
+        # must not write into a spool that has moved on.
+        self._harvest_gen = 0
+        # This recording's own harvest result (without bag records), to put
+        # back if the spool is cleared while it records.
+        self._active_doc: dict | None = None
+        self._finalise_deadline: float | None = None
+        self._state_lock = threading.Lock()
+        self._state_error_at: float | None = None
         self._stop = threading.Event()
         # The watchdog's own (trusted) discovery settings, from watchdog.env.
         # A session.env that omits a key reverts to this baseline rather than
@@ -237,27 +312,104 @@ class Watchdog:
     def run(self) -> None:
         self.start()
         while not self._stop.is_set():
-            self.step(timeout_ms=1000)
+            try:
+                self.step(timeout_ms=1000)
+            except Exception:
+                # One bad iteration (a full disk, a vanished directory) must
+                # not kill the service and make systemd restart it in a loop.
+                log.exception("watchdog loop error; carrying on")
+                time.sleep(1)
 
     # -- recovery (restart recovery) --------------------------------------
 
     def recover(self) -> None:
+        """Pick up after a restart, a crash or a power cut.
+
+        Finished recordings are finalised straight away. A recording with
+        no live recorder and no recent writes was cut off: it is finalised
+        too, *without* a new harvest — the context captured before the crash
+        is the one that matches it. Only recordings still being written are
+        resumed (the first) or queued (the rest).
+        """
+        previous = read_state() or {}
+        harvest_doc, _ = builder.load_spool()
+        finalised = {b["path"] for b in (harvest_doc or {}).get("bags", [])}
+        try:
+            live = {_resolved(Path(r["output_dir"]))
+                    for r in self.scan_recorders()
+                    if r.get("output_dir") and r.get("active", True)}
+        except Exception as exc:
+            log.warning("recorder scan failed: %s", exc)
+            live = set()
+
+        def still_recording(bag_dir: Path) -> bool:
+            mtime = _newest_mtime(bag_dir)
+            return _resolved(bag_dir) in live or (
+                mtime is not None and time.time() - mtime < BAG_INACTIVITY_S)
+
+        resume: list[Path] = []
+        for bag_dir in sorted(p for p in paths.bags_dir().iterdir()
+                              if p.is_dir()):
+            if str(bag_dir) in finalised:
+                continue
+            try:
+                has_storage = any(_is_storage_file(f.name)
+                                  for f in bag_dir.iterdir())
+            except OSError:
+                continue
+            if (bag_dir / "metadata.yaml").is_file():
+                self._finalise_offline(bag_dir, "mission_record",
+                                       "finished while the assistant was "
+                                       "not running")
+            elif has_storage and still_recording(bag_dir):
+                resume.append(bag_dir)
+            elif has_storage:
+                self._finalise_offline(bag_dir, "mission_record",
+                                       "was cut off (nothing is recording "
+                                       "it any more)")
+        # Recordings outside the spool tracked before the restart: one that
+        # finished (or died) meanwhile is finalised now; one still running is
+        # picked up again by the recorder poller.
+        for entry in previous.get("tracked_foreign") or []:
+            bag_dir = Path(entry)
+            if str(bag_dir) in finalised or not bag_dir.is_dir():
+                continue
+            if (bag_dir / "metadata.yaml").is_file():
+                self._finalise_offline(bag_dir, "detected",
+                                       "finished while the assistant was "
+                                       "not running")
+            elif not still_recording(bag_dir):
+                self._finalise_offline(bag_dir, "detected",
+                                       "was cut off (nothing is recording "
+                                       "it any more)")
+        for bag_dir in resume:
+            if self.state == IDLE:
+                log.info("resuming RECORDING for %s after restart", bag_dir)
+                self._enter_recording(bag_dir)
+            else:
+                self._watch_candidate(bag_dir)
+                self.queued_bags.append(bag_dir)
+
+    def _finalise_offline(self, bag_dir: Path, source: str, why: str) -> None:
+        log.info("recording %s %s; saving what is on disk", bag_dir, why)
+        try:
+            append_bag_record(bag_dir, source=source)
+        except Exception:
+            log.exception("failed to finalise %s", bag_dir)
+
+    def _rescan_spool(self) -> None:
+        """Re-arm after an inotify queue overflow: events (a new bag folder)
+        may have been lost, so look at the spool directly."""
+        log.warning("too many file events at once; re-checking the spool")
         harvest_doc, _ = builder.load_spool()
         finalised = {b["path"] for b in (harvest_doc or {}).get("bags", [])}
         for bag_dir in sorted(p for p in paths.bags_dir().iterdir()
                               if p.is_dir()):
-            has_storage = any(_is_storage_file(f.name)
-                              for f in bag_dir.iterdir())
-            has_meta = (bag_dir / "metadata.yaml").is_file()
-            if str(bag_dir) in finalised:
+            if str(bag_dir) in finalised or \
+                    bag_dir in self._wd_dirs.values():
                 continue
-            if has_storage and not has_meta:
-                log.info("resuming RECORDING for %s after restart", bag_dir)
-                self._enter_recording(bag_dir)
-            elif has_meta:
-                log.info("finalising %s left over from before restart",
-                         bag_dir)
-                self._finalise(bag_dir)
+            self._watch_candidate(bag_dir)
+            self._promote_candidate(bag_dir)
 
     # -- event loop --------------------------------------------------------
 
@@ -270,6 +422,9 @@ class Watchdog:
     def _handle_event(self, event) -> None:
         from inotify_simple import flags
         mask, name = event.mask, event.name
+        if event.wd == -1 or mask & flags.Q_OVERFLOW:
+            self._rescan_spool()
+            return
         if event.wd == self._w1:
             if mask & flags.ISDIR and mask & (flags.CREATE | flags.MOVED_TO):
                 new_dir = paths.bags_dir() / name
@@ -283,7 +438,7 @@ class Watchdog:
         if _is_storage_file(name) and mask & flags.CREATE:
             if self.state == IDLE and bag_dir in self._candidate_dirs:
                 self._enter_recording(bag_dir)
-            elif self.state == RECORDING and bag_dir != self.active_bag_dir \
+            elif self.state != IDLE and bag_dir != self.active_bag_dir \
                     and bag_dir not in self.queued_bags:
                 log.warning("second bag %s appeared while recording %s; "
                             "queued", bag_dir, self.active_bag_dir)
@@ -291,97 +446,155 @@ class Watchdog:
         if bag_dir == self.active_bag_dir and name != "metadata.yaml":
             self._touch_activity()
         if name == "metadata.yaml" and mask & flags.CLOSE_WRITE and \
-                bag_dir == self.active_bag_dir:
-            self._finalise(bag_dir)
+                bag_dir == self.active_bag_dir and self.state == RECORDING:
+            # rosbag2 writes metadata.yaml when it closes the bag. While its
+            # recorder process is still alive, let the "recorder done" check
+            # finalise once it has exited.
+            if not self._recorder_alive(bag_dir):
+                self._finalise(bag_dir)
 
     def _service_timers(self) -> None:
         now = self.clock()
-        if now >= self._next_foreign_scan and self.state in (IDLE, RECORDING):
+        if now >= self._next_foreign_scan:
             self._next_foreign_scan = now + FOREIGN_SCAN_INTERVAL_S
             self._poll_foreign()
-        if self.state == RECORDING:
-            # A foreign recorder that has exited and written metadata.yaml is
+        if self.state == FINALISING:
+            self._try_complete_finalise()
+        elif self.state == RECORDING:
+            # A recorder that has exited and written metadata.yaml is
             # finished now — finalise without waiting out the inactivity window.
-            if self._foreign_recorder_done(self.active_bag_dir):
-                log.info("foreign recorder for %s exited, finalising",
+            if self._recorder_done(self.active_bag_dir):
+                log.info("recorder for %s exited, finalising",
                          self.active_bag_dir)
                 self._finalise(self.active_bag_dir)
-                return
-            if self.last_bag_event is not None and \
+            elif self.last_bag_event is not None and \
                     now - self.last_bag_event >= BAG_INACTIVITY_S:
                 # A quiet bag is not a finished one while its recorder still
                 # runs (buffered writes, no traffic on the recorded topics):
-                # for a foreign bag we know the pid, so wait for its exit.
-                if self._foreign_recorder_alive(self.active_bag_dir):
+                # when we know the pid, wait for its exit.
+                if self._recorder_alive(self.active_bag_dir):
                     self._touch_activity()
                 else:
                     log.info("bag inactive for %ss, finalising",
                              BAG_INACTIVITY_S)
                     self._finalise(self.active_bag_dir)
-                    return
-            if self._next_retry is not None and now >= self._next_retry:
+            elif self._next_retry is not None and now >= self._next_retry:
                 self._maybe_retry_ros()
-            if now >= self._next_heartbeat:
-                self._next_heartbeat = now + HEARTBEAT_S
-                self.write_state()
+        if now >= self._next_heartbeat:
+            self._next_heartbeat = now + HEARTBEAT_S
+            self.write_state()
 
-    # -- foreign-bag detection ---------------------------------------------
+    # -- recorder detection ------------------------------------------------
+
+    def _spool_bag(self, bag_dir: Path) -> Path | None:
+        """The spool path of ``bag_dir`` if it is a spool bag, else None."""
+        try:
+            if _resolved(bag_dir).parent == _resolved(paths.bags_dir()):
+                return paths.bags_dir() / bag_dir.name
+        except OSError:
+            pass
+        return None
+
+    def _is_busy_with(self, bag_dir: Path) -> bool:
+        return bag_dir == self.active_bag_dir or bag_dir in self.queued_bags \
+            or bag_dir in self._foreign
+
+    @staticmethod
+    def _is_finalised(bag_dir: Path) -> bool:
+        harvest_doc, _ = builder.load_spool()
+        return str(bag_dir) in {
+            b.get("path") for b in (harvest_doc or {}).get("bags", [])}
 
     def _poll_foreign(self) -> None:
-        """Adopt recordings started outside the spool, found via the /proc scan.
+        """Track every live recorder found by the /proc scan.
 
-        New recordings enter RECORDING when idle (harvest adopts the recorder's
-        own DDS env); one found while busy is queued like a second spool bag.
+        Recordings outside the spool enter RECORDING when idle (harvest
+        adopts the recorder's own DDS env); one found while busy is queued
+        like a second spool bag. For spool recordings only the recorder's pid
+        is noted: inotify drives those.
         """
         try:
             found = self.scan_recorders()
         except Exception as exc:  # never let a scan glitch kill the loop
             log.warning("recorder scan failed: %s", exc)
             return
+        seen_pids = set()
         for rec in found:
-            bag_dir = Path(rec["output_dir"])
-            if self._is_tracked(bag_dir):
+            pid = rec.get("pid")
+            if rec.get("active", True) is False:
+                if pid is not None and pid not in self._pending:
+                    self._pending[pid] = dict(rec)
                 continue
-            self._foreign[bag_dir] = {"pid": rec.get("pid"),
-                                      "discovery": rec.get("discovery", {})}
-            if self.state == IDLE:
-                log.info("foreign recording detected: %s (pid %s)",
-                         bag_dir, rec.get("pid"))
-                self._enter_recording(bag_dir)
-            else:
-                log.warning("foreign recording %s appeared while busy with %s; "
-                            "queued", bag_dir, self.active_bag_dir)
-                self.queued_bags.append(bag_dir)
+            seen_pids.add(pid)
+            self._pending.pop(pid, None)
+            bag_dir = Path(rec["output_dir"])
+            spool_bag = self._spool_bag(bag_dir)
+            if spool_bag is not None:
+                self._recorders[spool_bag] = {"pid": pid,
+                                              "start": rec.get("start")}
+                continue
+            if self._is_busy_with(bag_dir):
+                continue
+            if self._is_finalised(bag_dir):
+                # A live recorder is writing a folder we already finalised:
+                # it is being recorded again (or was finalised too early).
+                log.warning("%s is being recorded again; its earlier record "
+                            "is replaced when this recording ends", bag_dir)
+                drop_bag_record(bag_dir)
+            self._track_foreign(bag_dir, rec)
+        # Recorders seen before they wrote anything that have since exited:
+        # a recording shorter than the scan interval.
+        for pid, rec in list(self._pending.items()):
+            if pid in seen_pids or recorder_scan.pid_alive(pid,
+                                                           rec.get("start")):
+                continue
+            del self._pending[pid]
+            bag_dir = recorder_scan.pending_output(rec)
+            if bag_dir is None or not (bag_dir / "metadata.yaml").is_file() \
+                    or self._spool_bag(bag_dir) is not None \
+                    or self._is_busy_with(bag_dir) \
+                    or self._is_finalised(bag_dir):
+                continue
+            log.info("short recording %s finished between checks", bag_dir)
+            self._track_foreign(bag_dir, rec)
 
-    def _is_tracked(self, bag_dir: Path) -> bool:
-        """Whether this directory is already accounted for (skip if so)."""
-        if bag_dir == self.active_bag_dir or bag_dir in self.queued_bags \
-                or bag_dir in self._foreign:
-            return True
-        try:  # spool bags are handled by inotify, never by the poller
-            if paths.bags_dir().resolve() in bag_dir.parents:
-                return True
+    def _track_foreign(self, bag_dir: Path, rec: dict) -> None:
+        self._foreign[bag_dir] = {"pid": rec.get("pid"),
+                                  "start": rec.get("start"),
+                                  "discovery": rec.get("discovery", {})}
+        if self.state == IDLE:
+            log.info("foreign recording detected: %s (pid %s)",
+                     bag_dir, rec.get("pid"))
+            self._enter_recording(bag_dir)
+        else:
+            log.warning("foreign recording %s appeared while busy with %s; "
+                        "queued", bag_dir, self.active_bag_dir)
+            self.queued_bags.append(bag_dir)
+
+    def _recorder_info(self, bag_dir: Path | None) -> dict | None:
+        if bag_dir is None:
+            return None
+        info = self._foreign.get(bag_dir) or self._recorders.get(bag_dir)
+        return info if info and info.get("pid") is not None else None
+
+    def _recorder_alive(self, bag_dir: Path | None) -> bool:
+        info = self._recorder_info(bag_dir)
+        return info is not None and \
+            recorder_scan.pid_alive(info["pid"], info.get("start"))
+
+    def _recorder_done(self, bag_dir: Path | None) -> bool:
+        """The bag's recorder has closed it: metadata written, and the process
+        gone (or still lingering long after writing it)."""
+        info = self._recorder_info(bag_dir)
+        if info is None or bag_dir is None:
+            return False
+        meta = bag_dir / "metadata.yaml"
+        try:
+            meta_age = time.time() - meta.stat().st_mtime
         except OSError:
-            pass
-        harvest_doc, _ = builder.load_spool()
-        finalised = {b["path"] for b in (harvest_doc or {}).get("bags", [])}
-        return str(bag_dir) in finalised
-
-    def _foreign_recorder_done(self, bag_dir: Path | None) -> bool:
-        if bag_dir is None:
             return False
-        info = self._foreign.get(bag_dir)
-        if info is None or info.get("pid") is None:
-            return False
-        return (not recorder_scan.pid_alive(info["pid"])
-                and (bag_dir / "metadata.yaml").is_file())
-
-    def _foreign_recorder_alive(self, bag_dir: Path | None) -> bool:
-        if bag_dir is None:
-            return False
-        info = self._foreign.get(bag_dir)
-        return info is not None and info.get("pid") is not None \
-            and recorder_scan.pid_alive(info["pid"])
+        return not self._recorder_alive(bag_dir) or \
+            meta_age >= BAG_INACTIVITY_S
 
     # -- transitions -------------------------------------------------------
 
@@ -404,7 +617,7 @@ class Watchdog:
         bag whose first chunk lands in the race window between the directory
         appearing and W2 being armed (or a finished bag dir moved into the
         spool) would otherwise never trigger RECORDING and never be harvested.
-        Scan once on arm and apply the same IDLE→enter / RECORDING→queue logic
+        Scan once on arm and apply the same IDLE→enter / busy→queue logic
         the live CREATE event would have.
         """
         try:
@@ -417,7 +630,7 @@ class Watchdog:
         if self.state == IDLE and bag_dir in self._candidate_dirs:
             log.info("storage already present in %s when armed", bag_dir)
             self._enter_recording(bag_dir)
-        elif self.state == RECORDING and bag_dir != self.active_bag_dir \
+        elif self.state != IDLE and bag_dir != self.active_bag_dir \
                 and bag_dir not in self.queued_bags:
             log.warning("second bag %s already had data when seen; queued",
                         bag_dir)
@@ -437,34 +650,87 @@ class Watchdog:
         # failure; firing both queued a second harvest that could run after
         # the recording (and the robot's stack) had stopped (2026-10-01).
         self._next_retry = None
+        self._retry_descriptions_only = False
+        self._description_retries = 0
+        self._harvest_gen += 1
+        self._active_doc = None
         self._run_harvest()
 
     def _finalise(self, bag_dir: Path | None) -> None:
-        if bag_dir is None:
+        """Start finalising ``bag_dir``.
+
+        Waiting for an in-flight harvest no longer blocks the loop: the state
+        stays FINALISING (mission_close waits for it) while events, recorder
+        scans and heartbeats carry on, and ``_service_timers`` completes it.
+        """
+        if bag_dir is None or self.state == FINALISING:
             return
         self.state = FINALISING
+        self._finalise_deadline = self.clock() + HARVEST_WAIT_S
+        thread = self._harvest_thread
+        if thread is not None and thread.is_alive():
+            # A recording shorter than the harvest pipeline would otherwise
+            # be finalised against an empty spool.
+            log.info("recording ended before harvest finished; waiting for it")
         self.write_state()
-        self._wait_for_harvest()
+        self._try_complete_finalise()
+
+    def _try_complete_finalise(self) -> None:
+        thread = self._harvest_thread
+        if thread is not None and thread.is_alive():
+            if self._finalise_deadline is not None and \
+                    self.clock() < self._finalise_deadline:
+                return
+            log.warning("harvest still running after %ss; finalising with "
+                        "the context on disk", HARVEST_WAIT_S)
+            self._harvest_gen += 1  # its result arrives too late to use
+        self._complete_finalise()
+
+    def _complete_finalise(self) -> None:
+        bag_dir = self.active_bag_dir
+        if bag_dir is None:
+            return
+        if self._active_doc is not None and \
+                not paths.harvest_json_path().exists():
+            # The spool was cleared while this recording ran (a mission was
+            # saved meanwhile): put this recording's own context back.
+            log.warning("the spool was cleared during this recording; "
+                        "restoring the context captured for it")
+            try:
+                with _spool_lock():
+                    if not paths.harvest_json_path().exists():
+                        fsio.atomic_write_json(paths.harvest_json_path(),
+                                               self._active_doc)
+            except OSError:
+                log.exception("restoring the recording's context failed")
         try:
             self._append_bag_record(bag_dir)
         except Exception:
             log.exception("failed to finalise %s", bag_dir)
         self._unwatch(bag_dir)
         self._foreign.pop(bag_dir, None)
+        self._recorders.pop(bag_dir, None)
         self.state = IDLE
         self.since = _now_iso()
         self.active_bag_dir = None
         self.last_bag_event = None
         self.last_bag_event_iso = None
+        self._finalise_deadline = None
+        self._active_doc = None
         log.info("finalised %s", bag_dir)
         self.write_state()
         # A recording that started while we were busy takes over now.
         while self.queued_bags:
             queued = self.queued_bags.pop(0)
-            if queued.is_dir() and any(_is_storage_file(f.name)
-                                       for f in queued.iterdir()):
+            try:
+                ready = queued.is_dir() and any(_is_storage_file(f.name)
+                                                for f in queued.iterdir())
+            except OSError:
+                ready = False
+            if ready:
                 self._enter_recording(queued)
                 break
+            self._foreign.pop(queued, None)  # gone: stop tracking it
 
     def _unwatch(self, bag_dir: Path) -> None:
         for wd, known in list(self._wd_dirs.items()):
@@ -481,30 +747,15 @@ class Watchdog:
 
     # -- harvest -----------------------------------------------------------
 
-    def _run_harvest(self) -> None:
+    def _run_harvest(self, descriptions_only: bool = False) -> None:
+        gen = self._harvest_gen
         if self.harvest_in_thread:
             self._harvest_thread = threading.Thread(
-                target=self._harvest_once, daemon=True)
+                target=self._harvest_once, args=(gen, descriptions_only),
+                daemon=True)
             self._harvest_thread.start()
         else:
-            self._harvest_once()
-
-    def _wait_for_harvest(self) -> None:
-        """Block until the in-flight harvest has written harvest.json.
-
-        A recording shorter than the harvest pipeline would otherwise be
-        finalised against an empty spool: ``append_bag_record`` falls back to
-        the all-modules-"failed" stub, and a prompt ``mission_close`` archives
-        a context-less crate while the real harvest lands afterwards.
-        """
-        thread = self._harvest_thread
-        if thread is None or not thread.is_alive():
-            return
-        log.info("recording ended before harvest finished; waiting for it")
-        thread.join(timeout=HARVEST_WAIT_S)
-        if thread.is_alive():
-            log.warning("harvest still running after %ss; finalising with "
-                        "the context on disk", HARVEST_WAIT_S)
+            self._harvest_once(gen, descriptions_only)
 
     def _apply_session_env(self) -> None:
         """Adopt the recording's DDS discovery env for this harvest (issue #29).
@@ -543,44 +794,92 @@ class Watchdog:
             log.info("adopted %s DDS env: %s", label,
                      ", ".join(f"{k}={env[k]}" for k in sorted(env)))
 
-    def _harvest_once(self) -> None:
-        with self._harvest_lock:
-            self._apply_session_env()
-            started = time.monotonic()
-            doc = self.pipeline()
-            status = doc["provenance"]["harvest_status"]
-            graph = doc.get("ros_graph") or {}
-            log.info("harvest finished in %.0fs: %s; %d nodes, parameters "
-                     "for %d", time.monotonic() - started,
-                     ", ".join(f"{k}={v}" for k, v in status.items()),
-                     len(graph.get("nodes") or []),
-                     len(graph.get("parameters") or {}))
-            self._save_harvest(doc)
-            if status.get("ros_graph") in ("failed", "timeout") or \
-                    status.get("ros_descriptions") in ("failed", "timeout"):
+    @staticmethod
+    def _spool_mission_id() -> str | None:
+        context = builder.load_spool()[1]
+        return ((context or {}).get("identity") or {}).get("mission_id")
+
+    def _harvest_once(self, gen: int | None = None,
+                      descriptions_only: bool = False) -> None:
+        """One harvest. Never raises: a failure is logged and retried."""
+        gen = self._harvest_gen if gen is None else gen
+        try:
+            with self._harvest_lock:
+                mission = self._spool_mission_id()
+                self._apply_session_env()
+                started = time.monotonic()
+                doc = self.pipeline()
+                status = doc["provenance"]["harvest_status"]
+                graph = doc.get("ros_graph") or {}
+                log.info("harvest finished in %.0fs: %s; %d nodes, "
+                         "parameters for %d", time.monotonic() - started,
+                         ", ".join(f"{k}={v}" for k, v in status.items()),
+                         len(graph.get("nodes") or []),
+                         len(graph.get("parameters") or {}))
+                current = gen == self._harvest_gen
+                if not current and (
+                        not paths.harvest_json_path().exists()
+                        or self._spool_mission_id() != mission):
+                    log.warning("discarding a harvest that finished too "
+                                "late: the recording it was for has been "
+                                "closed")
+                    return
+                if current:
+                    self._active_doc = json.loads(json.dumps(doc))
+                self._save_harvest(doc, keep_graph=descriptions_only)
+                if current:
+                    self._schedule_retry(status)
+                self.write_state()
+        except Exception:
+            log.exception("harvest failed; will try again")
+            if gen == self._harvest_gen:
+                self._retry_descriptions_only = False
                 self._next_retry = self.clock() + ROS_RETRY_INTERVAL_S
-            else:
-                self._next_retry = None
-            self.write_state()
+
+    def _schedule_retry(self, status: dict) -> None:
+        """Retry while ROS is unreachable. A robot that publishes no
+        description is retried only a couple of times: re-running the whole
+        harvest every minute for it costs a DDS participant each time and
+        replaced the recording's graph with ever-later ones."""
+        if status.get("ros_graph") in ("failed", "timeout"):
+            self._retry_descriptions_only = False
+            self._next_retry = self.clock() + ROS_RETRY_INTERVAL_S
+        elif status.get("ros_descriptions") in ("failed", "timeout") and \
+                self._description_retries < MAX_DESCRIPTION_RETRIES:
+            self._description_retries += 1
+            self._retry_descriptions_only = True
+            self._next_retry = self.clock() + ROS_RETRY_INTERVAL_S
+        else:
+            self._next_retry = None
 
     def _maybe_retry_ros(self) -> None:
         """Re-run the full pipeline; cheap modules are cheap, ROS may be up now."""
-        log.info("retrying harvest (ROS was unreachable)")
-        self._next_retry = self.clock() + ROS_RETRY_INTERVAL_S
-        self._run_harvest()
+        thread = self._harvest_thread
+        if thread is not None and thread.is_alive():
+            self._next_retry = self.clock() + ROS_RETRY_INTERVAL_S
+            return
+        descriptions_only = self._retry_descriptions_only
+        log.info("retrying harvest (%s)",
+                 "the robot description wasn't being published"
+                 if descriptions_only else "ROS was unreachable")
+        self._next_retry = None
+        self._run_harvest(descriptions_only=descriptions_only)
 
-    def _save_harvest(self, doc: dict) -> None:
+    def _save_harvest(self, doc: dict, keep_graph: bool = False) -> None:
         """Write harvest.json, preserving bag records already finalised and
         any ROS capture that was better than this run's."""
-        existing, _ = builder.load_spool()
-        if existing:
-            doc = _keep_better_ros_capture(existing, doc)
-        if existing and existing.get("bags"):
-            doc = {**doc, "bags": existing["bags"]}
-            if existing.get("provenance", {}).get("harvested_at"):
-                doc["provenance"]["harvested_at"] = \
-                    existing["provenance"]["harvested_at"]
-        fsio.atomic_write_json(paths.harvest_json_path(), doc)
+        with _spool_lock():
+            existing = _load_harvest_for_update()
+            if existing:
+                doc = _keep_better_ros_capture(
+                    existing, doc,
+                    prefer_existing=("ros_graph",) if keep_graph else ())
+            if existing and existing.get("bags"):
+                doc = {**doc, "bags": existing["bags"]}
+                if existing.get("provenance", {}).get("harvested_at"):
+                    doc["provenance"]["harvested_at"] = \
+                        existing["provenance"]["harvested_at"]
+            fsio.atomic_write_json(paths.harvest_json_path(), doc)
 
     def _append_bag_record(self, bag_dir: Path) -> None:
         source = "detected" if bag_dir in self._foreign else "mission_record"
@@ -589,41 +888,106 @@ class Watchdog:
     # -- state file ----------------------------------------------------------
 
     def write_state(self) -> None:
-        harvest_doc, _ = builder.load_spool()
-        status = (harvest_doc or {}).get("provenance", {}).get(
-            "harvest_status", {})
-        graph = (harvest_doc or {}).get("ros_graph") or {}
-        fsio.atomic_write_json(paths.watchdog_state_path(), {
-            "version": 1,
-            "pid": os.getpid(),
-            "state": self.state,
-            "since": self.since,
-            "heartbeat_at": _now_iso(),
-            "active_bag_dir": str(self.active_bag_dir)
-            if self.active_bag_dir else None,
-            "last_bag_event_at": self.last_bag_event_iso,
-            "harvest_status": status,
-            # when that status was produced, and what it saw — so readers
-            # (doctor) can say "last capture at 10:22", not imply it's live
-            "harvest_captured_at": graph.get("captured_at"),
-            "harvest_node_count": len(graph.get("nodes") or []),
-        })
+        """Write watchdog.state. Never raises: a full disk must not stop the
+        watchdog (it used to crash-loop under systemd); the failure is logged
+        at most every few minutes."""
+        with self._state_lock:
+            try:
+                harvest_doc, _ = builder.load_spool()
+                status = (harvest_doc or {}).get("provenance", {}).get(
+                    "harvest_status", {})
+                graph = (harvest_doc or {}).get("ros_graph") or {}
+                tracked = [self.active_bag_dir, *self.queued_bags]
+                fsio.atomic_write_json(paths.watchdog_state_path(), {
+                    "version": 1,
+                    "pid": os.getpid(),
+                    # with the pid, names this process: a later process given
+                    # the same pid is not mistaken for the watchdog
+                    "proc_start": recorder_scan.proc_start(os.getpid()),
+                    "state": self.state,
+                    "since": self.since,
+                    "heartbeat_at": _now_iso(),
+                    "active_bag_dir": str(self.active_bag_dir)
+                    if self.active_bag_dir else None,
+                    "last_bag_event_at": self.last_bag_event_iso,
+                    "harvest_status": status,
+                    # when that status was produced, and what it saw — so
+                    # readers (doctor) can say "last capture at 10:22", not
+                    # imply it's live
+                    "harvest_captured_at": graph.get("captured_at"),
+                    "harvest_node_count": len(graph.get("nodes") or []),
+                    # recordings outside the spool being tracked, so a restart
+                    # can finalise those that finish while it is down
+                    "tracked_foreign": [str(p) for p in tracked
+                                        if p is not None and p in self._foreign],
+                })
+            except OSError as exc:
+                now = time.monotonic()
+                if self._state_error_at is None or \
+                        now - self._state_error_at >= STATE_ERROR_LOG_S:
+                    self._state_error_at = now
+                    log.error("can't write the status file (%s); carrying "
+                              "on without it", exc)
 
 
-def append_bag_record(bag_dir: Path, source: str = "mission_record") -> None:
-    """Finalise one bag into harvest.json (also used by mission_close to
-    salvage bags the watchdog never saw, and by ``ros2 fairy adopt``).
+def _salvage_topics(bag_dir: Path) -> tuple[str, list[dict], int]:
+    """(storage format, topics, message count) of a bag without metadata.yaml.
 
-    ``source`` tags how the recording was captured ("mission_record",
-    "detected", or "adopted"); foreign sources are referenced in place and
-    copied — not moved — into the crate at archive time.
+    A recorder killed mid-write leaves no metadata, but the storage itself
+    usually still names its topics and holds most messages: an MCAP read up
+    to where it was cut off, a SQLite database read as is.
     """
-    harvest_doc, _ = builder.load_spool()
-    if harvest_doc is None:
-        harvest_doc = builder.compose_harvest(
-            None, None, None, None, None,
-            {m: "failed" for m in builder.HARVEST_MODULES})
-    sensors = harvest_doc.get("sensors", [])
+    files = sorted(f for f in bag_dir.iterdir() if f.is_file())
+    topics: dict[str, dict] = {}
+    storage = "unknown"
+    for f in files:
+        if f.suffix == ".mcap":
+            storage = "mcap"
+            # Read record by record: the high-level readers want the summary
+            # at the end of the file, or give up at the cut-off chunk without
+            # yielding the complete chunks before it.
+            schemas: dict[int, str] = {}
+            channels: dict[int, dict] = {}
+            try:
+                from mcap.records import Channel, Message, Schema
+                from mcap.stream_reader import StreamReader
+                with open(f, "rb") as fh:
+                    for rec in StreamReader(fh, skip_magic=False).records:
+                        if isinstance(rec, Schema):
+                            schemas[rec.id] = rec.name
+                        elif isinstance(rec, Channel):
+                            channels[rec.id] = topics.setdefault(rec.topic, {
+                                "name": rec.topic,
+                                "type": schemas.get(rec.schema_id, "unknown"),
+                                "message_count": 0})
+                        elif isinstance(rec, Message) and \
+                                rec.channel_id in channels:
+                            channels[rec.channel_id]["message_count"] += 1
+            except Exception:
+                pass  # cut off mid-record: keep what was read
+        elif f.suffix == ".db3":
+            storage = "sqlite3"
+            try:
+                import sqlite3
+                con = sqlite3.connect(f"file:{f}?mode=ro", uri=True)
+                try:
+                    rows = con.execute(
+                        "SELECT t.name, t.type, COUNT(m.id) FROM topics t "
+                        "LEFT JOIN messages m ON m.topic_id = t.id "
+                        "GROUP BY t.id").fetchall()
+                finally:
+                    con.close()
+            except Exception:
+                rows = []
+            for name, type_, count in rows:
+                t = topics.setdefault(name, {"name": name, "type": type_,
+                                             "message_count": 0})
+                t["message_count"] += count
+    out = list(topics.values())
+    return storage, out, sum(t["message_count"] for t in out)
+
+
+def _bag_record(bag_dir: Path, source: str, sensors: list) -> dict:
     meta = topic_health.parse_bag_metadata(bag_dir)
     if meta is not None:
         # One read of the message timestamps feeds both the recording window
@@ -636,7 +1000,7 @@ def append_bag_record(bag_dir: Path, source: str = "mission_record") -> None:
             bag_dir, sensors, meta=meta, series=series)
         # duration_s is None when the clock was too unreliable to trust; emit
         # no fabricated times or rates in that case.
-        bag = {
+        return {
             "path": str(bag_dir),
             "source": source,
             "storage_format": meta["storage_identifier"],
@@ -658,38 +1022,86 @@ def append_bag_record(bag_dir: Path, source: str = "mission_record") -> None:
                 for t in meta["topics"]],
             "health_warnings": warnings,
         }
-    else:
-        # Hard crash mid-write: recover what the filesystem still knows.
-        warnings = topic_health.analyse_bag(bag_dir, sensors)
-        files = [f for f in bag_dir.rglob("*") if f.is_file()]
-        mtimes = [f.stat().st_mtime for f in files] or [time.time()]
-        bag = {
-            "path": str(bag_dir),
-            "source": source,
-            "storage_format": "unknown",
-            "size_bytes": fsio.dir_size_bytes(bag_dir),
-            "start_time": datetime.fromtimestamp(
-                min(mtimes), tz=timezone.utc).isoformat(),
-            "end_time": datetime.fromtimestamp(
-                max(mtimes), tz=timezone.utc).isoformat(),
-            "duration_s": max(mtimes) - min(mtimes),
-            "message_count": 0,
-            "topics": [],
-            "health_warnings": warnings,
-        }
-    harvest_doc.setdefault("bags", []).append(bag)
-    harvest_doc.setdefault("provenance", {})["harvested_at"] = _now_iso()
-    fsio.atomic_write_json(paths.harvest_json_path(), harvest_doc)
+    # Hard crash mid-write: recover what the filesystem still knows.
+    warnings = topic_health.analyse_bag(bag_dir, sensors)
+    storage, topics, count = _salvage_topics(bag_dir)
+    files = [f for f in bag_dir.rglob("*") if f.is_file()]
+    mtimes = [f.stat().st_mtime for f in files] or [time.time()]
+    return {
+        "path": str(bag_dir),
+        "source": source,
+        "storage_format": storage,
+        "size_bytes": fsio.dir_size_bytes(bag_dir),
+        "start_time": datetime.fromtimestamp(
+            min(mtimes), tz=timezone.utc).isoformat(),
+        "end_time": datetime.fromtimestamp(
+            max(mtimes), tz=timezone.utc).isoformat(),
+        "duration_s": max(mtimes) - min(mtimes),
+        "message_count": count,
+        "topics": [{**t, "avg_frequency_hz": None} for t in topics],
+        "health_warnings": warnings,
+    }
+
+
+def append_bag_record(bag_dir: Path, source: str = "mission_record") -> None:
+    """Finalise one bag into harvest.json (also used by mission_close to
+    salvage bags the watchdog never saw, and by ``ros2 fairy adopt``).
+
+    ``source`` tags how the recording was captured ("mission_record",
+    "detected", or "adopted"); foreign sources are referenced in place and
+    copied — not moved — into the crate at archive time. An earlier record
+    of the same folder is replaced, not duplicated.
+    """
+    # The bag is read without the lock (it can take a while); only the
+    # update of harvest.json is serialised.
+    sensors = (builder.load_spool()[0] or {}).get("sensors", [])
+    bag = _bag_record(bag_dir, source, sensors)
+    with _spool_lock():
+        harvest_doc = _load_harvest_for_update()
+        if harvest_doc is None:
+            harvest_doc = builder.compose_harvest(
+                None, None, None, None, None,
+                {m: "failed" for m in builder.HARVEST_MODULES})
+        harvest_doc["bags"] = [b for b in harvest_doc.get("bags", [])
+                               if b.get("path") != str(bag_dir)] + [bag]
+        harvest_doc.setdefault("provenance", {})["harvested_at"] = _now_iso()
+        fsio.atomic_write_json(paths.harvest_json_path(), harvest_doc)
+
+
+def drop_bag_record(bag_dir: Path) -> None:
+    """Forget the record of ``bag_dir`` (it is being recorded again)."""
+    with _spool_lock():
+        harvest_doc = _load_harvest_for_update()
+        if harvest_doc is None:
+            return
+        harvest_doc["bags"] = [b for b in harvest_doc.get("bags", [])
+                               if b.get("path") != str(bag_dir)]
+        fsio.atomic_write_json(paths.harvest_json_path(), harvest_doc)
+
+
+def refresh_salvaged_records() -> None:
+    """Re-read bags recorded without metadata.yaml that now have one.
+
+    A bag finalised before its recorder had closed it (its record says
+    ``storage_format: unknown`` or has no topics) is re-read once
+    rosbag2 has written its metadata, so the real record is archived.
+    """
+    harvest_doc, _ = builder.load_spool()
+    for bag in (harvest_doc or {}).get("bags", []):
+        bag_dir = Path(bag.get("path", ""))
+        if (bag.get("storage_format") == "unknown" or not bag.get("topics")) \
+                and (bag_dir / "metadata.yaml").is_file():
+            log.info("re-reading %s now that it has been closed", bag_dir)
+            append_bag_record(bag_dir, source=bag.get("source",
+                                                      "mission_record"))
 
 
 def read_state() -> dict | None:
     """For mission_status: the state file, or None if absent/unreadable."""
     path = paths.watchdog_state_path()
-    if not path.is_file():
-        return None
     try:
         return json.loads(path.read_text())
-    except json.JSONDecodeError:
+    except (OSError, ValueError):
         return None
 
 
@@ -776,6 +1188,15 @@ def main() -> None:
     spool_log = SpoolLogHandler(level=logging.INFO)
     spool_log.setFormatter(logging.Formatter(_LOG_FORMAT))
     logging.getLogger("ros_fairy").addHandler(spool_log)
+    safe, dropped = ros_env.root_safe_env(os.environ)
+    if dropped:
+        # The harvest runs `ros2`, `docker` and `bash` as root: never from a
+        # folder an ordinary user can write to (watchdog.env from an older
+        # setup froze the operator's PATH, ~/.local/bin included).
+        log.warning("ignoring search-path entries any user could change: %s",
+                    ", ".join(dropped))
+    os.environ.clear()
+    os.environ.update(safe)
     ensure_ros_log_dir()
     Watchdog().run()
 

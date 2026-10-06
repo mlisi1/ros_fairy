@@ -14,11 +14,8 @@ from ros_fairy.watchdog import watchdog as wd
 
 
 def _watchdog_alive() -> bool:
-    state = wd.read_state()
-    if state is None:
-        return False
-    from ros_fairy.ui.status import _pid_alive
-    return _pid_alive(state.get("pid"))
+    from ros_fairy.ui.status import watchdog_alive
+    return watchdog_alive(wd.read_state())
 
 
 def _last_operator() -> str | None:
@@ -39,8 +36,8 @@ def _blocks_replacing(console: Console) -> bool:
     """
     state = wd.read_state()
     if state and state.get("state") in ("RECORDING", "FINALISING"):
-        from ros_fairy.ui.status import _pid_alive
-        if _pid_alive(state.get("pid")):
+        from ros_fairy.ui.status import watchdog_alive
+        if watchdog_alive(state):
             console.print("[yellow]A recording is in progress. Stop it first, "
                           "then run this again.[/yellow]")
             return True
@@ -120,7 +117,8 @@ def run(args, console: Console | None = None) -> int:
     # Hand the live recording shell's ROS environment to the watchdog so its
     # harvest sees the same DDS partition / overlay as this session, even if the
     # frozen watchdog.env snapshot has drifted (issue #29).
-    ros_env.write_file(paths.session_env_path(), ros_env.capture())
+    ros_env.write_file(paths.session_env_path(), ros_env.capture(),
+                       mode=0o664)
     fsio.atomic_write_json(context_path, context)
     console.print(Panel("Mission briefing saved. Start recording with: "
                         "[bold]ros2 fairy mission_record[/bold]",

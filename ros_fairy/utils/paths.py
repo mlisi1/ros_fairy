@@ -53,6 +53,11 @@ def harvest_json_path() -> Path:
     return spool_dir() / "harvest.json"
 
 
+def harvest_lock_path() -> Path:
+    """flock target serialising harvest.json updates."""
+    return spool_dir() / ".harvest.lock"
+
+
 def watchdog_log_path() -> Path:
     """The watchdog's log for the open mission; archived with it."""
     return spool_dir() / "watchdog.log"

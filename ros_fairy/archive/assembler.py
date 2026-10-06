@@ -334,6 +334,12 @@ def _clear_spool(mission_id: str | None, saved_paths: set[str]) -> None:
     (still listed in harvest.json but not in ``saved_paths``) keep their
     records, so the next mission_close can save them.
     """
+    with fsio.locked(paths.harvest_lock_path()):
+        _clear_spool_locked(mission_id, saved_paths)
+
+
+def _clear_spool_locked(mission_id: str | None,
+                        saved_paths: set[str]) -> None:
     from ros_fairy.manifest import builder
     harvest, context = builder.load_spool()
     spool_id = ((context or {}).get("identity") or {}).get("mission_id")

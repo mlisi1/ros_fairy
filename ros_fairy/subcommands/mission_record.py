@@ -88,7 +88,8 @@ def run(args, console: Console | None = None) -> int:
     # actually starting (every preflight passed) — the recorder has the correct
     # env, the watchdog only a frozen copy it must match (#29). Written here, not
     # earlier, so an aborted preflight never leaves a stale handoff behind.
-    ros_env.write_file(paths.session_env_path(), ros_env.capture())
+    ros_env.write_file(paths.session_env_path(), ros_env.capture(),
+                       mode=0o664)
 
     child = subprocess.Popen(command)
     try:

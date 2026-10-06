@@ -4,20 +4,39 @@ harvest.json and watchdog.state must never be observable in a torn state:
 write to a sibling temp file, fsync, rename.
 """
 
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
+import threading
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
 
-def atomic_write_text(path: Path, text: str) -> None:
-    tmp = path.with_name(path.name + ".tmp")
-    with open(tmp, "w") as fh:
-        fh.write(text)
-        fh.flush()
-        os.fsync(fh.fileno())
-    os.rename(tmp, path)
+def atomic_write_text(path: Path, text: str, mode: int | None = None) -> None:
+    """Write ``text`` to ``path`` atomically.
+
+    The temp file is unique per process and thread: two writers (the
+    watchdog's harvest thread and its main loop) sharing one ``<name>.tmp``
+    could rename each other's half-written file or fail with ENOENT. On
+    failure (a full disk) the temp file is removed, not left behind.
+    """
+    tmp = path.with_name(
+        f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        with open(tmp, "w") as fh:
+            fh.write(text)
+            fh.flush()
+            if mode is not None:
+                os.fchmod(fh.fileno(), mode)
+            os.fsync(fh.fileno())
+        os.rename(tmp, path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            tmp.unlink()
+        raise
 
 
 def atomic_write_json(path: Path, document: Any) -> None:
@@ -61,3 +80,24 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: fh.read(1 << 20), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+@contextlib.contextmanager
+def locked(lock_path: Path) -> Iterator[None]:
+    """Hold an exclusive ``flock`` on ``lock_path`` (created group-writable).
+
+    Serialises read-modify-write updates of a shared file between processes
+    (the root watchdog, operator CLIs) and threads. Not re-entrant: never
+    nest two ``locked()`` on the same path.
+    """
+    fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o664)
+    try:
+        with contextlib.suppress(OSError):
+            os.fchmod(fd, 0o664)
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
