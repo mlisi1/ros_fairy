@@ -33,4 +33,5 @@ testpaths = ["tests"]
 addopts = ["-m", "not ros"]
 markers = [
     "ros: integration test requiring a live, sourced ROS 2 environment (deselected by default; run with `pytest -m ros`).",
+    "real_usb_udev: runs the real usb_udev.harvest (against a faked sysfs) instead of the default stub.",
 ]

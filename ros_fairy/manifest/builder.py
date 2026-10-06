@@ -122,6 +122,8 @@ def compose_harvest(identity: dict | None, system: dict | None,
             "complete": graph.get("complete", False),
         },
         "hardware_devices": hw.get("devices", []),
+        "usb": hw.get("usb"),
+        "udev_rules": hw.get("udev_rules"),
         "bags": [],
         "provenance": {
             "ros_fairy_version": ros_fairy.__version__,
@@ -141,6 +143,10 @@ def compose_harvest(identity: dict | None, system: dict | None,
         "raw_hardware": {
             "lsusb_verbose": hw.get("lsusb_verbose"),
             "dmesg_usb": hw.get("dmesg_usb"),
+            # archived in the crate: the non-default udev rules themselves
+            # and the `udevadm test` trace of which rules acted where
+            "udev_rule_files": hw.get("udev_rule_files") or {},
+            "udev_trace": hw.get("udev_trace") or [],
         },
     }
 
@@ -234,10 +240,35 @@ def build(harvest: dict | None, context: dict | None) -> MissionRecord:
         "calibrations": harvest.get("calibrations", []),
         "bags": harvest.get("bags", []),
         "hardware_devices": harvest.get("hardware_devices", []),
+        "usb": harvest.get("usb"),
+        "udev_rules": harvest.get("udev_rules"),
         "provenance": harvest["provenance"],
     })
     record.provenance.field_confidence = _field_confidence(record)
     return record
+
+
+def _udev_not_in_effect(usb: dict | None) -> list[str]:
+    """One warning per robot udev rule line whose setting a device lacks."""
+    by_rule: dict[tuple[str, str, str], list[str]] = {}
+    for dev in (usb or {}).get("devices", []):
+        label = dev.get("product") or \
+            f"USB device {dev.get('vendor_id')}:{dev.get('product_id')}"
+        for applied in dev.get("udev_rules_applied", []):
+            if applied.get("in_effect") is not False:
+                continue
+            setting = Path(applied.get("attribute") or "").name
+            parent = Path(applied.get("attribute") or "").parent.name
+            if parent == "power":
+                setting = f"power/{setting}"
+            key = (Path(applied["rule"]).name, setting,
+                   applied.get("expected") or "")
+            by_rule.setdefault(key, []).append(
+                f"{label} has {applied.get('actual')!r}")
+    return [f"The robot's udev rule {rule} should set {setting} to "
+            f"{expected!r}, but {', '.join(devices)} — that device setting "
+            "isn't in effect during this recording."
+            for (rule, setting, expected), devices in sorted(by_rule.items())]
 
 
 def harvest_level_warnings(harvest: dict | None) -> list[str]:
@@ -266,6 +297,7 @@ def harvest_level_warnings(harvest: dict | None) -> list[str]:
         warnings.append("The robot's physical description was being "
                         "published but didn't arrive in time, so it isn't "
                         "included.")
+    warnings += _udev_not_in_effect(harvest.get("usb"))
     containers = (harvest.get("software") or {}).get("docker_containers", [])
     if any(c.get("digest") is None for c in containers):
         warnings.append("Some software containers couldn't be pinned to an "

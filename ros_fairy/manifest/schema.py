@@ -99,6 +99,100 @@ class HardwareDevice(_Model):
     udev_properties: dict[str, str] | None = None
 
 
+class UdevRule(_Model):
+    """A udev rule file that is the robot's own configuration (not a
+    package's unmodified default). Its content is archived in the crate."""
+    path: str
+    reason: str            # "local" (/etc, /run) | "modified" | "unpackaged"
+    package: str | None = None
+    sha256: str
+    size_bytes: int
+    masks: str | None = None       # name of a default rule it disables
+    overrides: str | None = None   # path of the default rule it replaces
+    archived_path: str | None = None
+
+
+class DefaultUdevRule(_Model):
+    path: str
+    package: str
+
+
+class UdevRules(_Model):
+    custom: list[UdevRule] = Field(default_factory=list)
+    default: list[DefaultUdevRule] = Field(default_factory=list)
+
+
+class AppliedUdevRule(_Model):
+    """A non-default rule line that acts on a USB device or its children
+    (from `udevadm test`). For an attribute it writes, ``in_effect`` says
+    whether the device really has that value now."""
+    node: str
+    rule: str                     # "<file>:<line>"
+    action: str
+    attribute: str | None = None
+    expected: str | None = None
+    actual: str | None = None
+    in_effect: bool | None = None
+
+
+class UsbInterface(_Model):
+    name: str
+    interface_class: str | None = None
+    driver: str | None = None
+
+
+class UsbSerialPort(_Model):
+    tty: str
+    latency_timer_ms: str | None = None
+
+
+class UsbDevice(_Model):
+    sysfs_name: str
+    port_path: str | None = None
+    bus: str | None = None
+    device: str | None = None
+    vendor_id: str | None = None
+    product_id: str | None = None
+    manufacturer: str | None = None
+    product: str | None = None
+    serial: str | None = None
+    speed_mbps: str | None = None
+    usb_version: str | None = None
+    max_power: str | None = None
+    removable: str | None = None
+    authorized: str | None = None
+    quirks: str | None = None
+    avoid_reset_quirk: str | None = None
+    driver: str | None = None
+    power: dict[str, str] = Field(default_factory=dict)
+    interfaces: list[UsbInterface] = Field(default_factory=list)
+    serial_ports: list[UsbSerialPort] = Field(default_factory=list)
+    udev_rules_applied: list[AppliedUdevRule] = Field(default_factory=list)
+
+
+class UsbPort(_Model):
+    port: str
+    hub: str
+    connected: str | None = None
+    peer: str | None = None
+    power_control: str | None = None
+    connect_type: str | None = None
+    disable: str | None = None
+    usb3_lpm_permit: str | None = None
+    state: str | None = None
+    over_current_count: str | None = None
+    quirks: str | None = None
+    location: str | None = None
+
+
+class UsbState(_Model):
+    """How every USB device and port is managed, from sysfs."""
+    usbcore: dict[str, str] = Field(default_factory=dict)
+    driver_parameters: dict[str, dict[str, str]] = Field(default_factory=dict)
+    devices: list[UsbDevice] = Field(default_factory=list)
+    ports: list[UsbPort] = Field(default_factory=list)
+
+
 class Software(_Model):
     ros_distro: str | None = None
     # `ros2 pkg list` on the host. None = not captured (probe failed); an
@@ -217,4 +311,7 @@ class MissionRecord(_Model):
     calibrations: list[Calibration] = Field(default_factory=list)
     bags: list[Bag] = Field(default_factory=list)
     hardware_devices: list[HardwareDevice] = Field(default_factory=list)
+    # None = not captured (older records, or the probe failed).
+    usb: UsbState | None = None
+    udev_rules: UdevRules | None = None
     provenance: Provenance

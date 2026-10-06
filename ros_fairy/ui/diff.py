@@ -384,6 +384,85 @@ def _diff_recordings(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     return rows
 
 
+def _usb_key(dev) -> tuple:
+    """The same physical device across missions: vendor, product, and its
+    serial (or, without one, the port it sits in)."""
+    return (dev.vendor_id, dev.product_id, dev.serial or dev.port_path
+            or dev.sysfs_name)
+
+
+def _usb_label(dev) -> str:
+    name = dev.product or f"{dev.vendor_id}:{dev.product_id}"
+    return f"USB {name}" + (f" ({dev.serial})" if dev.serial else "")
+
+
+def _usb_settings(dev) -> dict[str, str]:
+    out = {"port": dev.port_path or dev.sysfs_name,
+           "speed (Mb/s)": dev.speed_mbps, "driver": dev.driver}
+    for key in ("control", "autosuspend_delay_ms"):
+        out[f"power/{key}"] = dev.power.get(key)
+    for tty in dev.serial_ports:
+        out[f"{tty.tty} latency_timer"] = tty.latency_timer_ms
+    off = sorted(r.rule for r in dev.udev_rules_applied
+                 if r.in_effect is False)
+    out["rules not in effect"] = ", ".join(off) or None
+    return {k: v for k, v in out.items() if v is not None}
+
+
+def _diff_usb_udev(a: MissionRecord, b: MissionRecord) -> list[tuple]:
+    """The robot's udev rules and how its USB devices were managed. Not
+    captured on a side (older record, failed probe) is said, not diffed."""
+    rows: list[tuple] = []
+    ra, rb = a.udev_rules, b.udev_rules
+    if ra is not None and rb is not None:
+        ca = {r.path: r for r in ra.custom}
+        cb = {r.path: r for r in rb.custom}
+        for path in sorted(set(ca) | set(cb)):
+            if path not in cb:
+                rows.append((f"udev rule {path}", "present", ""))
+            elif path not in ca:
+                rows.append((f"udev rule {path}", "", "present"))
+            elif ca[path].sha256 != cb[path].sha256:
+                rows.append((f"udev rule {path}", ca[path].sha256[:12],
+                             cb[path].sha256[:12] + " (changed)"))
+    elif (ra is None) != (rb is None):
+        rows.append(_captured_row("udev rules captured", ra, rb))
+
+    ua, ub = a.usb, b.usb
+    if ua is None or ub is None:
+        if (ua is None) != (ub is None):
+            rows.append(_captured_row("USB details captured", ua, ub))
+        return rows
+    for key in sorted(set(ua.usbcore) | set(ub.usbcore)):
+        va, vb = ua.usbcore.get(key), ub.usbcore.get(key)
+        if va != vb:
+            rows.append((f"usbcore {key}", va or "", vb or ""))
+    for module in sorted(set(ua.driver_parameters) | set(ub.driver_parameters)):
+        pa = ua.driver_parameters.get(module, {})
+        pb = ub.driver_parameters.get(module, {})
+        if not pa or not pb:
+            continue  # driver not loaded in one mission: no device using it
+        for key in sorted(set(pa) | set(pb)):
+            if pa.get(key) != pb.get(key):
+                rows.append((f"{module} {key}", pa.get(key, ""),
+                             pb.get(key, "")))
+    da = {_usb_key(d): d for d in ua.devices}
+    db = {_usb_key(d): d for d in ub.devices}
+    for key in sorted(set(da) | set(db), key=lambda k: tuple(map(str, k))):
+        if key not in db:
+            rows.append((_usb_label(da[key]), "connected", ""))
+            continue
+        if key not in da:
+            rows.append((_usb_label(db[key]), "", "connected"))
+            continue
+        sa, sb = _usb_settings(da[key]), _usb_settings(db[key])
+        for setting in sorted(set(sa) | set(sb)):
+            if sa.get(setting) != sb.get(setting):
+                rows.append((f"{_usb_label(da[key])}: {setting}",
+                             sa.get(setting, ""), sb.get(setting, "")))
+    return rows
+
+
 # ── public entry point ────────────────────────────────────────────────────────
 
 def show_diff(a: MissionRecord, b: MissionRecord,
@@ -405,6 +484,7 @@ def show_diff(a: MissionRecord, b: MissionRecord,
         ("Parameters",            _diff_parameters(a, b)),
         ("Robot description",     _diff_urdf(a, b, crate_a, crate_b)),
         ("Static transforms",     _diff_tf_static(a, b)),
+        ("USB and udev",          _diff_usb_udev(a, b)),
         ("Recordings",            _diff_recordings(a, b)),
     ]
     rows_by_title = dict(sections)
@@ -455,6 +535,7 @@ def diff_as_dict(a: MissionRecord, b: MissionRecord,
         "parameters":       _diff_parameters(a, b),
         "robot_description": _diff_urdf(a, b, crate_a, crate_b),
         "tf_static":        _diff_tf_static(a, b),
+        "usb_udev":         _diff_usb_udev(a, b),
         "recordings":       _diff_recordings(a, b),
     }
     changes = {

@@ -30,6 +30,19 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip)
 
 
+@pytest.fixture(autouse=True)
+def _no_host_udev(request, monkeypatch):
+    """Keep this machine's sysfs and udevadm out of the unit tests: the
+    hardware probe would otherwise read the real USB tree. Tests of the probe
+    itself are marked ``real_usb_udev`` and fake sysfs instead."""
+    if "real_usb_udev" in request.keywords:
+        return
+    from ros_fairy.harvest import usb_udev
+    monkeypatch.setattr(usb_udev, "harvest", lambda: {
+        "usb": None, "udev_rules": None, "rule_files": {}, "trace": [],
+        "partial": False})
+
+
 @pytest.fixture
 def fairy_dirs(tmp_path, monkeypatch):
     """Relocate /var/ros-fairy and /etc/ros-fairy into tmp_path."""

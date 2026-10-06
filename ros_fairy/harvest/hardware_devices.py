@@ -359,6 +359,15 @@ def _harvest() -> dict:
     elif r is not None:
         partial = True
 
+    # 8. udev rules and USB port management (harvest/usb_udev.py)
+    udev: dict = {}
+    if deadline - time.monotonic() > 2:
+        from ros_fairy.harvest import usb_udev
+        udev = usb_udev.harvest()
+        partial = partial or udev.get("partial", False)
+    else:
+        partial = True
+
     if time.monotonic() >= deadline:
         log.warning("listing hardware ran out of time (%ss); the list may be "
                     "incomplete", HARDWARE_TOTAL_TIMEOUT_S)
@@ -380,5 +389,9 @@ def _harvest() -> dict:
         "devices": devices,
         "lsusb_verbose": lsusb_verbose,
         "dmesg_usb": dmesg_usb,
+        "usb": udev.get("usb"),
+        "udev_rules": udev.get("udev_rules"),
+        "udev_rule_files": udev.get("rule_files") or {},
+        "udev_trace": udev.get("trace") or [],
         "status": status,
     }

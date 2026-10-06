@@ -198,6 +198,11 @@ def _render_readme(record: MissionRecord, warnings: list[str]) -> str:
             shown = ", ".join(named[:8])
             more = f", and {len(named) - 8} more" if len(named) > 8 else ""
             lines += [f"- Recognised devices: {shown}{more}."]
+        if record.udev_rules and record.udev_rules.custom:
+            n = len(record.udev_rules.custom)
+            lines += [f"- {n} udev rule file(s) of the robot's own are "
+                      "archived in harvest/udev_rules/; harvest/udev_trace.txt "
+                      "shows which rules acted on each USB device."]
         if with_serial:
             lines += [f"- {len(with_serial)} of these record a serial number. "
                       "**Serial numbers can identify a specific physical unit** "
@@ -737,6 +742,26 @@ def _stage(record: MissionRecord, harvest_doc: dict[str, Any], staging: Path,
         extra_files.append({"id": "harvest/dmesg_usb.txt",
                              "name": "Kernel hardware messages",
                              "encodingFormat": "text/plain"})
+    # The robot's own udev rules, kept at their original path below
+    # harvest/udev_rules/, and the trace of which rules acted on which device.
+    rule_files = raw_hw.get("udev_rule_files") or {}
+    for rule in (record.udev_rules.custom if record.udev_rules else []):
+        text = rule_files.get(rule.path)
+        if text is None:
+            continue
+        rel = "harvest/udev_rules/" + rule.path.lstrip("/")
+        (staging / rel).parent.mkdir(parents=True, exist_ok=True)
+        (staging / rel).write_text(text, encoding="utf-8")
+        rule.archived_path = rel
+        extra_files.append({"id": rel, "name": f"udev rule {rule.path}",
+                            "encodingFormat": "text/plain"})
+    trace = raw_hw.get("udev_trace") or []
+    if trace:
+        (harvest_dir / "udev_trace.txt").write_text(
+            "\n".join(trace) + "\n", encoding="utf-8")
+        extra_files.append({"id": "harvest/udev_trace.txt",
+                            "name": "udev rules applied to each USB device",
+                            "encodingFormat": "text/plain"})
 
     if record.ros_graph.robot_description:
         (harvest_dir / "robot_description.urdf").write_text(
