@@ -269,8 +269,8 @@ def test_mission_record_aborts_on_unsynced_clock(fairy_dirs):
                            return_value="/usr/bin/ros2"), \
          mock.patch.object(mission_record.clock, "is_synchronized",
                            return_value=False), \
-         mock.patch.object(mission_record.Confirm, "ask",
-                           return_value=False) as ask, \
+         mock.patch("rich.prompt.Confirm.ask",
+                    return_value=False) as ask, \
          mock.patch.object(mission_record.subprocess, "Popen") as popen:
         assert mission_record.run(ARGS, console=console) == 0
     ask.assert_called_once()          # the clock prompt
@@ -319,13 +319,40 @@ def test_wait_for_finalising_returns_immediately_when_idle(fairy_dirs):
 
 
 def test_wait_for_finalising_polls_until_state_changes(fairy_dirs):
-    states = iter([{"state": "FINALISING"}, {"state": "FINALISING"},
-                   {"state": "IDLE"}])
+    live = {"state": "FINALISING", "pid": os.getpid()}
+    states = iter([live, live, {"state": "IDLE"}])
     with mock.patch.object(mission_close.wd, "read_state",
                            side_effect=lambda: next(states)), \
             mock.patch.object(mission_close.time, "sleep") as sleep_mock:
-        mission_close._wait_for_finalising(_console())
+        assert mission_close._wait_for_finalising(_console()) is True
     assert sleep_mock.call_count == 2
+
+
+def test_wait_for_finalising_stops_when_the_watchdog_is_dead(fairy_dirs):
+    """S4: a watchdog that died in FINALISING left that state behind."""
+    dead = {"state": "FINALISING", "pid": 0x7FFFFFFF}
+    console = _console()
+    with mock.patch.object(mission_close.wd, "read_state", return_value=dead), \
+            mock.patch.object(mission_close.time, "sleep") as sleep_mock:
+        assert mission_close._wait_for_finalising(console) is True
+    sleep_mock.assert_not_called()
+    assert "stopped while finishing" in console.file.getvalue()
+
+
+def test_close_stops_when_the_capture_never_finishes(fairy_dirs):
+    """S4: past the wait, close says so instead of saving without context."""
+    _spool(fairy_dirs)
+    live = {"state": "FINALISING", "pid": os.getpid()}
+    clock = iter(range(0, 10_000, 100))
+    console = _console()
+    with mock.patch.object(mission_close.wd, "read_state", return_value=live), \
+            mock.patch.object(mission_close.time, "sleep"), \
+            mock.patch.object(mission_close.time, "monotonic",
+                              side_effect=lambda: next(clock)), \
+            mock.patch.object(mission_close.review, "confirm_save") as save:
+        assert mission_close.run(ARGS, console=console) == 1
+    save.assert_not_called()
+    assert "Try again in a minute" in console.file.getvalue()
 
 
 def test_mission_close_waits_for_finalising_instead_of_racing_it(fairy_dirs):
@@ -1052,7 +1079,7 @@ def test_mission_close_gates_poor_mission(fairy_dirs):
 
     captured = {}
 
-    def fake_confirm(console=None, *, risky=False):
+    def fake_confirm(console=None, *, risky=False, assume_yes=False):
         captured["risky"] = risky
         return "keep"
 
@@ -1085,7 +1112,7 @@ def test_mission_close_does_not_gate_healthy_mission(fairy_dirs):
     _spool(fairy_dirs)
     captured = {}
 
-    def fake_confirm(console=None, *, risky=False):
+    def fake_confirm(console=None, *, risky=False, assume_yes=False):
         captured["risky"] = risky
         return "keep"
 
@@ -1384,7 +1411,8 @@ def test_doctor_archive_check(fairy_dirs):
     result = doctor._check_archive()
     assert result["status"] == doctor.WARN
     assert "2026-09-29_17-04-31_cut-off" in result["detail"]
-    assert "adopt" in result["hint"]
+    # S1: never suggest deleting a folder that may hold the only copy
+    assert "mission_close" in result["hint"] and "rm -r" not in result["hint"]
 
 
 def test_doctor_run_not_ready_exit_and_json(capsys):
@@ -1527,12 +1555,21 @@ def test_all_verb_wrappers_are_guarded():
     """Every VerbExtension.main must route through guarded_main."""
     import inspect
 
+    import importlib
+    import re
+
     from ros_fairy import subcommands as pkg
-    from ros_fairy.subcommands import adopt, reindex, verify
-    modules = [adopt, doctor, export, list_missions, mission_abort,
-               mission_close, mission_delete,
-               mission_diff, mission_record, mission_start, mission_status,
-               reindex, repair, setup_cmd, verify]
+    # Every verb registered in setup.py (S20: a hand-kept list let a new
+    # verb go unchecked).
+    setup_py = (Path(__file__).resolve().parents[2] / "setup.py").read_text()
+    block = setup_py[setup_py.index('"fairy.verb": ['):]
+    block = block[:block.index("]")]
+    targets = re.findall(r'"\s*\w+\s*=\s*(ros_fairy\.subcommands\.\w+):'
+                         r'(?:"\s*")?(\w+)', block)
+    assert len(targets) >= 15, targets
+    modules = [importlib.import_module(mod) for mod, _cls in targets]
+    for (mod, cls), module in zip(targets, modules, strict=True):
+        assert hasattr(module, cls), f"{mod}:{cls} is registered but missing"
     for module in modules:
         wrappers = [obj for _, obj in inspect.getmembers(module, inspect.isclass)
                     if issubclass(obj, pkg.VerbExtension)

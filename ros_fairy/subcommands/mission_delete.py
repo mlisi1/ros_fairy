@@ -144,7 +144,7 @@ def run(args, console: Console | None = None) -> int:
     if rows is None:
         return 1
     if not rows:
-        console.print("There are no saved missions from today."
+        console.print("There are no saved missions recorded today."
                       if getattr(args, "today", False)
                       else "There are no saved missions.")
         return 0
@@ -170,6 +170,7 @@ def run(args, console: Console | None = None) -> int:
         return 1
 
     deleted, failed = 0, []
+    stale: list[tuple[str, Exception]] = []
     for row in rows:
         target = _safe_target(row)
         if target is None:
@@ -194,15 +195,25 @@ def run(args, console: Console | None = None) -> int:
         except (OSError, subprocess.CalledProcessError) as exc:
             failed.append((row["mission_id"], str(exc)))
             continue
-        index.delete(row["mission_id"])
         deleted += 1
+        try:
+            index.delete(row["mission_id"])
+        except Exception as exc:
+            # The folder is already gone: say so, and how to fix the list.
+            stale.append((row["mission_id"], exc))
 
     if deleted:
         console.print(f"[green]Deleted {deleted} mission"
                       f"{'s' if deleted != 1 else ''}.[/green]")
     for mission_id, why in failed:
         console.print(f"[red]Not deleted: {mission_id} — {why}.[/red]")
-    return 1 if failed else 0
+    if stale:
+        ids = ", ".join(m for m, _ in stale)
+        console.print(f"[yellow]Deleted, but the mission list couldn't be "
+                      f"updated for {ids} ({stale[0][1]}). Run "
+                      "[bold]ros2 fairy reindex[/bold] to bring it up to "
+                      "date.[/yellow]")
+    return 1 if failed or stale else 0
 
 
 class MissionDeleteVerb(VerbExtension):
@@ -218,7 +229,7 @@ class MissionDeleteVerb(VerbExtension):
             help="delete every saved mission (needs sudo)")
         parser.add_argument(
             "--today", action="store_true",
-            help="delete every mission saved today (needs sudo)")
+            help="delete every mission recorded today (needs sudo)")
         parser.add_argument(
             "--debug", action="store_true",
             help="verbose logging to stderr (for engineers)")

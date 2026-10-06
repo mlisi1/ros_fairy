@@ -1,11 +1,15 @@
 """ros2 fairy diff — compare two saved missions."""
 
-import json
-
 from rich.console import Console
 
 from ros_fairy.archive import locate
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.ui import diff as diff_ui
 from ros_fairy.utils import paths
 
@@ -14,9 +18,16 @@ def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
 
-    if not paths.index_db_path().is_file():
-        console.print("No missions have been saved on this robot yet.")
+    as_json = getattr(args, "json", False)
+
+    def fail(message: str) -> int:
+        if as_json:
+            return json_error(message)
+        console.print(f"[red]{message}[/red]")
         return 1
+
+    if not paths.index_db_path().is_file():
+        return fail("No missions have been saved on this robot yet.")
 
     a_id: str | None = getattr(args, "mission_a", None)
     b_id: str | None = getattr(args, "mission_b", None)
@@ -24,9 +35,8 @@ def run(args, console: Console | None = None) -> int:
     if a_id is None and b_id is None:
         a_id, b_id = "2", "1"
     elif b_id is None:
-        console.print("[red]Provide either no arguments (compares the two most "
-                      "recent missions) or two identifiers.[/red]")
-        return 1
+        return fail("Provide either no arguments (compares the two most "
+                    "recent missions) or two identifiers.")
     assert a_id is not None and b_id is not None  # both set or returned above
 
     try:
@@ -35,12 +45,10 @@ def run(args, console: Console | None = None) -> int:
         record_a = locate.load_record(crate_a)
         record_b = locate.load_record(crate_b)
     except locate.LocateError as exc:
-        console.print(f"[red]{exc}[/red]")
-        return 1
+        return fail(str(exc))
 
-    if getattr(args, "json", False):
-        print(json.dumps(diff_ui.diff_as_dict(record_a, record_b, crate_a,
-                                              crate_b), indent=2))
+    if as_json:
+        print_json(diff_ui.diff_as_dict(record_a, record_b, crate_a, crate_b))
         return 0
 
     diff_ui.show_diff(record_a, record_b, console=console,

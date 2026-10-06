@@ -201,7 +201,10 @@ class Software(_Model):
     # Installed ros-* debs. None = not captured (dpkg couldn't be asked);
     # {} = none installed.
     apt_ros_versions: dict[str, str] | None = Field(default_factory=dict)
-    docker_containers: list[DockerContainer] = Field(default_factory=list)
+    # None = not captured (Docker unreachable, or no Docker on this robot);
+    # [] = Docker answered and nothing was running.
+    docker_containers: list[DockerContainer] | None = Field(
+        default_factory=list)
     ros_fairy_version: str
     python_env: PythonEnv | None = None
 

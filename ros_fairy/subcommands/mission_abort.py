@@ -10,10 +10,14 @@ from datetime import datetime
 from pathlib import Path
 
 from rich.console import Console
-from rich.prompt import Confirm
-
+from rich.prompt import Confirm  # noqa: F401 (tests patch Confirm.ask)
 from ros_fairy.manifest import builder
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    confirm,
+    guarded_main,
+)
 from ros_fairy.subcommands import mission_close
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils import fsio, paths
@@ -59,7 +63,11 @@ def run(args, console: Console | None = None) -> int:
                       "first (Ctrl-C in the recording window), then run this "
                       "again.[/yellow]")
         return 1
-    mission_close._wait_for_finalising(console)
+    if not mission_close._wait_for_finalising(console):
+        # Aborting discards the spool anyway; a context capture that lands
+        # later finds it cleared and is thrown away (watchdog W4).
+        console.print("Aborting anyway: the capture still running will be "
+                      "discarded.")
 
     harvest, context = builder.load_spool()
     spool, foreign = _recordings(harvest)
@@ -67,8 +75,10 @@ def run(args, console: Console | None = None) -> int:
         console.print("There's no mission in progress.")
         return 0
 
-    if not Confirm.ask(f"Abort the mission {_describe(context)}? It will not "
-                       "be saved.", default=False, console=console):
+    yes = getattr(args, "yes", False)
+    if not confirm(f"Abort the mission {_describe(context)}? It will not "
+                   "be saved.", default=False, console=console,
+                   assume_yes=yes):
         console.print("Nothing was changed.")
         return 0
 
@@ -84,7 +94,8 @@ def run(args, console: Console | None = None) -> int:
         question = (f"Delete {len(spool)} recording"
                     f"{'s' if len(spool) != 1 else ''} and abort?"
                     if spool else "Abort anyway?")
-        if not Confirm.ask(question, default=False, console=console):
+        if not confirm(question, default=False, console=console,
+                       assume_yes=yes):
             console.print("Nothing was changed.")
             return 0
 
@@ -101,6 +112,10 @@ class MissionAbortVerb(VerbExtension):
     """Abandon the open mission (and its recordings) without saving it."""
 
     def add_arguments(self, parser, cli_name):
+        parser.add_argument(
+            "--yes", "-y", action="store_true",
+            help="abort without asking (recordings in the spool are "
+                 "deleted)")
         parser.add_argument(
             "--debug", action="store_true",
             help="verbose logging to stderr (for engineers)")

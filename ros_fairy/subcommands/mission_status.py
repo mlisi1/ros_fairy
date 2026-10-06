@@ -1,11 +1,14 @@
 """ros2 fairy mission_status — read-only status display."""
 
-import json
-
 from rich.console import Console
 
 from ros_fairy.manifest import builder
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    print_json,
+)
 from ros_fairy.ui import status as status_ui
 from ros_fairy.watchdog import watchdog as wd
 
@@ -16,7 +19,7 @@ def run(args, console: Console | None = None) -> int:
     state = wd.read_state()
     context = builder.load_spool()[1]
     if getattr(args, "json", False):
-        print(json.dumps(status_ui.status_as_dict(state, context), indent=2))
+        print_json(status_ui.status_as_dict(state, context))
         return 0
     status_ui.show_status(state, context, console=console)
     return 0

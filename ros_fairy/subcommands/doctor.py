@@ -10,7 +10,6 @@ Each check yields {status, title, detail, hint}. Exit code is 1 if any check
 FAILs (WARN/SKIP do not fail), so it is usable in scripts and `--json`.
 """
 
-import json
 import os
 import shutil
 from datetime import datetime, timezone
@@ -19,7 +18,12 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    print_json,
+)
 from ros_fairy.utils import clock, paths, ros_env
 
 OK, WARN, FAIL, SKIP = "ok", "warn", "fail", "skip"
@@ -200,8 +204,9 @@ def _check_clock() -> dict:
     if synced is False:
         return {"status": FAIL, "title": "System clock is not synchronised",
                 "detail": "recordings will be stamped with the wrong time",
-                "hint": "wait for NTP/chrony to sync before recording; see "
-                        "docs/recovering-bad-clock-bags.md"}
+                "hint": "wait for NTP/chrony to sync before recording; a "
+                        "recording already made with a wrong clock can be "
+                        "fixed with `ros2 fairy repair`"}
     return {"status": SKIP, "title": "Clock sync status unknown",
             "detail": "`timedatectl` not available", "hint": ""}
 
@@ -258,19 +263,53 @@ def _check_archive() -> dict:
         return {"status": OK, "title": "Saved missions are complete",
                 "detail": "", "hint": ""}
     n = len(broken)
+    holding = []
+    for crate in broken:
+        bags = crate / "bags"
+        count = sum(1 for p in bags.iterdir() if p.is_dir()) \
+            if bags.is_dir() else 0
+        holding.append(f"{crate.name} ({count} recording"
+                       f"{'s' if count != 1 else ''})" if count
+                       else crate.name)
+    # Never suggest deleting them: recordings made with mission_record were
+    # *moved* into the folder, which may hold the only copy.
     return {"status": WARN,
             "title": f"{n} incomplete mission save{'s' if n != 1 else ''}",
-            "detail": ", ".join(p.name for p in broken),
-            "hint": "a save was cut off (e.g. power loss) — these are missing "
-                    "from `ros2 fairy list`. Recordings made outside ros-fairy "
-                    "are still where they were recorded and can be attached "
-                    "to a mission with `ros2 fairy adopt`. If you don't need "
-                    "them, delete the folder"
-                    f"{'s' if n != 1 else ''} to clear this: "
-                    + " ".join(f"`rm -r {p}`" for p in broken)}
+            "detail": ", ".join(holding),
+            "hint": "a save was cut off (e.g. power loss), so "
+                    f"{'these are' if n != 1 else 'this is'} missing from "
+                    "`ros2 fairy list`. Recordings inside may be the only "
+                    "copy — don't delete them. Run `ros2 fairy mission_close` "
+                    "to finish an interrupted save; otherwise ask your robot "
+                    "engineer to look at the folder before removing anything."}
 
 
-_CHECKS = (_check_identity, _check_watchdog, _check_ros_reachable,
+def _check_watchdog_code() -> dict:
+    """Is the watchdog running the code that is installed now?"""
+    from ros_fairy.utils import code_id
+    from ros_fairy.watchdog import watchdog as wd
+    state = wd.read_state() or {}
+    running = state.get("code_id")
+    installed = code_id.code_id()
+    if running is None:
+        return {"status": SKIP, "title": "Watchdog code version unknown",
+                "detail": "the watchdog predates this check", "hint":
+                "restart it once so it reports its version: `sudo systemctl "
+                "restart ros-fairy-watchdog`"}
+    if running == installed:
+        return {"status": OK, "title": "Watchdog runs the installed code",
+                "detail": f"code {installed}", "hint": ""}
+    return {"status": WARN, "title": "Watchdog runs different code than this "
+                                     "command",
+            "detail": f"watchdog {running}, this command {installed}",
+            "hint": "after installing a new version, restart the watchdog: "
+                    "`sudo systemctl restart ros-fairy-watchdog`. If it is "
+                    "still different, this command runs from another "
+                    "install (a checkout or ~/.local) than the service"}
+
+
+_CHECKS = (_check_identity, _check_watchdog, _check_watchdog_code,
+           _check_ros_reachable,
            _check_ros_environment, _check_service_env, _check_service_harvest,
            _check_clock, _check_mcap, _check_disk, _check_docker, _check_archive)
 
@@ -321,7 +360,7 @@ def run(args, console: Console | None = None) -> int:
     overall = _overall(checks)
 
     if getattr(args, "json", False):
-        print(json.dumps({"result": overall, "checks": checks}, indent=2))
+        print_json({"result": overall, "checks": checks})
     else:
         _render(console, checks)
 

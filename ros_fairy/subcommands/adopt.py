@@ -12,13 +12,18 @@ entry to ``harvest.json``, referenced in place and copied into the crate at
 ``mission_close``.
 """
 
-import json
 from pathlib import Path
 
 from rich.console import Console
 
 from ros_fairy.manifest import builder
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.utils import fsio, paths
 from ros_fairy.utils import topic_health as th
 from ros_fairy.watchdog import watchdog
@@ -65,9 +70,8 @@ def run(args, console: Console | None = None) -> int:
                         for b in (harvest_doc or {}).get("bags", [])}:
         msg = "That recording is already part of the current mission."
         if want_json:
-            console.print(json.dumps({"bag": bag_dir.name, "source": "adopted",
-                                      "path": str(bag_dir),
-                                      "status": "already_adopted"}))
+            print_json({"bag": bag_dir.name, "source": "adopted",
+                        "path": str(bag_dir), "status": "already_adopted"})
         else:
             console.print(f"[yellow]{msg}[/yellow]")
         return 0
@@ -75,7 +79,9 @@ def run(args, console: Console | None = None) -> int:
     # No context captured yet (watchdog never ran, or ROS was down): best-effort
     # harvest now so the adopted bag still gets whatever is capturable.
     if harvest_doc is None:
-        console.print("Capturing what I can about the robot and software…")
+        if not want_json:
+            console.print("Capturing what I can about the robot and "
+                          "software…")
         fsio.atomic_write_json(paths.harvest_json_path(), watchdog.run_pipeline())
 
     watchdog.append_bag_record(bag_dir, source="adopted")
@@ -85,9 +91,9 @@ def run(args, console: Console | None = None) -> int:
                       if b.get("path") == str(bag_dir)), {})
     warnings = bag.get("health_warnings", [])
     if want_json:
-        console.print(json.dumps({
-            "bag": bag_dir.name, "source": "adopted", "path": str(bag_dir),
-            "status": "adopted", "health_warnings": len(warnings)}))
+        print_json({"bag": bag_dir.name, "source": "adopted",
+                    "path": str(bag_dir), "status": "adopted",
+                    "health_warnings": len(warnings)})
         return 0
 
     dur = th.humanize_duration(bag["duration_s"]) \
@@ -102,7 +108,7 @@ def run(args, console: Console | None = None) -> int:
 
 def _fail(console: Console, want_json: bool, msg: str) -> int:
     if want_json:
-        console.print(json.dumps({"status": "error", "detail": msg}))
+        return json_error(msg)
     else:
         console.print(f"[red]{msg}[/red]")
     return 1

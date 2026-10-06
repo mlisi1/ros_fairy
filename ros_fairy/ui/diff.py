@@ -100,8 +100,14 @@ def _diff_software(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     elif bool(pkgs_a) != bool(pkgs_b):
         rows.append(_captured_row("host packages captured", pkgs_a, pkgs_b))
 
-    ca = {c.name: c for c in a.software.docker_containers}
-    cb = {c.name: c for c in b.software.docker_containers}
+    da, db = a.software.docker_containers, b.software.docker_containers
+    if da is None or db is None:
+        if (da is None) != (db is None):
+            rows.append(("containers captured", "no" if da is None else "yes",
+                         "no" if db is None else "yes"))
+        da, db = [], []  # nothing to compare container by container
+    ca = {c.name: c for c in da}
+    cb = {c.name: c for c in db}
     for name in sorted(set(ca) | set(cb)):
         ia = (ca[name].digest or ca[name].image) if name in ca else None
         ib = (cb[name].digest or cb[name].image) if name in cb else None
@@ -130,6 +136,13 @@ def _diff_software(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     return rows
 
 
+def _detected(sensor) -> str:
+    """None = the live graph couldn't be checked, not "absent"."""
+    if sensor.detected_at_start is None:
+        return "unknown"
+    return "✓ detected" if sensor.detected_at_start else "✗ not detected"
+
+
 def _diff_sensors(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     rows = []
     sa = {s.sensor_id: s for s in a.sensors}
@@ -144,9 +157,7 @@ def _diff_sensors(a: MissionRecord, b: MissionRecord) -> list[tuple]:
             rows.append((s_a.make_model,
                          "✓ detected" if s_a.detected_at_start else "configured", ""))
         elif s_a.detected_at_start != s_b.detected_at_start:
-            rows.append((s_a.make_model,
-                         "✓ detected" if s_a.detected_at_start else "✗ not detected",
-                         "✓ detected" if s_b.detected_at_start else "✗ not detected"))
+            rows.append((s_a.make_model, _detected(s_a), _detected(s_b)))
     return rows
 
 
@@ -364,10 +375,21 @@ def _notes(a: MissionRecord, b: MissionRecord, has_changes: bool) -> dict:
 def _diff_recordings(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     rows: list[tuple] = []
 
-    dur_a = sum(bag.duration_s or 0 for bag in a.bags)
-    dur_b = sum(bag.duration_s or 0 for bag in b.bags)
-    if abs(dur_a - dur_b) > 1:
-        rows.append(("Duration", humanize_duration(dur_a), humanize_duration(dur_b)))
+    # A recording whose length couldn't be measured (broken clock) makes
+    # the total unknown — counting it as 0 understated the mission.
+    def total(record: MissionRecord) -> tuple[float, bool]:
+        known = all(bag.duration_s is not None for bag in record.bags)
+        return sum(bag.duration_s or 0 for bag in record.bags), known
+
+    (dur_a, known_a), (dur_b, known_b) = total(a), total(b)
+
+    def shown(dur: float, known: bool) -> str:
+        if known:
+            return humanize_duration(dur)
+        return f"at least {humanize_duration(dur)}" if dur else "unknown"
+
+    if known_a != known_b or abs(dur_a - dur_b) > 1:
+        rows.append(("Duration", shown(dur_a, known_a), shown(dur_b, known_b)))
 
     size_a = sum(bag.size_bytes for bag in a.bags)
     size_b = sum(bag.size_bytes for bag in b.bags)
@@ -546,4 +568,7 @@ def diff_as_dict(a: MissionRecord, b: MissionRecord,
         "mission_a": _mission_summary(a),
         "mission_b": _mission_summary(b),
         "changes": changes,
+        # Same notes the table shows, so a script can tell "not captured in
+        # either mission" from "identical".
+        "notes": _notes(a, b, bool(changes)),
     }

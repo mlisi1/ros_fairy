@@ -807,7 +807,7 @@ def _stage(record: MissionRecord, harvest_doc: dict[str, Any], staging: Path,
         # project gets its own folder, even if two names sanitise alike.
         project_dirs: dict[str, str] = {}
         seen = set()
-        for container in record.software.docker_containers:
+        for container in record.software.docker_containers or []:
             project = container.compose_project
             files = [f.strip() for f in (container.compose_file or "")
                      .split(",") if f.strip()]
@@ -902,7 +902,25 @@ def _stage(record: MissionRecord, harvest_doc: dict[str, Any], staging: Path,
         record.model_dump(mode="json"))
     ro_crate.write(record, staging, extra_files,
                    license_url=harvest_doc.get("default_license"))
+    _write_checksums(staging)
     return to_move
+
+
+CHECKSUMS_FILE = "checksums.sha256"
+
+
+def _write_checksums(staging: Path) -> None:
+    """sha256 of every file in the crate except the recordings (whose
+    per-file checksums are in mission_record.json): `sha256sum -c` format, so
+    the record, README, RO-Crate metadata and harvest files can be checked
+    for edits too."""
+    lines = []
+    for f in sorted(staging.rglob("*")):
+        rel = f.relative_to(staging).as_posix()
+        if f.is_file() and not rel.startswith("bags/") and \
+                rel != CHECKSUMS_FILE:
+            lines.append(f"{fsio.sha256_file(f)}  {rel}")
+    fsio.atomic_write_text(staging / CHECKSUMS_FILE, "\n".join(lines) + "\n")
 
 
 def assemble(record: MissionRecord, harvest_doc: dict[str, Any],

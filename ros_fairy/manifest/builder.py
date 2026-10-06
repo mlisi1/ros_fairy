@@ -106,7 +106,10 @@ def compose_harvest(identity: dict | None, system: dict | None,
             "ros_packages": graph.get("ros_packages"),
             # None when system_info failed or dpkg couldn't be asked.
             "apt_ros_versions": system.get("apt_ros_versions"),
-            "docker_containers": docker.get("docker_containers", []),
+            # None unless Docker answered: "not captured" must not read as
+            # "every container removed" in a diff.
+            "docker_containers": docker.get("docker_containers", [])
+            if docker.get("available") else None,
             "ros_fairy_version": ros_fairy.__version__,
             "python_env": py.get("python_env"),
         },
@@ -298,7 +301,8 @@ def harvest_level_warnings(harvest: dict | None) -> list[str]:
                         "published but didn't arrive in time, so it isn't "
                         "included.")
     warnings += _udev_not_in_effect(harvest.get("usb"))
-    containers = (harvest.get("software") or {}).get("docker_containers", [])
+    containers = (harvest.get("software") or {}).get("docker_containers") \
+        or []
     if any(c.get("digest") is None for c in containers):
         warnings.append("Some software containers couldn't be pinned to an "
                         "exact version.")

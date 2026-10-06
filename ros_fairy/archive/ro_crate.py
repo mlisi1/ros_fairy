@@ -183,7 +183,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
     if record.software.python_env:
         instruments.append({"@id": "#python-runtime"})
     instruments += [{"@id": f"#container-{c.name}"}
-                    for c in record.software.docker_containers]
+                    for c in record.software.docker_containers or []]
     mission: dict = {
         "@id": "#mission",
         "@type": "CreateAction",
@@ -223,7 +223,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
                       "name": "Python",
                       "version": pe.version,
                       "additionalProperty": py_props})
-    for container in record.software.docker_containers:
+    for container in record.software.docker_containers or []:
         entity = {"@id": f"#container-{container.name}",
                   "@type": "SoftwareApplication",
                   "name": container.name,

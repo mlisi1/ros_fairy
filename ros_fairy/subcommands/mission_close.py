@@ -7,11 +7,16 @@ import time
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.prompt import Confirm
+from rich.prompt import Confirm  # noqa: F401 (tests patch Confirm.ask)
 
 from ros_fairy.archive import assembler
 from ros_fairy.manifest import builder, validator
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    confirm,
+    guarded_main,
+)
 from ros_fairy.ui import briefing, review
 from ros_fairy.utils import fsio, paths
 from ros_fairy.watchdog import watchdog as wd
@@ -25,7 +30,7 @@ def _recording_in_progress() -> bool:
     return watchdog_alive(state)
 
 
-def _wait_for_finalising(console: Console) -> None:
+def _wait_for_finalising(console: Console) -> bool:
     """Wait out an in-progress FINALISING instead of racing it.
 
     A recording shorter than the harvest pipeline (robot identity, ROS
@@ -36,21 +41,38 @@ def _wait_for_finalising(console: Console) -> None:
     run in that window would find no bags yet and wrongly report nothing
     was recorded (reported 2026-09-10 against a bag whose harvest took 61s
     to finish after a ~4s recording).
+
+    Returns False when the watchdog is still busy after the whole wait; a
+    watchdog that died meanwhile ends the wait at once (the state file it
+    left says FINALISING forever).
     """
+    from ros_fairy.ui.status import watchdog_alive
     state = wd.read_state()
     if state is None or state.get("state") != "FINALISING":
-        return
+        return True
     deadline = time.monotonic() + wd.HARVEST_WAIT_S + 5
     with Progress(SpinnerColumn(),
                   TextColumn("[progress.description]{task.description}"),
                   console=console, transient=True) as progress:
         progress.add_task(
             "Finishing up the last recording's context capture…", total=None)
-        while time.monotonic() < deadline:
+        while True:
+            if not watchdog_alive(state):
+                console.print("[yellow]The recording assistant stopped while "
+                              "finishing the last recording; going on with "
+                              "what it had saved.[/yellow]")
+                return True
+            if time.monotonic() >= deadline:
+                break
             time.sleep(1)
             state = wd.read_state()
             if state is None or state.get("state") != "FINALISING":
-                return
+                return True
+    console.print("[yellow]The recording assistant is still capturing the "
+                  "last recording's context. Try again in a minute; if this "
+                  "keeps happening, run [bold]ros2 fairy doctor[/bold]."
+                  "[/yellow]")
+    return False
 
 
 def _salvage_bags(harvest: dict | None) -> dict | None:
@@ -88,7 +110,7 @@ def _discard_spool() -> None:
         f.unlink(missing_ok=True)
 
 
-def _recover_pending(console: Console) -> int | None:
+def _recover_pending(console: Console, yes: bool = False) -> int | None:
     """Deal with saves a crash, power cut or Ctrl-C left unfinished.
 
     Returns an exit code when this run should stop here, None to carry on
@@ -114,8 +136,8 @@ def _recover_pending(console: Console) -> int | None:
         what = f'"{pending.goal}"' if pending.goal else pending.name
         console.print(f"A previous save ({what}) was interrupted. Your "
                       "recordings are safe.")
-        if not Confirm.ask("Finish saving it now?", default=True,
-                           console=console):
+        if not confirm("Finish saving it now?", default=True,
+                       console=console, assume_yes=yes):
             console.print("Nothing was changed. The interrupted save is "
                           "kept and will be offered again the next time you "
                           "run mission_close.")
@@ -170,7 +192,8 @@ def run(args, console: Console | None = None) -> int:
 
 
 def _run_locked(args, console: Console) -> int:
-    rc = _recover_pending(console)
+    yes = getattr(args, "yes", False)
+    rc = _recover_pending(console, yes)
     if rc is not None:
         return rc
     if _already_saved(console):
@@ -182,14 +205,18 @@ def _run_locked(args, console: Console) -> int:
                       "window), then run this again.[/yellow]")
         return 1
 
-    _wait_for_finalising(console)
+    if not _wait_for_finalising(console):
+        return 1
 
     # A bag finalised before its recorder had closed it is re-read now.
     wd.refresh_salvaged_records()
     harvest, context = builder.load_spool()
     harvest = _salvage_bags(harvest)
     if not (harvest or {}).get("bags"):
-        console.print("There's nothing recorded yet.")
+        console.print("There's nothing recorded yet. If you recorded outside "
+                      "ros-fairy while the recording assistant wasn't "
+                      "running, attach the recording first with: "
+                      "[bold]ros2 fairy adopt <folder>[/bold]")
         return 1
     assert harvest is not None  # a None harvest has no bags, handled above
 
@@ -200,7 +227,15 @@ def _run_locked(args, console: Console) -> int:
 
     missing = validator.missing_user_fields(context)
     if missing:
-        answers = briefing.ask_missing(missing, console=console)
+        try:
+            answers = briefing.ask_missing(missing, console=console)
+        except EOFError:
+            console.print("\n[red]This mission has no briefing yet ("
+                          f"{', '.join(m.replace('_', ' ') for m in missing)}"
+                          "), and there's no terminal to ask in. Run "
+                          "[bold]ros2 fairy mission_start[/bold] first, or "
+                          "close the mission in a terminal.[/red]")
+            return 1
         if context is None:
             context = builder.new_mission_context(
                 operator_name=answers.get("operator_name", ""),
@@ -249,7 +284,8 @@ def _run_locked(args, console: Console) -> int:
                         console=console, quality=quality, duplicates=dup_msgs,
                         exact_duplicate=exact_msg)
     decision = review.confirm_save(
-        console=console, risky=quality.level == quality_mod.POOR)
+        console=console, risky=quality.level == quality_mod.POOR,
+        assume_yes=yes)
 
     if decision == "save":
         notices: list[str] = []
@@ -291,6 +327,10 @@ class MissionCloseVerb(VerbExtension):
         parser.add_argument(
             "--note", metavar="TEXT",
             help="post-mission notes (skips the interactive prompt)")
+        parser.add_argument(
+            "--yes", "-y", action="store_true",
+            help="save without asking (also finishes an interrupted save); "
+                 "for scripts — the briefing must already exist")
 
     def main(self, *, args):
         return guarded_main(run, args)

@@ -11,7 +11,6 @@ after unpacking.
 Read-only with respect to the archive and index.
 """
 
-import json
 import logging
 import os
 import shutil
@@ -28,10 +27,17 @@ from rich.progress import (
     TextColumn,
     TimeRemainingColumn,
 )
-from rich.prompt import Confirm
+from rich.prompt import Confirm  # noqa: F401 (tests patch Confirm.ask)
 
 from ros_fairy.archive import index, locate
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    confirm,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils import fsio
 
@@ -42,12 +48,18 @@ _EXT = {"zip": ".zip", "tar": ".tar"}
 
 
 def _resolve_output(crate: Path, output: str | None, fmt: str) -> Path:
-    """Where to write the bundle, from --output (file or dir) and format."""
+    """Where to write the bundle, from --output (file or dir) and format.
+
+    A path that doesn't exist yet is a folder unless it names a bundle file
+    (ends in .zip/.tar): `-o /media/usb/missions` makes that folder rather
+    than writing a file called "missions".
+    """
     default_name = crate.name + _EXT[fmt]
     if not output:
         return Path.cwd() / default_name
     out = Path(output).expanduser()
-    if out.is_dir() or output.endswith(os.sep):
+    if out.is_dir() or output.endswith(os.sep) or \
+            (not out.exists() and out.suffix.lower() not in _EXT.values()):
         return out / default_name
     return out
 
@@ -97,7 +109,7 @@ def _local_date(iso: str):
 
 
 def _export_one(crate: Path, output_arg: str | None, fmt: str, force: bool,
-                console: Console) -> dict:
+                console: Console, quiet: bool = False) -> dict:
     """Export one archive. Never raises — failures come back as {"ok": False,
     "error": ...} so both the single-mission and batch paths can report them
     without a bundle failure aborting the whole batch."""
@@ -122,7 +134,7 @@ def _export_one(crate: Path, output_arg: str | None, fmt: str, force: bool,
         verify_result = _overall(verify_archive(crate))
     except Exception:
         verify_result = "unknown"
-    if verify_result == "fail":
+    if verify_result == "fail" and not quiet:
         console.print(f"[yellow]Warning: {record.identity.mission_id} failed "
                       "integrity checks (run `ros2 fairy verify` for "
                       "details). Exporting anyway.[/yellow]")
@@ -136,10 +148,18 @@ def _export_one(crate: Path, output_arg: str | None, fmt: str, force: bool,
                 "ok": False,
                 "error": f"couldn't write the bundle: {exc.strerror or exc}"}
 
-    digest = fsio.sha256_file(dest)
     checksum_path = dest.with_name(dest.name + ".sha256")
-    # sha256sum-compatible: recipient runs `sha256sum -c <file>.sha256`.
-    fsio.atomic_write_text(checksum_path, f"{digest}  {dest.name}\n")
+    try:
+        digest = fsio.sha256_file(dest)
+        # sha256sum-compatible: recipient runs `sha256sum -c <file>.sha256`.
+        fsio.atomic_write_text(checksum_path, f"{digest}  {dest.name}\n")
+    except OSError as exc:
+        # A bundle the recipient can't check isn't a finished export.
+        dest.unlink(missing_ok=True)
+        return {"mission_id": record.identity.mission_id, "source": str(crate),
+                "ok": False,
+                "error": f"couldn't write the checksum file "
+                         f"({exc.strerror or exc}); the bundle was removed"}
 
     # Only reached once the bundle file actually exists on disk — this is
     # what `export --all` treats as "already exported".
@@ -175,14 +195,15 @@ def _print_result(result: dict, console: Console) -> None:
 def _run_batch(args, console: Console, candidates: list[dict],
               what: str) -> int:
     """Shared body of --all/--today: confirm, check disk space, export each."""
+    yes = getattr(args, "yes", False) or getattr(args, "json", False)
     exclude = set(getattr(args, "exclude", None) or [])
     candidates = [r for r in candidates if r["mission_id"] not in exclude]
     candidates.sort(key=lambda r: r["created_at"])
 
+    as_json = getattr(args, "json", False)
     if not candidates:
-        if getattr(args, "json", False):
-            print(json.dumps({"exported": 0, "failed": 0, "results": []},
-                             indent=2))
+        if as_json:
+            print_json({"exported": 0, "failed": 0, "results": []})
         else:
             console.print("Nothing to export.")
         return 0
@@ -191,27 +212,33 @@ def _run_batch(args, console: Console, candidates: list[dict],
     output_arg = getattr(args, "output", None)
     out_dir = Path(output_arg).expanduser() if output_arg else Path.cwd()
     if out_dir.exists() and not out_dir.is_dir():
-        console.print(f"[red]{out_dir} is not a directory — --output must be "
-                      f"a directory when exporting {what}.[/red]")
+        message = (f"{out_dir} is not a directory — --output must be a "
+                   f"directory when exporting {what}.")
+        if as_json:
+            return json_error(message)
+        console.print(f"[red]{message}[/red]")
         return 1
     out_dir.mkdir(parents=True, exist_ok=True)
+    # Batch output names one folder; each bundle goes in it.
+    output_arg = str(out_dir) + os.sep
 
     total_bytes = sum(r["size_bytes"] for r in candidates)
-    console.print(f"{len(candidates)} mission(s) to export {what}, "
-                  f"~{human_size(total_bytes)} total.")
+    if not as_json:
+        console.print(f"{len(candidates)} mission(s) to export {what}, "
+                      f"~{human_size(total_bytes)} total.")
 
     free = shutil.disk_usage(out_dir).free
     if free < total_bytes:
-        proceed = Confirm.ask(
+        proceed = confirm(
             f"Only {human_size(free)} free at {out_dir}, but this needs "
             f"about {human_size(total_bytes)}. Continue anyway?",
-            default=False, console=console)
+            default=False, console=console, assume_yes=yes)
         if not proceed:
             return 1
 
-    proceed = Confirm.ask(
+    proceed = confirm(
         f"This will export {len(candidates)} mission(s) and could take a "
-        "while. Continue?", default=True, console=console)
+        "while. Continue?", default=True, console=console, assume_yes=yes)
     if not proceed:
         return 0
 
@@ -219,9 +246,9 @@ def _run_batch(args, console: Console, candidates: list[dict],
     results = []
     for row in candidates:
         result = _export_one(Path(row["archive_path"]), output_arg, fmt,
-                             force, console)
+                             force, console, quiet=as_json)
         results.append(result)
-        if not getattr(args, "json", False):
+        if not as_json:
             if result["ok"]:
                 console.print(f"[green]Exported[/green] {result['mission_id']}"
                               f" → {result['bundle']}")
@@ -230,10 +257,9 @@ def _run_batch(args, console: Console, candidates: list[dict],
                               f"{result['error']}")
 
     ok_count = sum(1 for r in results if r["ok"])
-    if getattr(args, "json", False):
-        print(json.dumps(
-            {"exported": ok_count, "failed": len(results) - ok_count,
-             "results": results}, indent=2))
+    if as_json:
+        print_json({"exported": ok_count, "failed": len(results) - ok_count,
+                    "results": results})
     else:
         console.print(f"Done: {ok_count} exported, "
                       f"{len(results) - ok_count} failed.")
@@ -242,26 +268,31 @@ def _run_batch(args, console: Console, candidates: list[dict],
 
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
-    console = console or Console()
+    as_json = getattr(args, "json", False)
+    # In --json mode stdout carries the JSON only; the progress bar and any
+    # notes go to stderr.
+    console = console or Console(stderr=as_json)
+
+    def fail(message: str) -> int:
+        if as_json:
+            return json_error(message)
+        console.print(f"[red]{message}[/red]")
+        return 1
 
     all_mode = getattr(args, "all", False)
     today_mode = getattr(args, "today", False)
     mission_arg = getattr(args, "mission", None)
 
     if all_mode and today_mode:
-        console.print("[red]--all and --today can't be used together.[/red]")
-        return 1
+        return fail("--all and --today can't be used together.")
     if (all_mode or today_mode) and mission_arg:
-        console.print("[red]Give a mission, or --all/--today — not "
-                      "both.[/red]")
-        return 1
+        return fail("Give a mission, or --all/--today — not both.")
 
     if all_mode or today_mode:
         try:
             rows, _total = index.query(limit=10_000)
         except index.IndexUnavailableError as exc:
-            console.print(f"[red]{exc}[/red]")
-            return 1
+            return fail(str(exc))
         if all_mode:
             already = index.exported_mission_ids()
             candidates = [r for r in rows if r["mission_id"] not in already]
@@ -270,24 +301,26 @@ def run(args, console: Console | None = None) -> int:
             today = datetime.now().astimezone().date()
             candidates = [r for r in rows
                          if _local_date(r["created_at"]) == today]
-            what = "from today"
+            what = "recorded today"
         return _run_batch(args, console, candidates, what)
 
     fmt = getattr(args, "format", "zip")
     try:
         crate = locate.resolve_archive(mission_arg or "1")
     except locate.LocateError as exc:
-        console.print(f"[red]{exc}[/red]")
-        return 1
+        return fail(str(exc))
 
     result = _export_one(crate, getattr(args, "output", None), fmt,
-                         getattr(args, "force", False), console)
+                         getattr(args, "force", False), console,
+                         quiet=as_json)
     if not result["ok"]:
+        if as_json:
+            return json_error(result["error"], result=result)
         console.print(f"[red]{result['error']}[/red]")
         return 1
 
-    if getattr(args, "json", False):
-        print(json.dumps(result, indent=2))
+    if as_json:
+        print_json(result)
     else:
         _print_result(result, console)
     return 0
@@ -325,6 +358,9 @@ class ExportVerb(VerbExtension):
         parser.add_argument(
             "--force", action="store_true",
             help="overwrite output files that already exist")
+        parser.add_argument(
+            "--yes", "-y", action="store_true",
+            help="export --all/--today without asking (implied by --json)")
         parser.add_argument(
             "--json", action="store_true",
             help="machine-readable output for scripts")

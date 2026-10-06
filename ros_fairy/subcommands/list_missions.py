@@ -1,13 +1,18 @@
 """ros2 fairy list — table of saved missions from the SQLite index."""
 
-import json
 from datetime import datetime
 
 from rich.console import Console
 from rich.table import Table
 
 from ros_fairy.archive import assembler, index
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils import paths
 from ros_fairy.utils.topic_health import humanize_duration
@@ -47,8 +52,7 @@ def run(args, console: Console | None = None) -> int:
 
     if not paths.index_db_path().is_file():
         if as_json:
-            print(json.dumps({"missions": [], "total": 0, "shown": 0},
-                             indent=2))
+            print_json({"missions": [], "total": 0, "shown": 0})
         else:
             console.print("No missions have been saved on this robot yet.")
         return 0
@@ -63,13 +67,14 @@ def run(args, console: Console | None = None) -> int:
             limit=None if getattr(args, "all", False)
             else getattr(args, "limit", 20) or 20)
     except index.IndexUnavailableError as exc:
+        if as_json:
+            return json_error(str(exc))
         console.print(f"[red]{exc}[/red]")
         return 1
 
     if as_json:
         # Rows are already plain dicts of index columns (all JSON-native).
-        print(json.dumps(
-            {"missions": rows, "total": total, "shown": len(rows)}, indent=2))
+        print_json({"missions": rows, "total": total, "shown": len(rows)})
         return 0
 
     if not rows:

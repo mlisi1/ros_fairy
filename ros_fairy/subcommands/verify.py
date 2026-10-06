@@ -23,7 +23,14 @@ from rich.panel import Panel
 from rich.table import Table
 
 from ros_fairy.archive import index, locate
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.archive.assembler import CHECKSUMS_FILE
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.utils import fsio, topic_health
 
 OK, WARN, FAIL = "ok", "warn", "fail"
@@ -128,11 +135,18 @@ def verify_archive(crate: Path) -> list[dict]:
         cal_file = crate / cal.archived_path
         if not cal_file.is_file():
             add(FAIL, f"Calibration {cal.name} is missing", cal.archived_path)
-        elif cal.sha256 and fsio.sha256_file(cal_file) != cal.sha256:
+        elif not cal.sha256:
+            add(WARN, f"Calibration {cal.name} is present (no checksum "
+                      "recorded)")
+        elif fsio.sha256_file(cal_file) != cal.sha256:
             add(FAIL, f"Calibration {cal.name} has been modified",
                 "sha256 does not match the archived value")
         else:
             add(OK, f"Calibration {cal.name} matches its checksum")
+
+    # 5b. Everything else in the crate (record, README, RO-Crate metadata,
+    #     harvest files): checksums.sha256, written when it was saved.
+    _check_descriptive_files(crate, add)
 
     # 6. Every File entity the crate references exists on disk.
     missing_refs = []
@@ -170,6 +184,41 @@ def verify_archive(crate: Path) -> list[dict]:
     return checks
 
 
+def _check_descriptive_files(crate: Path, add) -> None:
+    sums = crate / CHECKSUMS_FILE
+    if not sums.is_file():
+        add(WARN, "The mission's descriptive files can't be checked",
+            "this archive was saved before ros-fairy recorded their "
+            "checksums; only the recordings and calibrations are checked")
+        return
+    listed: dict[str, str] = {}
+    for line in sums.read_text(errors="replace").splitlines():
+        digest, _, rel = line.partition("  ")
+        if rel:
+            listed[rel] = digest
+    missing = [rel for rel in listed if not (crate / rel).is_file()]
+    modified = [rel for rel, digest in listed.items()
+                if (crate / rel).is_file()
+                and fsio.sha256_file(crate / rel) != digest]
+    added = sorted(f.relative_to(crate).as_posix() for f in crate.rglob("*")
+                   if f.is_file()
+                   and not f.relative_to(crate).as_posix().startswith("bags/")
+                   and f.relative_to(crate).as_posix() not in listed
+                   and f.name != CHECKSUMS_FILE)
+    if missing:
+        add(FAIL, "Some of the mission's files are missing",
+            ", ".join(missing))
+    if modified:
+        add(FAIL, "Some of the mission's files have been modified",
+            ", ".join(modified))
+    if added:
+        add(WARN, "Files were added to the archive after it was saved",
+            ", ".join(added))
+    if not missing and not modified:
+        add(OK, "The mission's descriptive files match their checksums",
+            f"{len(listed)} file(s)")
+
+
 def _overall(checks: list[dict]) -> str:
     if any(c["status"] == FAIL for c in checks):
         return FAIL
@@ -201,6 +250,8 @@ def run(args, console: Console | None = None) -> int:
     try:
         crate = locate.resolve_archive(identifier)
     except locate.LocateError as exc:
+        if getattr(args, "json", False):
+            return json_error(str(exc))
         console.print(f"[red]{exc}[/red]")
         return 1
 
@@ -208,11 +259,8 @@ def run(args, console: Console | None = None) -> int:
     overall = _overall(checks)
 
     if getattr(args, "json", False):
-        print(json.dumps({
-            "archive": str(crate),
-            "result": overall,
-            "checks": checks,
-        }, indent=2))
+        print_json({"archive": str(crate), "result": overall,
+                    "checks": checks})
     else:
         _render(console, crate, checks)
 
@@ -221,6 +269,8 @@ def run(args, console: Console | None = None) -> int:
 
 class VerifyVerb(VerbExtension):
     """Check that a saved mission archive is complete and unmodified."""
+    # Recordings and calibrations by their recorded checksums; every other
+    # file by checksums.sha256 (archives saved since 2026-10-06).
 
     def add_arguments(self, parser, cli_name):
         parser.add_argument(

@@ -27,8 +27,8 @@ def _last_operator() -> str | None:
         return None
 
 
-def _blocks_replacing(console: Console) -> bool:
-    """Whether the unfinished mission can't be replaced without losing data.
+def _blocks_replacing(console: Console, has_mission: bool = True) -> bool:
+    """Whether what the spool holds can't be put aside without losing data.
 
     A live recording belongs to whichever mission is open, and recordings
     ros-fairy saved into the spool exist nowhere else; both must be resolved
@@ -46,9 +46,12 @@ def _blocks_replacing(console: Console) -> bool:
         if bags.is_dir() else []
     if spool_bags:
         n = len(spool_bags)
-        console.print(f"[yellow]The unfinished mission still has {n} "
-                      f"recording{'s' if n != 1 else ''} saved by ros-fairy. "
-                      "Save or discard it first with "
+        whose = "The unfinished mission still has" if has_mission \
+            else "There are"
+        extra = "" if has_mission else " made while no mission was open"
+        console.print(f"[yellow]{whose} {n} recording{'s' if n != 1 else ''}"
+                      f" saved by ros-fairy{extra}. Save or discard "
+                      f"{'it' if has_mission else 'them'} first with "
                       "[bold]ros2 fairy mission_close[/bold].[/yellow]")
         return True
     return False
@@ -85,28 +88,50 @@ def run(args, console: Console | None = None) -> int:
         console.print(f"[yellow]{clock.WARNING}[/yellow]")
 
     context_path = paths.mission_context_path()
-    if context_path.is_file():
-        existing = builder.load_spool()[1]
-        if existing:
-            if _blocks_replacing(console):
-                return 1
-            identity = existing.get("identity", {})
-            when = identity.get("created_at", "")
-            try:
-                when = datetime.fromisoformat(when).astimezone().strftime(
-                    "%d %B, %H:%M")
-            except ValueError:
-                pass
-            replace = Confirm.ask(
-                f"There's already an unfinished mission from {when} by "
-                f"{identity.get('operator_name', 'someone')}. Start a new "
-                f"one and replace it?", default=False, console=console)
-            if not replace:
-                return 0
-            _drop_previous_harvest(console)
+    harvest, existing = builder.load_spool()
+    # Whatever the spool holds is only put aside once the new briefing has
+    # been answered: a Ctrl-C during the questions must change nothing.
+    drop_previous = False
+    if context_path.is_file() and existing:
+        if _blocks_replacing(console):
+            return 1
+        identity = existing.get("identity", {})
+        when = identity.get("created_at", "")
+        try:
+            when = datetime.fromisoformat(when).astimezone().strftime(
+                "%d %B, %H:%M")
+        except ValueError:
+            pass
+        replace = Confirm.ask(
+            f"There's already an unfinished mission from {when} by "
+            f"{identity.get('operator_name', 'someone')}. Start a new "
+            f"one and replace it?", default=False, console=console)
+        if not replace:
+            return 0
+        drop_previous = True
+    elif harvest is not None:
+        # No mission open, but the watchdog captured something: recordings
+        # made with no mission (an engineer's `record_all test`). They must
+        # not slip silently into this mission.
+        if _blocks_replacing(console, has_mission=False):
+            return 1
+        earlier = [b["path"] for b in harvest.get("bags", [])]
+        if earlier:
+            n = len(earlier)
+            console.print(f"{n} recording{'s were' if n != 1 else ' was'} "
+                          "made while no mission was open:")
+            for path in earlier:
+                console.print(f"  {path}")
+            drop_previous = not Confirm.ask(
+                f"Include {'them' if n != 1 else 'it'} in this new mission?",
+                default=False, console=console)
+        else:
+            drop_previous = True  # context of no recording: stale
 
     answers = briefing.ask_briefing(console=console,
                                     default_operator=_last_operator())
+    if drop_previous:
+        _drop_previous_harvest(console)
     context = builder.new_mission_context(
         operator_name=answers["operator_name"],
         goal=answers["goal"],

@@ -137,7 +137,8 @@ def show_summary(record: MissionRecord, harvest_warnings: list[str],
                         border_style=border))
 
 
-def confirm_save(console: Console | None = None, *, risky: bool = False) -> str:
+def confirm_save(console: Console | None = None, *, risky: bool = False,
+                 assume_yes: bool = False) -> str:
     """Returns 'save', 'discard', or 'keep' (leave spool untouched).
 
     When ``risky`` (the mission graded "poor"), the save prompt defaults to No
@@ -145,6 +146,9 @@ def confirm_save(console: Console | None = None, *, risky: bool = False) -> str:
     recording by reflexively pressing Enter.
     """
     console = console or Console()
+    if assume_yes:
+        console.print("Save this mission? [dim]yes (--yes)[/dim]")
+        return "save"
     if risky:
         saved = Confirm.ask(
             "This recording is missing important data (see above). "

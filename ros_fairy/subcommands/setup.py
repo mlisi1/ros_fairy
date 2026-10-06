@@ -75,15 +75,27 @@ def _existing_identity() -> dict:
         return {}
 
 
+_graph_cache: dict[str, list[str]] = {}
+
+
 def _ros2_list(what: str) -> list[str]:
-    try:
-        out = subprocess.run(["ros2", what, "list"], capture_output=True,
-                             text=True, timeout=10)
-        if out.returncode == 0:
-            return [ln.strip() for ln in out.stdout.splitlines() if ln.strip()]
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    return []
+    """Visible nodes ("node") or topics ("topic").
+
+    Read through ros-fairy's own one-participant snapshot (the one the
+    watchdog uses), not `ros2 node list`/`ros2 topic list`: each of those adds
+    a DDS participant and starts a ros2 daemon, and on a robot near
+    CycloneDDS's 32-participants-per-host limit they can fail and make setup
+    wrongly refuse. Taken once per run.
+    """
+    if not _graph_cache:
+        from ros_fairy.harvest import ros_snapshot
+        try:
+            snap = ros_snapshot.take(nodes_only=True)
+        except ros_snapshot.SnapshotError:
+            snap = {}
+        _graph_cache["node"] = list(snap.get("nodes") or [])
+        _graph_cache["topic"] = [t["name"] for t in snap.get("topics") or []]
+    return list(_graph_cache.get(what, []))
 
 
 def _live_topics(console: Console) -> list[str]:
@@ -169,8 +181,10 @@ def ask_sensors(console: Console, current: dict) -> tuple[list, list]:
                     break
             if cal_path and Path(cal_path).is_file():
                 cal_name = f"{sid}_cal"
-                calibrations.append({"name": cal_name,
-                                     "source_path": cal_path})
+                # Absolute: the watchdog (root, cwd "/") reads it later.
+                calibrations.append({
+                    "name": cal_name,
+                    "source_path": str(Path(cal_path).expanduser().resolve())})
                 sensor["calibration"] = cal_name
         sensors.append(sensor)
     return sensors, calibrations
@@ -397,6 +411,12 @@ def _collect(console: Console) -> dict | None:
             config["sensors"] = sensors
         if calibrations:
             config["calibrations"] = calibrations
+        # Sections this wizard doesn't ask about (`recording:` — the topics
+        # and storage mission_record uses — or anything hand-added) are kept,
+        # not silently dropped by a re-run.
+        for key, value in current.items():
+            if key not in ("robot", "owner", "sensors", "calibrations"):
+                config[key] = value
         if not review(console, config):
             console.print("Nothing was written.")
             return None

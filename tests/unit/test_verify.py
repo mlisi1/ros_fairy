@@ -99,10 +99,48 @@ def test_pre_1_0_archive_without_checksums_warns(fairy_dirs):
     for bag in data["bags"]:
         bag["file_sha256"] = {}
     record_file.write_text(json.dumps(data))
+    (crate / "checksums.sha256").unlink()  # old archives don't have it
     checks = verify.verify_archive(crate)
     assert FAIL not in _statuses(checks)
     assert any(c["status"] == WARN and "no checksums recorded" in c["title"]
                for c in checks)
+    assert any(c["status"] == WARN and "can't be checked" in c["title"]
+               for c in checks)
+
+
+def test_edited_mission_record_fails(fairy_dirs):
+    """S14: the record, README and harvest files are checksummed too."""
+    crate = _make_crate(fairy_dirs)
+    record_file = crate / "mission_record.json"
+    data = json.loads(record_file.read_text())
+    data["identity"]["operator_name"] = "Someone Else"
+    record_file.write_text(json.dumps(data))
+    checks = verify.verify_archive(crate)
+    assert any(c["status"] == FAIL and "have been modified" in c["title"]
+               and "mission_record.json" in c["detail"] for c in checks)
+
+
+def test_file_added_after_saving_is_noted(fairy_dirs):
+    crate = _make_crate(fairy_dirs)
+    (crate / "harvest" / "extra.txt").write_text("hand-added")
+    checks = verify.verify_archive(crate)
+    assert FAIL not in _statuses(checks)
+    assert any(c["status"] == WARN and "added to the archive" in c["title"]
+               for c in checks)
+
+
+def test_calibration_without_checksum_is_not_a_match(fairy_dirs):
+    crate = _make_crate(fairy_dirs)
+    record_file = crate / "mission_record.json"
+    data = json.loads(record_file.read_text())
+    data["calibrations"][0]["sha256"] = None
+    record_file.write_text(json.dumps(data))
+    (crate / "checksums.sha256").unlink()
+    checks = verify.verify_archive(crate)
+    assert any(c["status"] == WARN and "no checksum recorded" in c["title"]
+               for c in checks)
+    assert not any("matches its checksum" in c["title"]
+                   and "Calibration" in c["title"] for c in checks)
 
 
 def test_detects_missing_referenced_file(fairy_dirs):
