@@ -19,9 +19,11 @@ timestamps (and reports it unknown when the clock was broken for most of the
 run), while ``read_clean_series`` drops those outliers before gap detection.
 """
 
+import bisect
 import hashlib
 import json
 import statistics
+from array import array
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +67,16 @@ MAX_PLAUSIBLE_DURATION_S = 30 * 24 * 3600.0
 # recording clock was broken for most of the run and the real window cannot be
 # recovered from the surviving stamps.
 RELIABLE_STAMP_FRACTION = 0.5
+# Clock discontinuities, seen in the arrival-ordered stream of every topic
+# together. Going back by more than this is a step (receive times of
+# different topics interleave by milliseconds, never seconds)...
+CLOCK_STEP_BACK_S = 1.0
+# ...and a silence on *every* topic at once longer than this, while the
+# streams were running, is a forward step (an NTP correction after booting
+# with a stale clock) or a paused recorder: either way not real dropouts on
+# each topic.
+CLOCK_STEP_FORWARD_S = 60.0
+CLOCK_STEP_MAX_REPORTED = 3
 
 _FRIENDLY_TYPE = {
     "gps": "GPS",
@@ -89,14 +101,45 @@ INFO_KINDS = frozenset({"compressed_transport"})
 
 
 # Topics that only carry messages when something happens (a log line, a
-# parameter change, a lifecycle transition). Gaps and low rates on them are
-# meaningless — "/rosout dropped out 9 times" was pure noise (2026-10-02).
+# parameter change, a lifecycle transition, a command while driving, a plan
+# while navigating). Gaps and low rates on them are meaningless — "/rosout
+# dropped out 9 times" was pure noise (2026-10-02), and nav2's outputs gave
+# a gap warning in ~34 of Jo's saved missions each (2026-10-06). Matched by
+# suffix so namespaced copies (/jo/cmd_vel) count too. A declared sensor is
+# always analysed, whatever its name.
 EVENT_TOPICS = frozenset({"/rosout", "/parameter_events"})
-EVENT_TOPIC_SUFFIXES = ("/transition_event",)
+EVENT_TOPIC_SUFFIXES = (
+    "/transition_event", "/rosout", "/parameter_events",
+    # commands: only while someone or something drives
+    "/cmd_vel", "/cmd_vel_nav", "/cmd_vel_smoothed", "/cmd_vel_teleop",
+    "/cmd_vel_unstamped", "/joy", "/speed_limit",
+    # goals and plans: only while navigating
+    "/goal_pose", "/initialpose", "/clicked_point", "/plan", "/local_plan",
+    "/transformed_global_plan", "/received_global_plan", "/motion_target",
+    "/slowdown", "/behavior_tree_log",
+    # actions report only while a goal is active
+    "/_action/feedback", "/_action/status",
+    # latched: published once
+    "/tf_static", "/robot_description",
+)
 
 
 def is_event_topic(topic: str) -> bool:
     return topic in EVENT_TOPICS or topic.endswith(EVENT_TOPIC_SUFFIXES)
+
+
+class CleanSeries(dict):
+    """topic -> ascending timestamps on a corrected timeline, plus what was
+    learnt reading them: ``total_read`` (every stamp read, plausible or
+    not), ``steps`` (clock discontinuities, ``(offset_s, delta_s)`` on the
+    corrected timeline) and ``truncated`` (a storage file was cut off)."""
+    total_read: int = 0
+    steps: list[tuple[float, float]]
+    truncated: bool = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.steps = []
 
 
 def humanize_duration(seconds: float) -> str:
@@ -113,26 +156,46 @@ def humanize_duration(seconds: float) -> str:
     return f"{hours}h {minutes}m"
 
 
+def _section(value: Any) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _number(value: Any) -> int:
+    return value if isinstance(value, int) and not isinstance(value, bool) \
+        else 0
+
+
 def parse_bag_metadata(bag_dir: Path) -> dict[str, Any] | None:
-    """Parse rosbag2's metadata.yaml. None if absent/unreadable."""
+    """Parse rosbag2's metadata.yaml. None if absent/unreadable.
+
+    Tolerates partial files (``info: null``, missing or null sections) the
+    way a hand-edited or half-written metadata.yaml has them, rather than
+    raising out of the watchdog's finalise.
+    """
     meta_path = bag_dir / "metadata.yaml"
     if not meta_path.is_file():
         return None
     try:
-        raw = yaml.safe_load(meta_path.read_text())
+        raw = yaml.safe_load(meta_path.read_text(errors="replace"))
         info = raw["rosbag2_bagfile_information"]
-    except (yaml.YAMLError, KeyError, TypeError):
+    except (OSError, yaml.YAMLError, KeyError, TypeError):
         return None
-    start_ns = info.get("starting_time", {}).get("nanoseconds_since_epoch", 0)
-    duration_ns = info.get("duration", {}).get("nanoseconds", 0)
+    if not isinstance(info, dict):
+        return None
+    start_ns = _number(_section(info.get("starting_time")).get(
+        "nanoseconds_since_epoch"))
+    duration_ns = _number(_section(info.get("duration")).get("nanoseconds"))
     topics = []
-    for entry in info.get("topics_with_message_count") or []:
-        tm = entry.get("topic_metadata") or {}
+    entries = info.get("topics_with_message_count")
+    for entry in entries if isinstance(entries, list) else []:
+        entry = _section(entry)
+        tm = _section(entry.get("topic_metadata"))
         topics.append({
-            "name": tm.get("name", ""),
-            "type": tm.get("type", ""),
-            "message_count": entry.get("message_count", 0),
+            "name": str(tm.get("name") or ""),
+            "type": str(tm.get("type") or ""),
+            "message_count": _number(entry.get("message_count")),
         })
+    paths = info.get("relative_file_paths")
     return {
         # rosbag2 normally records the format; when it is absent (old or
         # hand-rolled bags) infer the recording distro's default rather than
@@ -141,10 +204,23 @@ def parse_bag_metadata(bag_dir: Path) -> dict[str, Any] | None:
         or ros_distro.default_storage(),
         "start_s": start_ns / 1e9,
         "duration_s": duration_ns / 1e9,
-        "message_count": info.get("message_count", 0),
+        "message_count": _number(info.get("message_count")),
         "topics": topics,
-        "relative_file_paths": info.get("relative_file_paths") or [],
+        "relative_file_paths": [str(p) for p in paths]
+        if isinstance(paths, list) else [],
     }
+
+
+def metadata_from_storage(bag_dir: Path) -> dict[str, Any] | None:
+    """A stand-in for metadata.yaml read from the storage files themselves,
+    for a bag whose recorder died before writing it (SIGKILL, power cut).
+    None when the folder holds no readable storage."""
+    storage, topics, count = bag_storage.salvage_topics(bag_dir)
+    if storage == "unknown":
+        return None
+    return {"storage_identifier": storage, "start_s": 0.0, "duration_s": 0.0,
+            "message_count": count, "topics": topics,
+            "relative_file_paths": [], "salvaged": True}
 
 
 def _friendly_name(sensor: dict | None, topic: str) -> str:
@@ -196,6 +272,19 @@ def _gap_warnings(topic: str, sensor: dict | None, stamps: list[float],
     what = _signal_word(sensor)
     warnings = []
     gap_durations: list[float] = []
+    leading = stamps[0] - bag_start
+    if leading > threshold:
+        gap_durations.append(leading)
+        warnings.append({
+            "topic": topic,
+            "sensor_id": sensor.get("sensor_id") if sensor else None,
+            "kind": "gap",
+            "start_offset_s": 0.0,
+            "duration_s": round(leading, 3),
+            "plain_text": (
+                f"{who} only started sending {what} "
+                f"{humanize_duration(leading)} into the recording."),
+        })
     for prev, cur in zip(stamps, stamps[1:], strict=False):
         gap = cur - prev
         if gap <= threshold:
@@ -267,27 +356,112 @@ def _low_rate_warning(topic: str, sensor: dict | None, stamps: list[float],
 
 
 def read_clean_series(bag_dir: Path,
-                      meta: dict[str, Any]) -> dict[str, list[float]] | None:
-    """Per-topic ascending message timestamps (seconds), with outliers removed.
+                      meta: dict[str, Any]) -> CleanSeries | None:
+    """Per-topic ascending message timestamps (seconds), cleaned.
 
     Returns None when no supported storage reader exists (timestamp-level work
-    is impossible); an empty dict when a reader ran but found no plausible
-    timestamps. Stamps before ``EPOCH_FLOOR_S`` are dropped so one un-stamped
-    message cannot poison gap detection or the recording window.
+    is impossible); an empty CleanSeries when a reader ran but found no
+    plausible timestamps (``total_read`` then says whether any were read).
+
+    Stamps before ``EPOCH_FLOOR_S`` are dropped so one un-stamped message
+    cannot poison gap detection or the recording window. Clock steps are
+    found in the arrival order of all topics together (sorting each topic
+    hid a backward step), and the timeline is corrected across them, so a
+    clock that jumped by hours doesn't turn into an hours-long dropout on
+    every topic.
     """
     reader = bag_storage.get_reader(meta["storage_identifier"])
     if reader is None or not reader.supported:
         return None
     try:
-        series = reader.topic_timestamps(bag_dir, meta["relative_file_paths"])
+        ts = reader.read_timestamps(bag_dir, meta["relative_file_paths"])
     except bag_storage.BagStorageUnsupported:
         return None
-    cleaned: dict[str, list[float]] = {}
-    for topic, stamps in series.items():
-        good = [s for s in stamps if s >= EPOCH_FLOOR_S]
+    cleaned = CleanSeries()
+    cleaned.total_read = ts.total
+    cleaned.truncated = ts.truncated
+    shift_at, steps = _clock_steps(ts)
+    cleaned.steps = steps
+    for topic, stamps in ts.stamps.items():
+        order = ts.order[topic]
+        good = []
+        k, shift = 0, 0.0
+        for o, t in zip(order, stamps, strict=True):
+            while k < len(shift_at) and shift_at[k][0] <= o:
+                shift = shift_at[k][1]
+                k += 1
+            if t >= EPOCH_FLOOR_S:
+                good.append(t - shift)
         if good:
+            good.sort()
             cleaned[topic] = good
     return cleaned
+
+
+def _clock_steps(ts: bag_storage.Timestamps
+                 ) -> tuple[list[tuple[int, float]], list[tuple[float, float]]]:
+    """Clock discontinuities in the arrival-ordered stream.
+
+    Returns ``(shift_at, steps)``: from arrival index ``shift_at[i][0]`` on,
+    subtract ``shift_at[i][1]`` (cumulative) to undo the steps; ``steps``
+    lists each step as ``(offset_s, delta_s)`` on the corrected timeline.
+
+    A jump in the merged stream only counts when a topic that spans it jumps
+    the same way on its own: a file written topic by topic (a converted or
+    merged bag) also "jumps back" between topics, but no topic does.
+    """
+    if ts.total < 2:
+        return [], []
+    merged = array("d", bytes(8 * ts.total))
+    for topic, stamps in ts.stamps.items():
+        for o, t in zip(ts.order[topic], stamps, strict=True):
+            merged[o] = t
+    shift_at: list[tuple[int, float]] = []
+    steps: list[tuple[float, float]] = []
+    shift = 0.0
+    first = prev = None
+    for i, t in enumerate(merged):
+        if t < EPOCH_FLOOR_S:
+            continue  # broken stamps are bag_timing's concern
+        if prev is None:
+            first = prev = t
+            continue
+        delta = t - prev
+        if (delta < -CLOCK_STEP_BACK_S or delta > CLOCK_STEP_FORWARD_S) \
+                and _topic_spans_jump(ts, i, delta):
+            offset = prev - shift - first
+            shift += delta
+            shift_at.append((i, shift))
+            steps.append((round(offset, 3), round(delta, 3)))
+        prev = t
+    return shift_at, steps
+
+
+def _topic_spans_jump(ts: bag_storage.Timestamps, i: int,
+                      delta: float) -> bool:
+    """Whether the topics with messages on both sides of arrival index ``i``
+    confirm a clock step there.
+
+    Backwards, one topic going back is proof (a topic's own receive times
+    can't decrease otherwise). Forwards, one topic's silence is just its own
+    outage: at least two topics, and half of those spanning ``i``, must jump
+    by at least half of ``delta``.
+    """
+    spanning = jumping = 0
+    for topic, order in ts.order.items():
+        j = bisect.bisect_left(order, i)
+        if j == 0 or j == len(order):
+            continue
+        stamps = ts.stamps[topic]
+        if stamps[j] < EPOCH_FLOOR_S or stamps[j - 1] < EPOCH_FLOOR_S:
+            continue
+        spanning += 1
+        own = stamps[j] - stamps[j - 1]
+        if (own < 0) == (delta < 0) and abs(own) >= abs(delta) / 2:
+            if delta < 0:
+                return True
+            jumping += 1
+    return delta > 0 and jumping >= 2 and jumping * 2 >= spanning
 
 
 def _plausible_window(start_s: float, duration_s: float) -> bool:
@@ -310,9 +484,16 @@ def bag_timing(bag_dir: Path, meta: dict[str, Any],
     metadata header when it is plausible and to the storage files' modification
     times when it is corrupt and no per-message timestamps are available.
     """
+    read = getattr(series, "total_read", 0) if series is not None else 0
+    if series is not None and read and not series:
+        # Every stamp read was near the epoch (an unset clock, or sim time
+        # starting at 0): there is no real window to recover.
+        return None, None, None
     if series:
         plausible = sum(len(stamps) for stamps in series.values())
-        total = meta.get("message_count") or plausible
+        # Judge against what was actually read: a truncated file has fewer
+        # messages than metadata.yaml counts, and that isn't a broken clock.
+        total = read or meta.get("message_count") or plausible
         if total > 0 and plausible / total < RELIABLE_STAMP_FRACTION:
             return None, None, None
         lo = min(stamps[0] for stamps in series.values())
@@ -395,9 +576,20 @@ def analyse_bag(bag_dir: Path, sensors: list[dict] | None = None, *,
 
     if series is None:
         series = read_clean_series(bag_dir, meta)
+    if series is None:
+        # No supported reader: the metadata-level checks above are all we
+        # can offer.
+        return warnings
+    if getattr(series, "truncated", False):
+        warnings.append({
+            "topic": "", "sensor_id": None, "kind": "truncated",
+            "start_offset_s": None, "duration_s": None,
+            "plain_text": "Part of the recording file is cut off at the end; "
+                          "the data before the cut is intact."})
     if not series:
-        # No supported reader (or no plausible timestamps): the metadata-level
-        # checks above are all we can offer.
+        if getattr(series, "total_read", 0):
+            # Data was read, but none of it carries a real time.
+            warnings.append(_clock_unreliable_warning())
         return warnings
 
     bag_start, bag_end, duration_s = bag_timing(bag_dir, meta, series)
@@ -406,6 +598,18 @@ def analyse_bag(bag_dir: Path, sensors: list[dict] | None = None, *,
         # skip gap/low-rate analysis (the never_published checks above stand).
         warnings.append(_clock_unreliable_warning())
         return warnings
+    steps = getattr(series, "steps", [])
+    for offset, delta in steps[:CLOCK_STEP_MAX_REPORTED]:
+        how = ("jumped forward by {d}, {o} in (or the recording was paused "
+               "that long)" if delta > 0 else "jumped back by {d}, {o} in")
+        warnings.append({
+            "topic": "", "sensor_id": None, "kind": "clock_step",
+            "start_offset_s": offset, "duration_s": delta,
+            "plain_text": (
+                "The recording device's clock " + how.format(
+                    d=humanize_duration(abs(delta)),
+                    o=humanize_duration(offset))
+                + ". Times and durations have been corrected around it.")})
     for topic, stamps in series.items():
         topic_sensor = by_topic.get(topic)
         if topic_sensor is None and is_event_topic(topic):
@@ -442,10 +646,18 @@ def bag_fingerprint(bag: Any) -> str:
     topics = sorted(
         (get(t, "name"), get(t, "message_count")) for t in get(bag, "topics"))
     duration_s = get(bag, "duration_s")
-    payload = json.dumps([
+    fields = [
         get(bag, "size_bytes"),
         get(bag, "message_count"),
         round(duration_s, 3) if duration_s is not None else None,
         topics,
-    ], sort_keys=True)
+    ]
+    if not get(bag, "message_count"):
+        # Two empty recordings of the same topics would otherwise match;
+        # when they were made tells them apart (a retry of the same one
+        # still matches). Non-empty bags keep their old fingerprint.
+        start = get(bag, "start_time")
+        fields.append(start.isoformat() if hasattr(start, "isoformat")
+                      else start)
+    payload = json.dumps(fields, sort_keys=True)
     return hashlib.sha256(payload.encode()).hexdigest()

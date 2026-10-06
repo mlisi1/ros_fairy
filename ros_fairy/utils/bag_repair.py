@@ -22,7 +22,7 @@ from typing import Any
 
 import yaml
 
-from ros_fairy.utils import topic_health
+from ros_fairy.utils import bag_storage, topic_health
 
 DEFAULT_DURATION_S = 60.0
 
@@ -32,11 +32,14 @@ class BagRepairError(Exception):
 
 
 def needs_repair(bag_dir: Path) -> bool:
-    """True if the bag's clock is unreliable (its real timing is unrecoverable)."""
+    """True if the bag's clock is unreliable (its real timing is
+    unrecoverable) — including a bag whose every stamp is near the epoch."""
     meta = topic_health.parse_bag_metadata(bag_dir)
     if meta is None:
         return False
     series = topic_health.read_clean_series(bag_dir, meta)
+    if series is None:
+        return False  # no reader: can't tell
     _start, _end, duration = topic_health.bag_timing(bag_dir, meta, series)
     return duration is None
 
@@ -53,7 +56,6 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
     Returns a summary dict. Raises BagRepairError for non-MCAP bags or when the
     ``mcap`` package is unavailable.
     """
-    from ros_fairy.utils import bag_storage
     if not bag_storage.supports_timestamps("mcap"):
         raise BagRepairError("the 'mcap' package is required to repair bags")
     try:
@@ -71,10 +73,9 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
             f"only MCAP bags can be repaired ({src_bag_dir.name} is "
             f"{meta['storage_identifier']})")
 
-    src_files = [src_bag_dir / p for p in meta["relative_file_paths"]
-                 if str(p).endswith(".mcap")]
-    src_files = [f for f in src_files if f.is_file()] or \
-        sorted(src_bag_dir.glob("*.mcap"))
+    # Splits in recording order (name_2 before name_10).
+    src_files = bag_storage.storage_files(
+        src_bag_dir, meta["relative_file_paths"], ".mcap")
     if not src_files:
         raise BagRepairError(f"no .mcap data found in {src_bag_dir.name}")
 
@@ -99,12 +100,17 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
     step = max(1, span_ns // total)
     base = time.time_ns()  # a plausible recent epoch so the bag also looks sane
 
+    created_dir = not dest_bag_dir.exists()
     dest_bag_dir.mkdir(parents=True, exist_ok=True)
     out_name = f"{dest_bag_dir.name}_0.mcap"
     out_path = dest_bag_dir / out_name
+    meta_path = dest_bag_dir / "metadata.yaml"
 
-    schema_map: dict[str, int] = {}
-    channel_map: dict[str, int] = {}
+    # A schema is its name *and* definition, a channel its topic *and* type
+    # and encoding: a topic recorded with two message types (or one type
+    # whose definition changed between splits) keeps each one's own schema.
+    schema_map: dict[tuple, int] = {}
+    channel_map: dict[tuple, int] = {}
     i = 0
     try:
         with open(out_path, "wb") as g:
@@ -114,32 +120,41 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
                 with open(f, "rb") as h:
                     for schema, channel, message in \
                             make_reader(h).iter_messages(log_time_order=False):
-                        if schema and schema.name not in schema_map:
-                            schema_map[schema.name] = writer.register_schema(
+                        skey = (schema.name, schema.encoding, schema.data) \
+                            if schema else None
+                        if skey is not None and skey not in schema_map:
+                            schema_map[skey] = writer.register_schema(
                                 name=schema.name, encoding=schema.encoding,
                                 data=schema.data)
-                        if channel.topic not in channel_map:
-                            channel_map[channel.topic] = \
-                                writer.register_channel(
-                                    topic=channel.topic,
-                                    message_encoding=channel.message_encoding,
-                                    schema_id=schema_map.get(
-                                        schema.name if schema else "", 0),
-                                    metadata=dict(channel.metadata))
+                        ckey = (channel.topic, channel.message_encoding, skey)
+                        if ckey not in channel_map:
+                            channel_map[ckey] = writer.register_channel(
+                                topic=channel.topic,
+                                message_encoding=channel.message_encoding,
+                                schema_id=schema_map.get(skey, 0)
+                                if skey else 0,
+                                metadata=dict(channel.metadata))
                         ts = base + i * step
                         writer.add_message(
-                            channel_id=channel_map[channel.topic],
+                            channel_id=channel_map[ckey],
                             log_time=ts, publish_time=ts,
                             sequence=message.sequence, data=message.data)
                         i += 1
             writer.finish()
+        new_span = (total - 1) * step
+        _write_repaired_metadata(src_bag_dir, dest_bag_dir, out_name, base,
+                                 new_span, total)
     except BaseException:
+        # Leave nothing that looks like a repaired bag: no data file without
+        # metadata, no half-written metadata, no folder we made for nothing.
         out_path.unlink(missing_ok=True)
+        meta_path.unlink(missing_ok=True)
+        if created_dir:
+            try:
+                dest_bag_dir.rmdir()
+            except OSError:
+                pass
         raise
-
-    new_span = (total - 1) * step
-    _write_repaired_metadata(src_bag_dir, dest_bag_dir, out_name, base,
-                             new_span, total)
     return {
         "source": str(src_bag_dir),
         "dest": str(dest_bag_dir),

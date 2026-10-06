@@ -939,63 +939,6 @@ class Watchdog:
                               "on without it", exc)
 
 
-def _salvage_topics(bag_dir: Path) -> tuple[str, list[dict], int]:
-    """(storage format, topics, message count) of a bag without metadata.yaml.
-
-    A recorder killed mid-write leaves no metadata, but the storage itself
-    usually still names its topics and holds most messages: an MCAP read up
-    to where it was cut off, a SQLite database read as is.
-    """
-    files = sorted(f for f in bag_dir.iterdir() if f.is_file())
-    topics: dict[str, dict] = {}
-    storage = "unknown"
-    for f in files:
-        if f.suffix == ".mcap":
-            storage = "mcap"
-            # Read record by record: the high-level readers want the summary
-            # at the end of the file, or give up at the cut-off chunk without
-            # yielding the complete chunks before it.
-            schemas: dict[int, str] = {}
-            channels: dict[int, dict] = {}
-            try:
-                from mcap.records import Channel, Message, Schema
-                from mcap.stream_reader import StreamReader
-                with open(f, "rb") as fh:
-                    for rec in StreamReader(fh, skip_magic=False).records:
-                        if isinstance(rec, Schema):
-                            schemas[rec.id] = rec.name
-                        elif isinstance(rec, Channel):
-                            channels[rec.id] = topics.setdefault(rec.topic, {
-                                "name": rec.topic,
-                                "type": schemas.get(rec.schema_id, "unknown"),
-                                "message_count": 0})
-                        elif isinstance(rec, Message) and \
-                                rec.channel_id in channels:
-                            channels[rec.channel_id]["message_count"] += 1
-            except Exception:
-                pass  # cut off mid-record: keep what was read
-        elif f.suffix == ".db3":
-            storage = "sqlite3"
-            try:
-                import sqlite3
-                con = sqlite3.connect(f"file:{f}?mode=ro", uri=True)
-                try:
-                    rows = con.execute(
-                        "SELECT t.name, t.type, COUNT(m.id) FROM topics t "
-                        "LEFT JOIN messages m ON m.topic_id = t.id "
-                        "GROUP BY t.id").fetchall()
-                finally:
-                    con.close()
-            except Exception:
-                rows = []
-            for name, type_, count in rows:
-                t = topics.setdefault(name, {"name": name, "type": type_,
-                                             "message_count": 0})
-                t["message_count"] += count
-    out = list(topics.values())
-    return storage, out, sum(t["message_count"] for t in out)
-
-
 def _bag_record(bag_dir: Path, source: str, sensors: list) -> dict:
     meta = topic_health.parse_bag_metadata(bag_dir)
     if meta is not None:
@@ -1031,23 +974,43 @@ def _bag_record(bag_dir: Path, source: str, sensors: list) -> dict:
                 for t in meta["topics"]],
             "health_warnings": warnings,
         }
-    # Hard crash mid-write: recover what the filesystem still knows.
-    warnings = topic_health.analyse_bag(bag_dir, sensors)
-    storage, topics, count = _salvage_topics(bag_dir)
-    files = [f for f in bag_dir.rglob("*") if f.is_file()]
-    mtimes = [f.stat().st_mtime for f in files] or [time.time()]
+    # Hard crash mid-write: no metadata.yaml, but the storage itself still
+    # names the topics and holds the messages up to the cut — read the
+    # timing from it, as for a closed bag.
+    cut_off = {"topic": "", "sensor_id": None, "kind": "never_published",
+               "start_offset_s": None, "duration_s": None,
+               "plain_text": "The recording ended unexpectedly and may be "
+                             "incomplete."}
+    meta = topic_health.metadata_from_storage(bag_dir)
+    series = topic_health.read_clean_series(bag_dir, meta) if meta else None
+    start_s = end_s = duration_s = None
+    if series:
+        start_s, end_s, duration_s = topic_health.bag_timing(
+            bag_dir, meta, series)
+    if start_s is None and not (series is not None and series.total_read):
+        # Nothing readable at all: the files' times are the best guess.
+        files = [f for f in bag_dir.rglob("*") if f.is_file()]
+        mtimes = [f.stat().st_mtime for f in files] or [time.time()]
+        start_s, end_s = min(mtimes), max(mtimes)
+        duration_s = end_s - start_s
+    warnings = [cut_off] + (topic_health.analyse_bag(
+        bag_dir, sensors, meta=meta, series=series) if meta else [])
+    topics = (meta or {}).get("topics", [])
     return {
         "path": str(bag_dir),
         "source": source,
-        "storage_format": storage,
+        "storage_format": (meta or {}).get("storage_identifier", "unknown"),
         "size_bytes": fsio.dir_size_bytes(bag_dir),
         "start_time": datetime.fromtimestamp(
-            min(mtimes), tz=timezone.utc).isoformat(),
+            start_s, tz=timezone.utc).isoformat()
+        if start_s is not None else None,
         "end_time": datetime.fromtimestamp(
-            max(mtimes), tz=timezone.utc).isoformat(),
-        "duration_s": max(mtimes) - min(mtimes),
-        "message_count": count,
-        "topics": [{**t, "avg_frequency_hz": None} for t in topics],
+            end_s, tz=timezone.utc).isoformat() if end_s is not None else None,
+        "duration_s": duration_s,
+        "message_count": (meta or {}).get("message_count", 0),
+        "topics": [{**t, "avg_frequency_hz": (
+            round(t["message_count"] / duration_s, 3)
+            if duration_s else None)} for t in topics],
         "health_warnings": warnings,
     }
 

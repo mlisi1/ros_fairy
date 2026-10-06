@@ -14,7 +14,7 @@ from inotify_simple import flags
 
 from ros_fairy.manifest import builder
 from ros_fairy.ui import status
-from ros_fairy.utils import fsio, paths, ros_env
+from ros_fairy.utils import bag_storage, fsio, paths, ros_env
 from ros_fairy.watchdog import recorder_scan
 from ros_fairy.watchdog import watchdog as wd_mod
 from ros_fairy.watchdog.watchdog import FINALISING, IDLE, RECORDING, Watchdog
@@ -574,7 +574,7 @@ def test_cut_off_mcap_is_salvaged(tmp_path):
         w.finish()
     data = path.read_bytes()
     path.write_bytes(data[: len(data) * 2 // 3])  # power cut
-    storage, topics, count = wd_mod._salvage_topics(bag)
+    storage, topics, count = bag_storage.salvage_topics(bag)
     assert storage == "mcap"
     assert [(t["name"], t["type"]) for t in topics] == \
         [("/imu/data", "sensor_msgs/msg/Imu")]
