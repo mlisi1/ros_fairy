@@ -42,14 +42,22 @@ def run(args, console: Console | None = None) -> int:
     try:
         crate_a = locate.resolve_archive(a_id)
         crate_b = locate.resolve_archive(b_id)
-        record_a = locate.load_record(crate_a)
-        record_b = locate.load_record(crate_b)
+        record_a, aside_a = locate.load_record_with_notes(crate_a)
+        record_b, aside_b = locate.load_record_with_notes(crate_b)
     except locate.LocateError as exc:
         return fail(str(exc))
 
+    set_aside = sorted(set(aside_a) | set(aside_b))
     if as_json:
-        print_json(diff_ui.diff_as_dict(record_a, record_b, crate_a, crate_b))
+        doc = diff_ui.diff_as_dict(record_a, record_b, crate_a, crate_b)
+        if set_aside:
+            doc["not_compared"] = set_aside
+        print_json(doc)
         return 0
+    if set_aside:
+        console.print("[yellow]A mission was saved by a newer ros-fairy; "
+                      "these details aren't compared by this version: "
+                      f"{', '.join(set_aside)}.[/yellow]")
 
     diff_ui.show_diff(record_a, record_b, console=console,
                       crate_a=crate_a, crate_b=crate_b)

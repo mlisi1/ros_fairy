@@ -39,7 +39,12 @@ def _now() -> datetime:
 
 
 def new_mission_id(created_at: datetime | None = None) -> str:
-    created_at = created_at or _now()
+    """m-<local date>-<local time>-<4 hex>: the same local date and time as
+    the archive folder's name (the ID used to carry the UTC time, so
+    missions started between midnight and 02:00 in Italy got one date in
+    the ID and another in the folder). ``created_at`` itself stays in UTC
+    with its offset — that is the canonical time."""
+    created_at = (created_at or _now()).astimezone()
     return f"m-{created_at.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:4]}"
 
 

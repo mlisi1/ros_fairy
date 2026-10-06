@@ -2,4 +2,10 @@
 
 __version__ = "0.1.0"
 
-SCHEMA_VERSION = "1.0"
+# Record format, "MAJOR.MINOR". A minor bump only adds fields: an older
+# ros-fairy still reads the record (setting the new fields aside). A major
+# bump changes or removes fields: older versions refuse it and say so.
+# 1.1 (2026-10-06): usb, udev_rules, ros_graph.parameters_not_captured,
+#   docker_containers[].python_packages; apt_ros_versions and
+#   docker_containers may be null.
+SCHEMA_VERSION = "1.1"

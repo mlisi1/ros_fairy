@@ -140,7 +140,8 @@ def test_build_record_and_confidence():
     assert fc["ros_graph.parameters"] == "auto"
     assert "ros_graph.parameters./navsat" not in fc
     # round-trips through json mode
-    assert record.model_dump(mode="json")["schema_version"] == "1.0"
+    from ros_fairy import SCHEMA_VERSION
+    assert record.model_dump(mode="json")["schema_version"] == SCHEMA_VERSION
 
 
 def test_validator_missing_fields():

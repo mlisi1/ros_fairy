@@ -1,23 +1,61 @@
 """Pydantic models for the MissionRecord.
 
 The spec file is authoritative; any field change must land there first.
-schema_version "1.0".
+schema_version: see ros_fairy.SCHEMA_VERSION for the format's history and
+the compatibility rule; ``read_record`` loads an archived record.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
+from typing import Annotated, Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    ValidationInfo,
+    model_validator,
+)
 
 from ros_fairy import SCHEMA_VERSION
 
 
 class _Model(BaseModel):
+    """Strict when building a record (an unknown field is a bug), lenient
+    when reading one from an archive with ``context={"lenient": ...}``: a
+    field this version doesn't know (the record was written by a newer
+    ros-fairy) is set aside and noted in the context's ``dropped`` list."""
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _set_aside_unknown(cls, data: Any, info: ValidationInfo) -> Any:
+        context = info.context
+        if not context or not context.get("lenient") \
+                or not isinstance(data, dict):
+            return data
+        known = set(cls.model_fields)
+        unknown = [k for k in data if k not in known]
+        if not unknown:
+            return data
+        context.setdefault("dropped", []).extend(
+            f"{cls.__name__}.{k}" for k in unknown)
+        return {k: v for k, v in data.items() if k in known}
+
+
+def _assume_utc(value: datetime) -> datetime:
+    """A timestamp without a timezone (an old or hand-edited record) is
+    UTC — what ros-fairy always writes — so time arithmetic on it works."""
+    return value if value.tzinfo is not None \
+        else value.replace(tzinfo=timezone.utc)
+
+
+AwareDatetime = Annotated[datetime, AfterValidator(_assume_utc)]
 
 
 class Identity(_Model):
     mission_id: str
-    created_at: datetime
+    created_at: AwareDatetime
     operator_name: str = Field(min_length=1, max_length=80)
     operator_contact: str | None = None
 
@@ -215,7 +253,7 @@ class TopicInfo(_Model):
 
 
 class RosGraph(_Model):
-    captured_at: datetime | None = None
+    captured_at: AwareDatetime | None = None
     nodes: list[str] = Field(default_factory=list)
     topics: list[TopicInfo] = Field(default_factory=list)
     parameters: dict[str, dict] = Field(default_factory=dict)
@@ -274,8 +312,8 @@ class Bag(_Model):
     # None when the recording clock was too unreliable to recover the real
     # window (e.g. an unsynced system clock that left most messages stamped near
     # the epoch). A health warning explains it; rates are then None too.
-    start_time: datetime | None = None
-    end_time: datetime | None = None
+    start_time: AwareDatetime | None = None
+    end_time: AwareDatetime | None = None
     duration_s: float | None = None
     message_count: int
     topics: list[BagTopic] = Field(default_factory=list)
@@ -288,8 +326,8 @@ class Bag(_Model):
 class Provenance(_Model):
     ros_fairy_version: str
     schema_version: str = SCHEMA_VERSION
-    harvested_at: datetime | None = None
-    assembled_at: datetime | None = None
+    harvested_at: AwareDatetime | None = None
+    assembled_at: AwareDatetime | None = None
     hostname: str = ""
     kernel: str = ""
     arch: str = ""
@@ -319,3 +357,34 @@ class MissionRecord(_Model):
     usb: UsbState | None = None
     udev_rules: UdevRules | None = None
     provenance: Provenance
+
+
+class NewerRecordError(Exception):
+    """The record's format is a newer *major* version than this ros-fairy
+    understands."""
+
+
+def _major(version: str) -> int:
+    try:
+        return int(str(version).split(".")[0])
+    except ValueError:
+        return 0
+
+
+def read_record(data: Any) -> tuple["MissionRecord", list[str]]:
+    """Validate an archived record; returns ``(record, set_aside)``.
+
+    A record from a newer *minor* format (added fields) is read with the
+    fields this version doesn't know set aside, and listed. A newer *major*
+    format raises NewerRecordError rather than misreading it.
+    """
+    version = data.get("schema_version", "1.0") if isinstance(data, dict) \
+        else "1.0"
+    if _major(version) > _major(SCHEMA_VERSION):
+        raise NewerRecordError(
+            f"it was saved in record format {version}, newer than this "
+            f"ros-fairy understands ({SCHEMA_VERSION}); update ros-fairy "
+            "to read it")
+    context: dict[str, Any] = {"lenient": True, "dropped": []}
+    record = MissionRecord.model_validate(data, context=context)
+    return record, sorted(set(context["dropped"]))

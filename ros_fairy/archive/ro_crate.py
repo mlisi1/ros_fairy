@@ -7,6 +7,7 @@ of extra files it actually copied (this writer does no filesystem reads).
 
 import json
 from pathlib import Path
+from urllib.parse import quote
 
 from ros_fairy.manifest.schema import MissionRecord
 
@@ -25,6 +26,13 @@ _FILE_ENCODING = {
 }
 
 _CONFIDENCE_USER_ID = "#confidence-user"
+
+
+def _local_id(path: str) -> str:
+    """A crate-relative path as an RO-Crate @id: a URI path, so a space,
+    "#" or "%" in a recording's folder name is percent-encoded rather than
+    breaking the identifier ("#" would start a fragment)."""
+    return quote(path, safe="/")
 
 
 def build(record: MissionRecord, extra_files: list[dict] | None = None,
@@ -81,7 +89,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
          "encodingFormat": "text/markdown"},
     ]
     for extra in extra_files:
-        entity = {"@id": extra["id"], "@type": "File",
+        entity = {"@id": _local_id(extra["id"]), "@type": "File",
                   "name": extra["name"],
                   "encodingFormat": extra["encodingFormat"]}
         if extra.get("sha256"):
@@ -89,7 +97,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
         file_entities.append(entity)
     for cal in record.calibrations:
         if cal.archived_path:
-            entity = {"@id": cal.archived_path, "@type": "File",
+            entity = {"@id": _local_id(cal.archived_path), "@type": "File",
                       "name": f"Calibration: {cal.name}",
                       "encodingFormat": "application/yaml"
                       if (cal.format or "yaml") == "yaml"
@@ -98,7 +106,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
                 entity["sha256"] = cal.sha256
             file_entities.append(entity)
 
-    bag_ids = [b.path.rstrip("/") + "/" for b in record.bags]
+    bag_ids = [_local_id(b.path.rstrip("/")) + "/" for b in record.bags]
 
     root: dict = {
         "@id": "./",
@@ -172,7 +180,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
         }
         archived = cal_paths.get(sensor.calibration_ref or "")
         if archived:
-            sensor_entity["subjectOf"] = {"@id": archived}
+            sensor_entity["subjectOf"] = {"@id": _local_id(archived)}
         graph.append(sensor_entity)
 
     instruments = []
@@ -182,7 +190,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
         instruments.append({"@id": "#ros2"})
     if record.software.python_env:
         instruments.append({"@id": "#python-runtime"})
-    instruments += [{"@id": f"#container-{c.name}"}
+    instruments += [{"@id": f"#container-{quote(c.name, safe='')}"}
                     for c in record.software.docker_containers or []]
     mission: dict = {
         "@id": "#mission",
@@ -224,7 +232,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
                       "version": pe.version,
                       "additionalProperty": py_props})
     for container in record.software.docker_containers or []:
-        entity = {"@id": f"#container-{container.name}",
+        entity = {"@id": f"#container-{quote(container.name, safe='')}",
                   "@type": "SoftwareApplication",
                   "name": container.name,
                   "softwareVersion": container.image}
@@ -234,7 +242,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
 
     bag_file_entities: list[dict] = []
     for i, bag in enumerate(record.bags, start=1):
-        bag_dir_id = bag.path.rstrip("/")
+        bag_dir_id = _local_id(bag.path.rstrip("/"))
         entity = {
             "@id": bag_dir_id + "/",
             "@type": "Dataset",
@@ -263,7 +271,7 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
         # bag bytes verifiable by any RO-Crate tool, not just `ros2 fairy verify`.
         parts = []
         for rel, digest in sorted(bag.file_sha256.items()):
-            file_id = f"{bag_dir_id}/{rel}"
+            file_id = f"{bag_dir_id}/{_local_id(rel)}"
             bag_file_entities.append({
                 "@id": file_id,
                 "@type": "File",

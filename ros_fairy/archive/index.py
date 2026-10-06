@@ -8,11 +8,11 @@ the database from them at any time.
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from ros_fairy.manifest.schema import MissionRecord
+from ros_fairy.manifest.schema import MissionRecord, read_record
 from ros_fairy.utils import paths, topic_health
 
 DB_VERSION = "3"
@@ -129,7 +129,9 @@ def _connect_readonly() -> sqlite3.Connection:
 def _row_from_record(record: MissionRecord, archive_path: Path) -> tuple:
     return (
         record.identity.mission_id,
-        record.identity.created_at.isoformat(),
+        # Normalised to UTC so the strings sort and compare as times, whatever
+        # offset the record was written with.
+        record.identity.created_at.astimezone(timezone.utc).isoformat(),
         record.identity.operator_name,
         record.intent.location_name,
         record.intent.goal,
@@ -250,6 +252,26 @@ def exported_mission_ids() -> set[str]:
     return {row[0] for row in rows}
 
 
+def _utc_bound(value: str, end: bool) -> str:
+    """A --since/--until value as a UTC ISO string comparable with the
+    stored ``created_at``. A bare date is a day in *local* time (what the
+    operator sees in `list`): --since is its first instant, --until (which
+    includes the day) the first instant of the next one."""
+    try:
+        if len(value) == 10:
+            day = date.fromisoformat(value)
+            if end:
+                day += timedelta(days=1)
+            moment = datetime(day.year, day.month, day.day).astimezone()
+        else:
+            moment = datetime.fromisoformat(value)
+            if moment.tzinfo is None:
+                moment = moment.astimezone()
+    except ValueError:
+        return value  # leave odd input to the string comparison
+    return moment.astimezone(timezone.utc).isoformat()
+
+
 def query(operator: str | None = None, location: str | None = None,
           since: str | None = None, until: str | None = None,
           quality: str | None = None,
@@ -270,12 +292,10 @@ def query(operator: str | None = None, location: str | None = None,
         params.append(quality)
     if since:
         where.append("created_at >= ?")
-        params.append(since)
+        params.append(_utc_bound(since, end=False))
     if until:
         where.append("created_at < ?")
-        # until is an inclusive date; bump to the end of that day
-        params.append(until + "T23:59:59.999999+00:00"
-                      if len(until) == 10 else until)
+        params.append(_utc_bound(until, end=True))
     clause = (" WHERE " + " AND ".join(where)) if where else ""
     if not Path(paths.index_db_path()).exists():
         return [], 0
@@ -313,20 +333,44 @@ def delete(mission_id: str) -> None:
         con.close()
 
 
-def reindex(archive_root: Path | None = None) -> int:
-    """Rebuild the index by scanning archive dirs for mission_record.json."""
+def reindex(archive_root: Path | None = None,
+            report: dict | None = None) -> int:
+    """Rebuild the index by scanning archive dirs for mission_record.json.
+
+    Records saved by a newer ros-fairy are indexed with the fields this
+    version doesn't know set aside. ``report``, when given, receives
+    ``skipped`` ([(folder, reason)] for archives that couldn't be read) and
+    ``duplicates`` ({mission_id: [folders]}: the same mission saved twice;
+    the most recently assembled one is indexed).
+    """
     archive_root = archive_root or paths.archive_dir()
+    skipped: list[tuple[str, str]] = []
+    by_id: dict[str, list[tuple[MissionRecord, Path]]] = {}
+    for record_file in sorted(archive_root.glob("*/mission_record.json")):
+        try:
+            record, _ = read_record(json.loads(record_file.read_text()))
+        except Exception as exc:
+            skipped.append((record_file.parent.name, str(exc).splitlines()[0]))
+            continue
+        by_id.setdefault(record.identity.mission_id, []).append(
+            (record, record_file.parent))
+
+    def assembled(item: tuple[MissionRecord, Path]) -> str:
+        at = item[0].provenance.assembled_at
+        return at.isoformat() if at else ""
+
     count = 0
     with _connect() as con:
         con.execute("DELETE FROM missions")
         con.execute("DELETE FROM mission_bags")
-        for record_file in sorted(archive_root.glob("*/mission_record.json")):
-            try:
-                record = MissionRecord.model_validate(
-                    json.loads(record_file.read_text()))
-            except Exception:
-                continue
-            con.execute(_INSERT, _row_from_record(record, record_file.parent))
+        for items in by_id.values():
+            record, folder = max(items, key=assembled)
+            con.execute(_INSERT, _row_from_record(record, folder))
             _replace_bag_fingerprints(con, record)
             count += 1
+    if report is not None:
+        report["skipped"] = skipped
+        report["duplicates"] = {
+            mid: sorted(str(f) for _, f in items)
+            for mid, items in by_id.items() if len(items) > 1}
     return count

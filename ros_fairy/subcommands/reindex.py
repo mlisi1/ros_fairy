@@ -18,17 +18,23 @@ from ros_fairy.utils import paths
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
+    report: dict = {}
     try:
-        count = index.reindex()
+        count = index.reindex(report=report)
     except index.IndexUnavailableError as exc:
         if getattr(args, "json", False):
             print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
         else:
             console.print(f"[red]{exc}[/red]")
         return 1
+    skipped = report.get("skipped", [])
+    duplicates = report.get("duplicates", {})
     if getattr(args, "json", False):
         print(json.dumps({"ok": True, "missions": count,
-                          "archive_dir": str(paths.archive_dir())}, indent=2))
+                          "archive_dir": str(paths.archive_dir()),
+                          "skipped": [{"folder": f, "reason": r}
+                                      for f, r in skipped],
+                          "duplicates": duplicates}, indent=2))
         return 0
     if count == 0:
         console.print("No saved missions found in "
@@ -37,6 +43,14 @@ def run(args, console: Console | None = None) -> int:
         plural = "mission" if count == 1 else "missions"
         console.print(f"Rebuilt the mission list: {count} saved {plural} "
                       "found. `ros2 fairy list` is up to date.")
+    for folder, reason in skipped:
+        console.print(f"[yellow]Couldn't read {folder}: {reason}[/yellow]")
+    for mission_id, folders in duplicates.items():
+        console.print(f"[yellow]Mission {mission_id} was saved more than "
+                      f"once ({', '.join(folders)}); the most recent save is "
+                      "listed. Check which one to keep with "
+                      "[bold]ros2 fairy verify[/bold] before deleting the "
+                      "other.[/yellow]")
     return 0
 
 

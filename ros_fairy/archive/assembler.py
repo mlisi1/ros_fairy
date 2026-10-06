@@ -36,7 +36,11 @@ from pathlib import Path
 from typing import Any
 
 from ros_fairy.archive import index, ro_crate
-from ros_fairy.manifest.schema import FOREIGN_SOURCES, MissionRecord
+from ros_fairy.manifest.schema import (
+    FOREIGN_SOURCES,
+    MissionRecord,
+    read_record,
+)
 from ros_fairy.utils import fsio, paths
 
 log = logging.getLogger("ros_fairy.archive.assembler")
@@ -420,7 +424,7 @@ def _post_commit(final: Path, plan: dict, record: MissionRecord | None,
     """Index the committed crate, clear the spool, then drop the plan."""
     try:
         if record is None:
-            record = MissionRecord.model_validate(
+            record, _ = read_record(
                 json.loads((final / "mission_record.json").read_text()))
         index.insert(record, final)
     except Exception as exc:
@@ -478,8 +482,8 @@ class PendingSave:
 
 def _staged_record(staging: Path) -> MissionRecord | None:
     try:
-        return MissionRecord.model_validate(
-            json.loads((staging / "mission_record.json").read_text()))
+        return read_record(
+            json.loads((staging / "mission_record.json").read_text()))[0]
     except Exception:
         return None
 

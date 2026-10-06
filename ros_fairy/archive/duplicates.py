@@ -22,7 +22,8 @@ never lose a recording; the choice stays with the operator.
 """
 
 import difflib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from ros_fairy.archive import index
 from ros_fairy.manifest.schema import MissionRecord
@@ -38,6 +39,19 @@ LOCATION_SIMILARITY = 0.85
 # the date already tells them apart (reported 2026-09-11: two genuinely
 # separate missions ~20.5h apart at the same lab were flagged).
 DEFAULT_WINDOW = timedelta(hours=2)
+
+
+def _aware(value: datetime) -> datetime:
+    """Without a timezone, a time is UTC (what ros-fairy writes): comparing
+    a naive and an aware time raised TypeError and crashed mission_close."""
+    return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+
+def _when(text: Any) -> datetime | None:
+    try:
+        return _aware(datetime.fromisoformat(text))
+    except (ValueError, TypeError):
+        return None
 
 
 def _norm(text: str) -> str:
@@ -58,16 +72,15 @@ def find_similar(record: MissionRecord,
         return []
 
     new_loc = _norm(record.intent.location_name)
-    new_when = record.identity.created_at
+    new_when = _aware(record.identity.created_at)
     matches = []
     for row in rows:
         if row["mission_id"] == record.identity.mission_id:
             continue
         if _norm(row["operator"]) != _norm(record.identity.operator_name):
             continue
-        try:
-            when = datetime.fromisoformat(row["created_at"])
-        except (ValueError, TypeError):
+        when = _when(row["created_at"])
+        if when is None:
             continue
         if abs((new_when - when).total_seconds()) > window.total_seconds():
             continue
@@ -89,11 +102,11 @@ def describe(record: MissionRecord, rows: list[dict]) -> str | None:
     if not rows:
         return None
     row = rows[0]
-    try:
-        when = datetime.fromisoformat(row["created_at"])
-        elapsed = (record.identity.created_at - when).total_seconds()
+    when = _when(row["created_at"])
+    if when is not None:
+        elapsed = (_aware(record.identity.created_at) - when).total_seconds()
         ago = f"{humanize_duration(elapsed)} ago"
-    except (ValueError, TypeError):
+    else:
         ago = "earlier"
     more = len(rows) - 1
     others = f" (and {more} more there recently)" if more else ""

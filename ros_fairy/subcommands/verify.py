@@ -17,6 +17,7 @@ Read-only: verify never modifies the archive or the index.
 
 import json
 from pathlib import Path
+from urllib.parse import unquote
 
 from rich.console import Console
 from rich.panel import Panel
@@ -51,12 +52,15 @@ def verify_archive(crate: Path) -> list[dict]:
 
     # 1. Mission record loads + validates (schema enforces required fields).
     try:
-        record = locate.load_record(crate)
+        record, set_aside = locate.load_record_with_notes(crate)
         add(OK, "Mission record is valid",
             f"mission {record.identity.mission_id}")
     except locate.LocateError as exc:
         add(FAIL, "Mission record is unreadable or invalid", str(exc))
         return checks  # nothing else is meaningful without the record
+    if set_aside:
+        add(WARN, "Saved by a newer ros-fairy: some details can't be read "
+                  "by this version", ", ".join(set_aside))
 
     # 2. RO-Crate metadata well-formed (deep-load with rocrate if present).
     crate_meta = crate / "ro-crate-metadata.json"
@@ -154,8 +158,9 @@ def verify_archive(crate: Path) -> list[dict]:
         types = entity.get("@type", [])
         types = types if isinstance(types, list) else [types]
         ref = entity.get("@id", "")
+        # @ids are percent-encoded URI paths ("my%20run/") since 2026-10-06.
         if "File" in types and not _is_external(ref) \
-                and not (crate / ref).exists():
+                and not (crate / unquote(ref)).exists():
             missing_refs.append(ref)
     if missing_refs:
         add(FAIL, "Some files referenced by the crate are missing",
