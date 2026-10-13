@@ -1,0 +1,291 @@
+/* ros_fairy docs theme: the logo's palette. Cream and slate, with the sage green as the one accent. */
+
+@import url("https://fonts.googleapis.com/css2?family=EB+Garamond:wght@500;600&display=swap");
+
+:root {
+  --fairy-cream: #F9F0E9;   /* the logo's own background */
+  --fairy-sand: #EFE6DC;
+  --fairy-line: #E2D6CA;
+  --fairy-slate: #26303D;
+  --fairy-ink: #3A4554;
+  --fairy-sage: #5E6852;
+}
+
+/* ---- Light ---------------------------------------------------------- */
+[data-md-color-scheme="default"] {
+  --md-default-bg-color: var(--fairy-cream);
+  --md-default-fg-color: var(--fairy-slate);
+  --md-default-fg-color--light: #5F646C;
+  --md-default-fg-color--lighter: #8C8F94;
+  --md-default-fg-color--lightest: var(--fairy-line);
+
+  /* header and tabs: cream with slate text, not a coloured bar */
+  --md-primary-fg-color: var(--fairy-cream);
+  --md-primary-fg-color--light: var(--fairy-sand);
+  --md-primary-fg-color--dark: var(--fairy-sand);
+  --md-primary-bg-color: var(--fairy-slate);
+  --md-primary-bg-color--light: var(--fairy-ink);
+
+  --md-accent-fg-color: var(--fairy-sage);
+  --md-accent-fg-color--transparent: rgba(94, 104, 82, 0.1);
+
+  --md-typeset-color: var(--fairy-ink);
+  --md-typeset-a-color: var(--fairy-sage);
+
+  --md-code-bg-color: var(--fairy-sand);
+  --md-code-fg-color: var(--fairy-slate);
+
+  --md-footer-bg-color: var(--fairy-slate);
+  --md-footer-bg-color--dark: #1E2732;
+
+  --fairy-accent: var(--fairy-sage);       /* bars, selected items, links */
+  --fairy-accent-wash: #E3E8DA;            /* pale wash of the same green */
+  --fairy-on-accent: var(--fairy-cream);
+}
+
+/* ---- Dark ----------------------------------------------------------- */
+[data-md-color-scheme="slate"] {
+  --md-hue: 215;
+  --md-default-bg-color: #1E2732;
+  --md-default-fg-color: #F3EEE8;
+  --md-default-fg-color--light: #C9D3DA;
+  --md-default-fg-color--lighter: #9AA6B0;
+  --md-default-fg-color--lightest: #313C4B;
+
+  --md-primary-fg-color: #1E2732;
+  --md-primary-fg-color--light: #26303D;
+  --md-primary-fg-color--dark: #19212B;
+  --md-primary-bg-color: #F3EEE8;
+  --md-primary-bg-color--light: #C9D3DA;
+
+  --md-accent-fg-color: #C3CCAF;
+  --md-accent-fg-color--transparent: rgba(195, 204, 175, 0.1);
+
+  --md-typeset-color: #DDE3E7;
+  --md-typeset-a-color: #C3CCAF;
+
+  --md-code-bg-color: #2A3542;
+  --md-code-fg-color: #F3EEE8;
+
+  --md-footer-bg-color: #19212B;
+  --md-footer-bg-color--dark: #141A22;
+
+  --fairy-accent: #C3CCAF;
+  --fairy-accent-wash: rgba(195, 204, 175, 0.14);
+  --fairy-on-accent: #1E2732;
+}
+
+/* ---- Header --------------------------------------------------------- */
+.md-header {
+  box-shadow: none;
+}
+.md-header,
+.md-tabs {
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+}
+.md-tabs {
+  box-shadow: inset 0 -3px 0 var(--fairy-accent-wash);
+}
+.md-header__button.md-logo img {
+  height: 2.1rem;
+}
+.md-header__topic {
+  font-family: "EB Garamond", Georgia, serif;   /* like the logo's lettering */
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+.md-search__form {
+  background-color: var(--md-primary-fg-color--light);
+}
+
+/* ---- Tabs ----------------------------------------------------------- */
+.md-tabs__link {
+  font-size: 0.74rem;
+  opacity: 0.7;
+}
+.md-tabs__item--active {
+  box-shadow: inset 0 -3px 0 var(--fairy-accent);
+}
+.md-tabs__item--active .md-tabs__link {
+  opacity: 1;
+  font-weight: 700;
+  color: var(--fairy-accent);
+}
+.md-tabs__link:hover {
+  opacity: 1;
+  color: var(--fairy-accent);
+}
+
+/* ---- Width: no right-hand column, so give the content the room ---- */
+.md-grid {
+  max-width: 76rem;
+}
+
+/* ---- Typography ----------------------------------------------------- */
+.md-typeset h1,
+.md-typeset h2,
+.md-typeset h3 {
+  font-family: "EB Garamond", Georgia, serif;
+  color: var(--md-default-fg-color);
+  letter-spacing: 0;
+}
+.md-typeset h1 { font-weight: 500; font-size: 2.4em; margin-bottom: 0.8em; }
+.md-typeset h2 {
+  font-weight: 600;
+  font-size: 1.65em;
+  padding-top: 0.4em;
+  border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+.md-typeset h3 { font-weight: 600; font-size: 1.3em; }
+.md-typeset h4 { color: var(--md-accent-fg-color); }
+
+.md-typeset a {
+  text-decoration: underline;
+  text-decoration-color: var(--fairy-accent-wash);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+.md-typeset a:hover {
+  color: var(--fairy-accent);
+  text-decoration-color: var(--fairy-accent);
+}
+.md-typeset a.headerlink { text-decoration: none; }
+
+/* page titles: underlined across the title's own width */
+.md-typeset h1 {
+  display: table;               /* shrink to the text, still a block */
+  padding-bottom: 0.2em;
+  border-bottom: 3px solid var(--fairy-accent);
+}
+/* no permalink on the page title: its hidden "¶" would stretch the underline */
+.md-typeset h1 .headerlink {
+  display: none;
+}
+
+/* ---- Navigation ----------------------------------------------------- */
+.md-nav__title,
+.md-nav__item--section > .md-nav__link {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--md-accent-fg-color);
+}
+.md-nav__item--section.md-nav__item--active > .md-nav__link {
+  color: var(--fairy-accent);
+}
+.md-nav__item--active:not(.md-nav__item--section) > .md-nav__link {
+  color: var(--fairy-on-accent);
+  font-weight: 700;
+  background-color: var(--fairy-accent);
+  border-radius: 6px;
+  padding: 0.3em 0.6em;
+  margin-left: -0.6em;
+}
+.md-nav__item--active:not(.md-nav__item--section) > .md-nav__link:hover {
+  color: var(--fairy-on-accent);
+}
+/* the current page's headings hang off the pill with a blue-green rule */
+.md-nav__item--active:not(.md-nav__item--section) > .md-nav--secondary,
+.md-nav__item--active:not(.md-nav__item--section) > nav.md-nav {
+  border-left: 2px solid var(--fairy-accent-wash);
+  margin-left: 0.2em;
+}
+/* page names are bold; the current page's headings (integrated TOC) are lighter */
+.md-nav--primary .md-nav__link {
+  font-weight: 600;
+  color: var(--md-default-fg-color);
+}
+.md-nav--primary .md-nav--secondary .md-nav__link {
+  font-weight: 400;
+  font-size: 0.68rem;
+  color: var(--md-default-fg-color--light);
+}
+.md-nav--primary .md-nav--secondary .md-nav__link:hover {
+  color: var(--fairy-accent);
+}
+/* headings of the current page, listed under it */
+.md-nav--integrated .md-nav__link--active {
+  color: var(--fairy-accent);
+  font-weight: 600;
+}
+
+/* ---- Code ----------------------------------------------------------- */
+/* Blocks look like a terminal in both modes; inline code follows the page. */
+.md-typeset pre {
+  --md-code-bg-color: #26303D;
+  --md-code-fg-color: #F3EEE8;
+  --md-code-hl-comment-color: #9AA6B0;
+  --md-code-hl-string-color: #E3D3A8;
+  --md-code-hl-keyword-color: #C3CCAF;
+  --md-code-hl-name-color: #F3EEE8;
+  --md-code-hl-number-color: #E3B98F;
+  --md-code-hl-operator-color: #C9D3DA;
+  --md-code-hl-punctuation-color: #C9D3DA;
+  --md-code-hl-function-color: #C3CCAF;
+  --md-code-hl-constant-color: #E3B98F;
+  --md-code-hl-variable-color: #F3EEE8;
+  --md-code-hl-generic-color: #C9D3DA;
+}
+/* dark mode: the page is already slate, so blocks go one step darker and get an edge */
+[data-md-color-scheme="slate"] .md-typeset pre {
+  --md-code-bg-color: #141A22;
+}
+[data-md-color-scheme="slate"] .md-typeset pre > code {
+  box-shadow: inset 0 0 0 1px #313C4B;
+}
+.md-typeset pre > code { border-radius: 8px; }
+.md-typeset pre .md-clipboard { color: #9AA6B0; }
+
+/* ---- Tables --------------------------------------------------------- */
+.md-typeset table:not([class]) {
+  border: 1px solid var(--md-default-fg-color--lightest);
+  border-radius: 8px;
+  box-shadow: none;
+  font-size: 0.72rem;
+}
+/* paths and commands must not break at their hyphens */
+.md-typeset table:not([class]) code {
+  white-space: nowrap;
+}
+.md-typeset table:not([class]) th {
+  background-color: var(--fairy-accent-wash);
+  color: var(--md-default-fg-color);
+  border-bottom: 2px solid var(--fairy-accent);
+}
+
+/* ---- Blockquotes (used for warnings) -------------------------------- */
+.md-typeset blockquote {
+  border-left: 3px solid var(--fairy-accent);
+  background-color: var(--fairy-accent-wash);
+  color: var(--md-typeset-color);
+  padding: 0.4em 1em;
+  border-radius: 0 6px 6px 0;
+}
+
+/* ---- Diagrams (SVG files in assets/diagrams, a -dark variant for dark mode) */
+/* (no `display` here: Material hides #only-light / #only-dark images with it) */
+.md-typeset img[src*="assets/diagrams/"],
+.md-typeset img[src*="assets/screenshots/"] {
+  width: 100%;
+  margin: 1.2em 0;
+}
+
+/* ---- Home page: the fairy floats beside the title and the intro ----- */
+.md-typeset .fairy-float {
+  float: right;
+  width: 220px;
+  height: auto;
+  margin: -0.4rem 0 1rem 2rem;
+}
+.md-typeset p:has(> .fairy-float) ~ h1 + p {   /* the intro paragraph */
+  font-size: 1.12em;
+  line-height: 1.65;
+  color: var(--md-default-fg-color);
+}
+.md-typeset h2 {
+  clear: both;                  /* sections start below the fairy */
+}
+@media screen and (max-width: 44.9375em) {
+  .md-typeset .fairy-float { width: 140px; margin-left: 1rem; }
+}

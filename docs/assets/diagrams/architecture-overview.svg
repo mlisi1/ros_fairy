@@ -1,0 +1,146 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 560" width="1040" height="560" role="img" aria-labelledby="t d">
+  <title id="t">ros_fairy architecture overview</title>
+  <desc id="d">The operator's ros2 fairy commands and the watchdog service share only files under /var/ros-fairy. mission_start writes the briefing and DDS settings; mission_record writes bags into the spool; the watchdog notices them through inotify, or finds recorders elsewhere by scanning /proc, runs the harvest pipeline and writes harvest.json and watchdog.state. mission_status reads the state; mission_close reads the harvest and saves an RO-Crate into the archive and the mission index.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5E6852"/>
+    </marker>
+    <marker id="arrow-wd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#3A4554"/>
+    </marker>
+    <style>
+      .card   { fill: #FBF6F0; stroke: #E2D6CA; }
+      .col    { fill: #F3ECE4; }
+      .op, .box { fill: #FFFDF9; stroke: #5E6852; stroke-width: 1.5; }
+      .file   { fill: #FFFDF9; stroke: #B9AEA2; stroke-width: 1.2; }
+      .wd     { fill: #FFFDF9; stroke: #3A4554; stroke-width: 1.5; }
+      .after  { fill: #FFFDF9; stroke: #9AA39A; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .store  { fill: #26303D; }
+      .head, .step { font: 600 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; letter-spacing: 1.5px; fill: #5E6852; }
+      .step   { font-size: 11px; }
+      .note   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5F646C; }
+      .cmd    { font: 600 14px "JetBrains Mono", Menlo, Consolas, monospace; fill: #26303D; }
+      .cmd.big { font-size: 16px; }
+      .sub    { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5F646C; }
+      .sub.big { font-size: 13px; }
+      .cmdL   { font: 600 14px "JetBrains Mono", Menlo, Consolas, monospace; fill: #F3EEE8; }
+      .subL   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #C9D3DA; }
+      .lbl    { font: 600 11px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5E6852; }
+      .flow   { stroke: #5E6852; stroke-width: 1.8; fill: none; }
+      .inner  { stroke: #3A4554; stroke-width: 1.5; fill: none; }
+    </style>
+  </defs>
+
+  <rect class="card" x="0.5" y="0.5" width="1039" height="559" rx="14"/>
+
+  <!-- column backgrounds -->
+  <rect class="col" x="20"  y="20" width="270" height="350" rx="10"/>
+  <rect class="col" x="385" y="20" width="270" height="350" rx="10"/>
+  <rect class="col" x="750" y="20" width="270" height="350" rx="10"/>
+
+  <text class="head" x="36"  y="46">OPERATOR · ros2 fairy</text>
+  <text class="head" x="401" y="46">FILES · /var/ros-fairy</text>
+  <text class="head" x="766" y="46">WATCHDOG · systemd service</text>
+
+  <!-- row 1 -->
+  <rect class="op"   x="30"  y="64" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="46"  y="88">mission_start</text>
+  <text class="sub"  x="46"  y="108">five briefing questions</text>
+
+  <rect class="file" x="395" y="64" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="411" y="88">mission_context.json</text>
+  <text class="sub"  x="411" y="108">+ session.env (DDS settings)</text>
+
+  <rect class="wd"   x="760" y="64" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="776" y="88">/proc scan · 1 s</text>
+  <text class="sub"  x="776" y="108">recorders started elsewhere</text>
+
+  <!-- row 2 -->
+  <rect class="op"   x="30"  y="140" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="46"  y="164">mission_record</text>
+  <text class="sub"  x="46"  y="184">wraps ros2 bag record</text>
+
+  <rect class="file" x="395" y="140" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="411" y="164">spool/bags/</text>
+  <text class="sub"  x="411" y="184">recordings in progress</text>
+
+  <rect class="wd"   x="760" y="140" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="776" y="164">inotify</text>
+  <text class="sub"  x="776" y="184">new storage files in the spool</text>
+
+  <!-- row 3 -->
+  <rect class="op"   x="30"  y="216" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="46"  y="240">mission_status</text>
+  <text class="sub"  x="46"  y="260">what is happening now</text>
+
+  <rect class="file" x="395" y="216" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="411" y="240">watchdog.state</text>
+  <text class="sub"  x="411" y="260">state + heartbeat every 60 s</text>
+
+  <rect class="wd"   x="760" y="216" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="776" y="240">state machine</text>
+  <text class="sub"  x="776" y="260">IDLE → RECORDING → FINALISING</text>
+
+  <!-- row 4 -->
+  <rect class="op"   x="30"  y="292" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="46"  y="316">mission_close</text>
+  <text class="sub"  x="46"  y="336">review, then save or discard</text>
+
+  <rect class="file" x="395" y="292" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="411" y="316">spool/harvest.json</text>
+  <text class="sub"  x="411" y="336">everything captured + bag records</text>
+
+  <rect class="wd"   x="760" y="292" width="250" height="56" rx="8"/>
+  <text class="cmd"  x="776" y="316">harvest pipeline</text>
+  <text class="sub"  x="776" y="336">identity · ROS · software · hardware</text>
+
+  <!-- operator → files -->
+  <path class="flow" d="M282,92 H391"  marker-end="url(#arrow)"/>
+  <text class="lbl"  x="336" y="85"  text-anchor="middle">writes</text>
+  <path class="flow" d="M282,168 H391" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="336" y="161" text-anchor="middle">records</text>
+
+  <!-- files ← watchdog, files → operator -->
+  <path class="flow" d="M647,168 H756" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="701" y="161" text-anchor="middle">new files</text>
+
+  <path class="flow" d="M758,244 H649" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="703" y="237" text-anchor="middle">writes</text>
+  <path class="flow" d="M393,244 H284" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="338" y="237" text-anchor="middle">reads</text>
+
+  <path class="flow" d="M758,320 H649" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="703" y="313" text-anchor="middle">writes</text>
+  <path class="flow" d="M393,320 H284" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="338" y="313" text-anchor="middle">reads</text>
+
+  <!-- watchdog internals -->
+  <path class="inner" d="M1012,92 H1028 V244 H1016" marker-end="url(#arrow-wd)"/>
+  <path class="inner" d="M885,198 V212" marker-end="url(#arrow-wd)"/>
+  <path class="inner" d="M885,274 V288" marker-end="url(#arrow-wd)"/>
+
+  <!-- save -->
+  <path class="flow" d="M262,350 V444" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="272" y="400">saves</text>
+
+  <text class="head" x="36" y="420">SAVED MISSIONS</text>
+
+  <rect class="store" x="30"  y="448" width="300" height="80" rx="10"/>
+  <text class="cmdL"  x="48"  y="478">.staging/</text>
+  <text class="subL"  x="48"  y="500">built here, then one atomic rename</text>
+
+  <path class="flow" d="M334,488 H384" marker-end="url(#arrow)"/>
+
+  <rect class="store" x="390" y="448" width="330" height="80" rx="10"/>
+  <text class="cmdL"  x="408" y="478">archive/&lt;date&gt;_&lt;place&gt;_…/</text>
+  <text class="subL"  x="408" y="500">one RO-Crate per mission, checksummed</text>
+
+  <path class="flow" d="M724,488 H774" marker-end="url(#arrow)"/>
+
+  <rect class="store" x="780" y="448" width="230" height="80" rx="10"/>
+  <text class="cmdL"  x="798" y="478">index.db</text>
+  <text class="subL"  x="798" y="500">the mission list (a cache)</text>
+
+  <text class="note" x="390" y="400">The operator and the watchdog never talk directly:</text>
+  <text class="note" x="390" y="418">they only share files.</text>
+</svg>

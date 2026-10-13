@@ -1,4 +1,5 @@
 *.md
+!docs/**/*.md
 
 # Python bytecode / caches
 __pycache__/
