@@ -1,0 +1,60 @@
+site_name: ros_fairy
+site_description: Make ROS 2 field mission data FAIR-compliant with zero friction
+repo_url: https://github.com/gdl-res/ros_fairy
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: assets/fairy.png
+  favicon: assets/favicon.png
+  font:
+    text: IBM Plex Sans
+    code: JetBrains Mono
+  features:
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - toc.integrate
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+    - search.highlight
+  palette:
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+extra_css:
+  - stylesheets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+
+nav:
+  - Home: README.md
+  - Operators:
+      - Getting started: getting-started.md
+      - Operator guide: operator-guide.md
+      - Troubleshooting: troubleshooting.md
+  - Reference:
+      - Commands: commands.md
+      - Configuration: configuration.md
+      - What is captured: what-is-captured.md
+      - Archive format: archive-format.md
+  - Developers:
+      - Architecture: architecture.md
+      - Development: development.md

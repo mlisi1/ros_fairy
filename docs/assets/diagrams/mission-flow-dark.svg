@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 176" width="960" height="176" role="img" aria-labelledby="t d">
+  <title id="t">A mission, start to finish</title>
+  <desc id="d">mission_start (five questions), then mission_record (Ctrl-C to stop), then mission_close (save or discard). Afterwards: list, export, verify, diff.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C3CCAF"/>
+    </marker>
+    <marker id="arrow-wd" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C9D3DA"/>
+    </marker>
+    <style>
+      .card   { fill: #222B36; stroke: #34404D; }
+      .col    { fill: #28323E; }
+      .op, .box { fill: #1E2732; stroke: #C3CCAF; stroke-width: 1.5; }
+      .file   { fill: #1E2732; stroke: #5F6B78; stroke-width: 1.2; }
+      .wd     { fill: #1E2732; stroke: #C9D3DA; stroke-width: 1.5; }
+      .after  { fill: #1E2732; stroke: #6E7A86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .store  { fill: #3A4655; }
+      .head, .step { font: 600 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; letter-spacing: 1.5px; fill: #C3CCAF; }
+      .step   { font-size: 11px; }
+      .note   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #AAB4BC; }
+      .cmd    { font: 600 14px "JetBrains Mono", Menlo, Consolas, monospace; fill: #F3EEE8; }
+      .cmd.big { font-size: 16px; }
+      .sub    { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #AAB4BC; }
+      .sub.big { font-size: 13px; }
+      .cmdL   { font: 600 14px "JetBrains Mono", Menlo, Consolas, monospace; fill: #F3EEE8; }
+      .subL   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #D5DCE1; }
+      .lbl    { font: 600 11px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #C3CCAF; }
+      .flow   { stroke: #C3CCAF; stroke-width: 1.8; fill: none; }
+      .inner  { stroke: #C9D3DA; stroke-width: 1.5; fill: none; }
+    </style>
+  </defs>
+
+  <rect class="card" x="0.5" y="0.5" width="959" height="175" rx="12"/>
+
+  <text class="step" x="24" y="34">1 · BRIEF</text>
+  <rect class="box" x="24" y="44" width="200" height="96" rx="10"/>
+  <text class="cmd big" x="124" y="86" text-anchor="middle">mission_start</text>
+  <text class="sub big" x="124" y="112" text-anchor="middle">five questions</text>
+
+  <path class="flow" d="M228,92 H258" marker-end="url(#arrow)"/>
+
+  <text class="step" x="264" y="34">2 · RECORD</text>
+  <rect class="box" x="264" y="44" width="200" height="96" rx="10"/>
+  <text class="cmd big" x="364" y="86" text-anchor="middle">mission_record</text>
+  <text class="sub big" x="364" y="112" text-anchor="middle">Ctrl-C once to stop</text>
+
+  <path class="flow" d="M468,92 H498" marker-end="url(#arrow)"/>
+
+  <text class="step" x="504" y="34">3 · DECIDE</text>
+  <rect class="box" x="504" y="44" width="200" height="96" rx="10"/>
+  <text class="cmd big" x="604" y="86" text-anchor="middle">mission_close</text>
+  <text class="sub big" x="604" y="112" text-anchor="middle">review, then save or discard</text>
+
+  <path class="flow" d="M708,92 H738" marker-end="url(#arrow)"/>
+
+  <text class="step" x="744" y="34">ANY TIME AFTER</text>
+  <rect class="after" x="744" y="44" width="192" height="96" rx="10"/>
+  <text class="cmd big" x="840" y="86" text-anchor="middle">list · export</text>
+  <text class="sub big" x="840" y="112" text-anchor="middle">verify · diff</text>
+</svg>

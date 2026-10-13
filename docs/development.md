@@ -1,0 +1,102 @@
+# Development
+
+## Setup
+
+```bash
+./install.sh --dev           # or: pip install -e '.[dev]'
+pytest                       # unit + integration, no ROS needed
+pytest -m ros -v             # live smoke tests, on a box with ROS 2 sourced
+ruff check . && mypy ros_fairy
+```
+
+`pip install -e '.[test]'` installs only `pytest` and `rocrate`. `[dev]` adds
+`ruff` and `mypy`.
+
+**After changing the code, restart the watchdog**
+(`sudo systemctl restart ros-fairy-watchdog`), or `doctor` reports that it runs
+different code.
+
+## Layout
+
+```
+ros_fairy/
+├── command/fairy.py         the `ros2 fairy` command (ros2cli extension)
+├── subcommands/             one module per verb; shared helpers in __init__.py
+├── watchdog/                the service: state machine, /proc recorder scan, unit file
+├── harvest/                 capture modules (identity, system, python, hardware,
+│                            usb_udev, ros_graph + ros_snapshot, docker)
+├── manifest/                pydantic schema, record builder, validator, quality grading
+├── archive/                 crash-safe assembler, RO-Crate writer, SQLite index,
+│                            identifier lookup, duplicate detection
+├── ui/                      rich rendering: briefing, review, status, diff
+├── utils/                   paths, atomic file IO, ROS env handling, clock,
+│                            bag readers, topic health, bag repair
+└── build_info.py            which ros_fairy build is running
+```
+
+Verbs are registered as entry points in `setup.py` (`fairy.verb` group). A new
+verb is a `VerbExtension` subclass with `add_arguments` and `main`, plus an
+entry point. Wrap `main` in `guarded_main` so Ctrl-C, missing terminals and
+unexpected errors get the standard messages and exit codes.
+
+## Conventions
+
+- **Plain language for operators.** Everything an operator reads is a full
+  sentence that says what happened and what to do. Health warnings carry a
+  pre-rendered `plain_text`, and UIs show that, never raw numbers. Engineer
+  detail goes to `--debug` and the logs.
+- **Never lose a recording.** Anything that moves or deletes data must leave it
+  in one known place at every instant (see
+  [archive-format.md](archive-format.md#how-a-save-works)). Checks such as
+  duplicates and quality warn; they never block.
+- **The watchdog never raises.** Harvest modules return a status rather than
+  throwing; the main loop logs and carries on.
+- **Files are written atomically** (`utils/fsio.py`): write to a temp file,
+  fsync, rename.
+- **The schema is versioned.** Adding fields to `manifest/schema.py` is a minor
+  bump of `SCHEMA_VERSION` in `ros_fairy/__init__.py`; changing or removing
+  them is a major bump. Note the change in its history comment.
+- **The version** lives in `package.xml`, `setup.py` and
+  `ros_fairy/__init__.py`; `tests/unit/test_packaging.py` checks they agree.
+
+## Tests
+
+- `tests/unit/`: one file per area. Many are written against specific failure
+  cases (a crash mid-save, a full disk, an unreadable file, a hung harvest).
+- `tests/integration/test_mission_lifecycle.py`: start → record → close → list
+  end to end, without ROS.
+- `tests/integration/test_real_bags.py`: runs the analysis on real rosbag2
+  recordings in `tests/fixtures/` (one sqlite3 and one MCAP, recorded on Jazzy).
+- `tests/integration/test_ros_smoke.py` (marker `ros`): against a live ROS 2.
+  It is deselected by default and skipped if ROS isn't sourced. Some tests need
+  `demo_nodes_cpp`. It sets `ROS_FAIRY_IGNORE=1` on the processes it starts so a
+  real watchdog on the same machine ignores them.
+
+How things are faked:
+
+| What | How |
+| --- | --- |
+| inotify and time | `FakeINotify`/`FakeClock` (`tests/unit/test_watchdog.py`), injected into `Watchdog(inotify=, clock=, pipeline=, harvest_in_thread=False, scan_recorders=)` |
+| The harvest | `pipeline=` replaced by a function returning a canned document |
+| Subprocesses | `subprocess.run` monkeypatched to return `CompletedProcess` |
+| sysfs, udev rules, dpkg | a fake tree under `tmp_path`, by patching `usb_udev.ROOT` and `RULE_DIRS` (marker `real_usb_udev`; by default `usb_udev.harvest` is stubbed out for every test) |
+| `/proc` | `recorder_scan.PROC` patched to a fabricated tree |
+| Paths | the `fairy_dirs` fixture points `ROS_FAIRY_VAR_DIR`/`ROS_FAIRY_CONFIG_DIR` at `tmp_path` |
+| Bags | `make_bag()` (sqlite3) and `make_mcap_bag()` in `tests/conftest.py` |
+
+> **Known issue: tests can see real recorders.** Tests that build a `Watchdog`
+> without `scan_recorders=`, and `test_scan_returns_empty_when_no_recorder`,
+> scan the real `/proc`. If a `ros2 bag record` is running on the machine (on
+> the host or in a container), `test_scan_returns_empty_when_no_recorder` and
+> `test_inactivity_finalises_crashed_bag` fail. Run the suite with no
+> recorder running, or start recorders with `ROS_FAIRY_IGNORE=1`.
+
+## Tools
+
+- **`tools/record_real_fixtures.sh [output_dir]`** regenerates
+  `tests/fixtures/`. It runs `ros:jazzy` in Docker, starts the demo talker, and
+  records six seconds of `/chatter` as sqlite3 and as MCAP. Needs Docker
+  (run with `sudo`) and network access.
+- **`tools/restamp_bag.py <in_bag> <out_bag> [--duration S]`** is the bag-repair
+  logic of `ros2 fairy repair`, for one bag, without the CLI. It needs
+  `ros_fairy` importable but not ROS.
