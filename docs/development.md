@@ -3,18 +3,18 @@
 ## Setup
 
 ```bash
-./install.sh --dev           # or: pip install -e '.[dev]'
+./install.sh --dev           # also installs pytest, rocrate, ruff and mypy
 pytest                       # unit + integration, no ROS needed
 pytest -m ros -v             # live smoke tests, on a box with ROS 2 sourced
 ruff check . && mypy ros_fairy
 ```
 
-`pip install -e '.[test]'` installs only `pytest` and `rocrate`. `[dev]` adds
-`ruff` and `mypy`.
-
-**After changing the code, restart the watchdog**
-(`sudo systemctl restart ros-fairy-watchdog`), or `doctor` reports that it runs
-different code.
+`pytest`, `ruff` and `mypy` run against the checkout, so they see your changes
+straight away. The installed command and the watchdog don't: `install.sh`
+makes a normal (not editable) install. **To try a change on the robot,
+re-run `./install.sh` and restart the watchdog**
+(`sudo systemctl restart ros-fairy-watchdog`); otherwise `doctor` reports that
+the watchdog runs different code.
 
 ## Layout
 
@@ -47,7 +47,7 @@ unexpected errors get the standard messages and exit codes.
   detail goes to `--debug` and the logs.
 - **Never lose a recording.** Anything that moves or deletes data must leave it
   in one known place at every instant (see
-  [archive-format.md](archive-format.md#how-a-save-works)). Checks such as
+  [How a save works](archive-format.md#how-a-save-works)). Checks such as
   duplicates and quality warn; they never block.
 - **The watchdog never raises.** Harvest modules return a status rather than
   throwing; the main loop logs and carries on.
@@ -90,6 +90,26 @@ How things are faked:
 > the host or in a container), `test_scan_returns_empty_when_no_recorder` and
 > `test_inactivity_finalises_crashed_bag` fail. Run the suite with no
 > recorder running, or start recorders with `ROS_FAIRY_IGNORE=1`.
+
+## Documentation
+
+The site is built with [MkDocs](https://www.mkdocs.org) and the Material theme
+(`pip install mkdocs-material`), from `mkdocs.yml` and `docs/`:
+
+```bash
+mkdocs serve                 # live preview at http://127.0.0.1:8000
+mkdocs build --strict        # what to run before committing: fails on any broken link
+```
+
+- **Diagrams** are SVG files in `docs/assets/diagrams/`, never text art in a
+  code block. Each has a `-dark.svg` twin, and pages include both:
+  `name.svg#only-light` and `name-dark.svg#only-dark`.
+- **Screenshots** go in `docs/assets/screenshots/`. Placeholders are marked
+  with a `TODO` comment next to the image.
+- **Links** use the page or section title as text (`[Paths](configuration.md#paths)`),
+  not the file name.
+- **Colours and fonts** live in `docs/stylesheets/extra.css`: cream and slate,
+  with the sage green as the single accent.
 
 ## Tools
 

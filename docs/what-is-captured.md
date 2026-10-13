@@ -3,7 +3,7 @@
 The operator supplies five answers. Everything else on this page is captured
 automatically by the watchdog while a recording runs. It is written to
 `spool/harvest.json`, then into the mission record and the archive. How the
-capture runs is described in [architecture.md](architecture.md#the-harvest-pipeline).
+capture runs is described in [The harvest pipeline](architecture.md#the-harvest-pipeline).
 
 Every module reports a status, which `mission_status` shows live and the saved
 mission keeps in `provenance.harvest_status`:
@@ -52,7 +52,7 @@ contain.
 ## ROS graph
 
 Captured through a single DDS participant (see
-[architecture.md](architecture.md#one-dds-participant-for-the-whole-ros-capture)):
+[One DDS participant for the whole ROS capture](architecture.md#one-dds-participant-for-the-whole-ros-capture)):
 
 - **Nodes** and **topics** with their types.
 - **Every node's parameters**, with their values. Parameters whose value
@@ -76,7 +76,7 @@ Captured through a single DDS participant (see
 - **ros_fairy itself:** version, git commit, `git describe`, branch, dirty flag,
   build time and a hash of its code, both for the watchdog that harvested and
   for the CLI that saved (see
-  [architecture.md](architecture.md#provenance-of-ros_fairy-itself)).
+  [Provenance of ros_fairy itself](architecture.md#provenance-of-ros_fairy-itself)).
 
 ## Hardware
 

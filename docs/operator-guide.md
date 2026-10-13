@@ -14,6 +14,9 @@ Check where things stand at any time with `ros2 fairy mission_status`.
 ros2 fairy doctor
 ```
 
+<!-- TODO: replace the placeholder with a real screenshot of `ros2 fairy doctor` -->
+![Screenshot placeholder: the output of ros2 fairy doctor, to be added](assets/screenshots/doctor-placeholder.svg)
+
 If it says **NOT READY**, fix what it lists first: each line has a hint. A
 **READY (with warnings)** is fine to record with, but read the warnings. An
 unsynchronised clock, for example, makes recordings hard to play back.
@@ -38,6 +41,7 @@ These answers are what make the mission findable later. Everything else about
 the robot is captured automatically.
 
 `mission_start` won't start a new mission over unsaved data:
+
 - **A recording is running:** stop it first.
 - **There are recordings from the previous mission:** save or discard them with
   `mission_close` first.
@@ -71,7 +75,7 @@ This runs `ros2 bag record` for you, into the spool, with some checks first:
 and a storage format, or every topic by default. You can't pass extra
 `ros2 bag record` options through `mission_record`. If you need them, run
 `ros2 bag record` yourself: the assistant notices it and attaches the recording
-to the mission (see [Recordings made elsewhere](#recordings-made-elsewhere)).
+to the mission (see [Recording without `mission_record`](#recording-without-mission_record)).
 
 **To stop, press Ctrl-C once** and wait for "saved". Pressing it again prints
 *"Still saving the recording — please wait…"*. A third press forces it to stop,
@@ -80,6 +84,32 @@ is read back from the bag itself when you save.
 
 You can run `mission_record` several times in one mission: each run is another
 recording in the same mission.
+
+### Recording without `mission_record`
+
+`mission_record` is a convenience, not a requirement: record however you
+prefer. The assistant watches for any rosbag2 recording on the robot and
+attaches it to the open mission.
+
+| How you record | For example |
+| --- | --- |
+| A plain `ros2 bag record`, in any terminal and any folder | `ros2 bag record -o run1 /fix /imu/data` |
+| The rosbag2 recorder node, e.g. started from a launch file | `ros2 run rosbag2_transport recorder --ros-args -p storage.uri:=run1` |
+| Either of them inside a Docker container | write to a volume mounted from the host |
+
+What changes compared with `mission_record`:
+
+- **No pre-recording checks.** Disk space, clock and briefing aren't checked
+  for you: run `ros2 fairy doctor` first.
+- **Check that it was noticed.** While it records, `ros2 fairy mission_status`
+  shows it under *Recording*.
+- **The recording stays where you wrote it.** `mission_close` copies it into
+  the archive and leaves the original in place, so you need room for both.
+- **A few recordings can't be seen:** one that starts and stops within about a
+  second, or one written inside a container to a folder the host has no access
+  to. Attach those with [`adopt`](#recordings-made-elsewhere).
+- **Keep a test recording out** of the mission by starting it with
+  `ROS_FAIRY_IGNORE=1`, e.g. `ROS_FAIRY_IGNORE=1 ros2 bag record -o scratch /chatter`.
 
 ## 3. Close: `mission_close`
 
@@ -157,10 +187,10 @@ Recordings made outside ros_fairy stay where they are on disk.
 
 ### Recordings made elsewhere
 
-If someone recorded with plain `ros2 bag record`, in another terminal or
-inside a container, the assistant normally notices and lists it under
-*Recordings waiting* in `mission_status`. If it didn't (for example, the bag was
-copied over from another machine), attach it yourself:
+A plain `ros2 bag record` or the recorder node is normally noticed on its own
+(see [Recording without `mission_record`](#recording-without-mission_record)),
+and listed under *Recordings waiting* in `mission_status`. If it wasn't (for
+example, the bag was copied over from another machine), attach it yourself:
 
 ```bash
 ros2 fairy adopt /path/to/rosbag2_folder
@@ -193,8 +223,8 @@ ros2 fairy mission_delete --today     # batch forms ask for your sudo password
 ```
 
 Deletes for good. It only accepts an exact mission ID (never a number, so a typo
-can't delete the wrong one), or `--today`/`--all`. It asks you to confirm, then to
-type the phrase **`I understand: flames and fire`**.
+can't delete the wrong one), or `--today`/`--all`. It asks you to confirm, then
+prompts you to type a confirmation phrase, shown on screen.
 
 ### The mission list looks wrong: `reindex`
 

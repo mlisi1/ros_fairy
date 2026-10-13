@@ -1,7 +1,7 @@
 # Archive format
 
 Each saved mission is one folder in `/var/ros-fairy/archive/`, and each folder
-is a valid [RO-Crate 1.1](https://w3id.org/ro/crate/1.1): a directory of data
+is a valid [RO-Crate 1.1](references.md#ro-crate): a directory of data
 plus a JSON-LD file describing it. You can read it without ros_fairy:
 everything is JSON, YAML, text or standard rosbag2.
 
@@ -56,7 +56,7 @@ Files without "always" are present only when there was something to write.
   cd <crate> && sha256sum -c checksums.sha256
   ```
 
-`ros2 fairy verify` checks both, and more (see [commands.md](commands.md#verify)).
+`ros2 fairy verify` checks both, and more (see [`verify`](commands.md#verify)).
 
 ## The mission record
 
@@ -86,7 +86,7 @@ means no containers were running.
 
 Each `health_warnings[]` entry has `topic`, `sensor_id`, `kind`, `plain_text`,
 `start_offset_s` and `duration_s`. The kinds are listed in
-[what-is-captured.md](what-is-captured.md#recording-health).
+[Recording health](what-is-captured.md#recording-health).
 
 ### Versioning
 
@@ -120,7 +120,7 @@ load it.
 | `#place` | `Place` | Where the mission took place. |
 | `#robot` | `sosa:Platform` | The robot: `model`, `serialNumber`, `owner`, `sosa:hosts` its sensors. |
 | `#sensor-<id>` | `sosa:Sensor` | Each declared sensor: topic, frame, whether it was detected, and its calibration file (`subjectOf`). |
-| `https://github.com/gdl-res/ros_fairy` | `SoftwareApplication` | The ros_fairy build that saved the crate (version, commit). |
+| `https://github.com/mlisi1/ros_fairy` | `SoftwareApplication` | The ros_fairy build that saved the crate (version, commit). |
 | `#ros2`, `#python-runtime`, `#container-<name>` | `SoftwareApplication` | The ROS distro, the Python runtime and each container. |
 | `bags/<name>/` | `Dataset` | Each recording: size, format, time span, one `variableMeasured` per topic (message count and type), health warnings as `comment`, and its files with their `sha256`. |
 | other files | `File` | Every other file in the crate. |

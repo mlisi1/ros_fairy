@@ -10,7 +10,7 @@ ros_fairy has two halves that share one directory tree:
   operator's decision at `mission_close`.
 
 They communicate only through files under `/var/ros-fairy`: mostly the spool,
-plus the watchdog's status file (see [configuration.md](configuration.md#paths)).
+plus the watchdog's status file (see [Paths](configuration.md#paths)).
 
 ![Architecture overview: the operator's commands and the watchdog service only share files under /var/ros-fairy; mission_close saves each mission into the archive and the index.](assets/diagrams/architecture-overview.svg#only-light)
 ![Architecture overview: the operator's commands and the watchdog service only share files under /var/ros-fairy; mission_close saves each mission into the archive and the index.](assets/diagrams/architecture-overview-dark.svg#only-dark)
@@ -71,7 +71,7 @@ missed.
 
 ### Harvest retries
 
-If ROS couldn't be reached (`ros_graph` is `failed` or `timeout`), the full
+If ROS couldn't be reached (`ros_graph` is `failed`), the full
 harvest is retried every **60 s** (`ROS_RETRY_INTERVAL_S`) for as long as the
 recording runs. If only the robot description (URDF, `/tf_static`) was
 missing, it is retried at most **twice** per recording
@@ -94,7 +94,7 @@ environment, so it works whatever the ROS distro.
   executable is `rosbag2_transport/recorder`.
 - **Where it writes**, in this order: `-o`/`--output`; `-p storage.uri:=…`
   (which beats `--params-file`); the `rosbag2_*` folder in its working
-  directory that it holds an open storage file in; the newest active
+  directory where it has a storage file open; otherwise the newest active
   `rosbag2_*` folder there.
 - **Containers:** a recorder in another mount namespace is inspected through
   `/proc/<pid>/root`. Its output folder is translated to the matching host path
@@ -157,15 +157,16 @@ reading the storage file directly, and it gets the warning *"The recording ended
 unexpectedly and may be incomplete."* If the storage can't be read, file
 modification times are used for its timing.
 
-`ros2 fairy mission_close` also offers to finish or discard
-[interrupted saves](archive-format.md#how-a-save-works).
+`ros2 fairy mission_close` also offers to finish
+[interrupted saves](archive-format.md#how-a-save-works); saves that never got
+past building are cleaned up quietly.
 
 ## The harvest pipeline
 
 `run_pipeline()` runs each module in order. It never raises: a module that
 fails is recorded with its status, and the others still run. The result is
 `spool/harvest.json`; its contents are described in
-[what-is-captured.md](what-is-captured.md).
+[What is captured](what-is-captured.md).
 
 | # | Module | Statuses |
 | --- | --- | --- |
@@ -221,9 +222,11 @@ Every harvest and every saved mission records which ros_fairy produced it
   is the only chance to record these.
 - **Source checkout:** the same details are read from git directly.
 - **`code_id`:** a 12-character SHA-256 over all of ros_fairy's `.py` files.
-  It changes when the code is edited after the build, which is how
-  `mission_status` and `doctor` can tell that a running watchdog is out of
-  date and needs a restart.
+  It changes when the code is edited after the build. `doctor` uses it to tell
+  that a running watchdog is out of date and needs a restart; `mission_close`
+  warns in the review (and the saved README) when the context was captured by
+  a different build than the one saving it; and `diff` shows a changed build
+  between two missions.
 
 The build is recorded twice: the watchdog that harvested
 (`provenance.harvested_by`) and the CLI that saved (`provenance.assembled_by`).

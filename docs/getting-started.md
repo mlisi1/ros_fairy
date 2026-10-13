@@ -6,8 +6,8 @@ This page takes a robot from nothing to a first saved mission.
 
 - Linux with systemd (the watchdog runs as a system service).
 - ROS 2 Humble, Jazzy or newer, sourced in the shell you install from.
-- Python 3.10 or newer, which the system `python3` must be: the service runs
-  `/usr/bin/python3` (see [Installing into a venv or user site](#installing-into-a-venv-or-user-site)).
+- Python 3.10 or newer, as the system `python3`: the watchdog service runs
+  `/usr/bin/python3`.
 - `sudo` rights for the one-time setup.
 - Optional: Docker, if the robot runs software in containers. Without it,
   container snapshots are skipped.
@@ -15,7 +15,7 @@ This page takes a robot from nothing to a first saved mission.
 ## 1. Install the package
 
 ```bash
-git clone https://github.com/gdl-res/ros_fairy.git
+git clone https://github.com/mlisi1/ros_fairy.git
 cd ros_fairy
 ./install.sh            # add --dev for pytest, rocrate, ruff and mypy
 ```
@@ -39,7 +39,7 @@ needed to *use* ros_fairy, not to install it.
 The package is `ament_python`, so this works as well:
 
 ```bash
-cd ~/ros2_ws/src && git clone https://github.com/gdl-res/ros_fairy.git
+cd ~/ros2_ws/src && git clone https://github.com/mlisi1/ros_fairy.git
 cd ~/ros2_ws && colcon build --packages-select ros_fairy
 source install/setup.bash
 ```
@@ -50,16 +50,8 @@ colcon doesn't install Python dependencies. Install them with rosdep
 
 > **The service can't see a workspace in your home directory.** The watchdog
 > runs as root and drops any `PYTHONPATH` entry that root doesn't own (see
-> [configuration.md](configuration.md#watchdogenv)). For a robot in the field,
+> [watchdog.env](configuration.md#watchdogenv)). For a robot in the field,
 > prefer the system-wide `./install.sh`.
-
-### Installing into a venv or user site
-
-The systemd unit starts `/usr/bin/python3 -m ros_fairy.watchdog.watchdog` as
-root. A package installed only in a venv or with `pip --user` is invisible to
-it, and the watchdog won't start. `ros2 fairy doctor` reports this as
-*"Recording assistant is not running"*. Install system-wide for the
-watchdog, even if you also keep a development install elsewhere.
 
 ## 2. Set up the robot
 
@@ -95,13 +87,32 @@ through `sudo`. It:
 5. installs, enables and starts `ros-fairy-watchdog.service`, then waits up to
    10 s for it to come up.
 
-> **Log out and back in** after setup: group membership only takes effect at
-> the next login. Every other operator account needs to be added by hand:
+> **The new group only applies to new logins.** Either log out and back in, or
+> keep working in the same terminal by starting a shell that already has it:
+>
+> ```bash
+> newgrp ros-fairy        # this terminal only; other terminals still need a new login
+> ```
+>
+> Every other operator account must be added by hand:
 > `sudo usermod -aG ros-fairy <user>`.
 
+### Changing the robot's configuration later
+
 Re-run `ros2 fairy setup` whenever the robot's sensors change, or after
-changing its ROS environment (distro, overlay, domain, RMW). It keeps your
-existing answers as defaults.
+changing its ROS environment (distro, overlay, domain, RMW). It offers your
+existing answers as defaults, so you only retype what changed.
+
+For small changes (a sensor's topic, a calibration file, the `recording:`
+section), you can also edit the file directly and check it:
+
+```bash
+sudo nano /etc/ros-fairy/robot_identity.yaml
+ros2 fairy doctor       # reports any mistake in the file, in plain language
+```
+
+The format is described in [Configuration](configuration.md#robot_identityyaml).
+Changes apply from the next recording; no restart is needed.
 
 ## 3. Check that the robot is ready
 
@@ -113,13 +124,14 @@ ros2 fairy doctor
 ROS reachable, service environment matching your shell, last harvest, clock
 synchronisation, MCAP support, disk space, Docker and incomplete saves. It ends
 with **READY**, **READY (with warnings)** or **NOT READY**, with a hint for every
-problem. See [troubleshooting.md](troubleshooting.md).
+problem. See [Troubleshooting](troubleshooting.md).
 
 ## 4. Record a first mission
 
 ```bash
 ros2 fairy mission_start    # five questions
-ros2 fairy mission_record   # Ctrl-C to stop
+ros2 fairy mission_record   # Ctrl-C to stop; a plain ros2 bag record or the
+                            # rosbag2 recorder node works too: the watchdog detects them
 ros2 fairy mission_close    # review, then save
 ros2 fairy list             # it's there
 ```

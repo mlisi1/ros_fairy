@@ -90,9 +90,10 @@
   height: 2.1rem;
 }
 .md-header__topic {
-  font-family: "JetBrains Mono", monospace;
+  font-family: "EB Garamond", Georgia, serif;   /* like the logo's lettering */
+  font-size: 1.05rem;
   font-weight: 600;
-  letter-spacing: 0;
+  letter-spacing: 0.04em;
 }
 .md-search__form {
   background-color: var(--md-primary-fg-color--light);
@@ -264,7 +265,8 @@
 
 /* ---- Diagrams (SVG files in assets/diagrams, a -dark variant for dark mode) */
 /* (no `display` here: Material hides #only-light / #only-dark images with it) */
-.md-typeset img[src*="assets/diagrams/"] {
+.md-typeset img[src*="assets/diagrams/"],
+.md-typeset img[src*="assets/screenshots/"] {
   width: 100%;
   margin: 1.2em 0;
 }

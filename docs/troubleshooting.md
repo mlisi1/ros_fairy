@@ -19,10 +19,11 @@ several distros are installed.
 
 **"Recording assistant is not running".**
 `systemctl status ros-fairy-watchdog` and `journalctl -u ros-fairy-watchdog`
-show why. A common cause is that the package was installed in a venv, with
-`pip --user`, or only in a colcon workspace in a home directory: the service
-runs root's `/usr/bin/python3`, which can't import it. Install system-wide with
-`./install.sh` (see [getting-started.md](getting-started.md#installing-into-a-venv-or-user-site)).
+show why. A common cause is that ros_fairy was built only in a colcon
+workspace in a home directory: the service runs as root and can't use that
+workspace (see [Or build it in a colcon workspace](getting-started.md#or-build-it-in-a-colcon-workspace)).
+Install it system-wide with `./install.sh` (see
+[Install the package](getting-started.md#1-install-the-package)).
 
 **"Watchdog runs different code than this command".**
 ros_fairy was updated but the service still runs the old code:
@@ -40,7 +41,7 @@ The watchdog can't see the robot's nodes. It retries every 60 s while recording.
 Usually its DDS settings differ from the robot's: `doctor` warns when your
 shell's `ROS_DOMAIN_ID`/`RMW_IMPLEMENTATION` differ from `watchdog.env`. Starting
 the mission with `mission_start` in the robot's shell passes the right
-settings on (see [configuration.md](configuration.md#sessionenv)). If the domain
+settings on (see [session.env](configuration.md#sessionenv)). If the domain
 or RMW changed permanently, re-run `ros2 fairy setup`.
 
 A ROS overlay in a home directory isn't visible to the service (it runs as

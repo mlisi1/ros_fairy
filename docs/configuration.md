@@ -12,10 +12,10 @@ both are written by `ros2 fairy setup`.
 | `/var/ros-fairy/spool/` | The mission in progress. |
 | `/var/ros-fairy/spool/bags/` | Recordings made with `mission_record`. |
 | `/var/ros-fairy/spool/mission_context.json` | The briefing answers. |
-| `/var/ros-fairy/spool/harvest.json` | Everything the watchdog captured ([what-is-captured.md](what-is-captured.md)). |
+| `/var/ros-fairy/spool/harvest.json` | Everything the watchdog captured ([What is captured](what-is-captured.md)). |
 | `/var/ros-fairy/spool/session.env` | The DDS settings of the shell that started the mission ([below](#sessionenv)). |
 | `/var/ros-fairy/spool/watchdog.log` | The watchdog's log for this mission (archived with it). |
-| `/var/ros-fairy/archive/` | Saved missions, one RO-Crate folder each ([archive-format.md](archive-format.md)). |
+| `/var/ros-fairy/archive/` | Saved missions, one RO-Crate folder each ([Archive format](archive-format.md)). |
 | `/var/ros-fairy/archive/.staging/` | Saves in progress. **Never delete anything here by hand**: run `mission_close`. |
 | `/var/ros-fairy/index.db` | The mission list (SQLite). A cache: `ros2 fairy reindex` rebuilds it from the archive. |
 | `/var/ros-fairy/watchdog.state` | The watchdog's live status. |
@@ -93,7 +93,7 @@ published nothing during a recording produces a *never published* warning
 ("GPS (gps0) produced no data at all during this recording."). Its gaps are itemised rather than
 summarised. A camera that only published `…/compressed` is recognised
 as such. Undeclared topics only get the generic checks. See
-[what-is-captured.md](what-is-captured.md#recording-health).
+[Recording health](what-is-captured.md#recording-health).
 
 ## watchdog.env
 
@@ -131,7 +131,7 @@ ROS_AUTOMATIC_DISCOVERY_RANGE  ROS_STATIC_PEERS
 ## ROS_FAIRY_IGNORE
 
 The watchdog notices **any** `ros2 bag record` on the machine, not just
-`mission_record` (see [architecture.md](architecture.md#recordings-made-outside-ros_fairy)),
+`mission_record` (see [Recordings made outside ros_fairy](architecture.md#recordings-made-outside-ros_fairy)),
 and attaches it to the current mission. To keep a recording out, start it with
 the variable set:
 

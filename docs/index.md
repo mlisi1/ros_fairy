@@ -1,12 +1,13 @@
 <img src="assets/fairy-intro.png" alt="" class="fairy-float" align="right" width="220">
 
-# ros_fairy documentation
+# ROS F.A.I.R.y
 
-ros_fairy makes ROS 2 field-mission data FAIR (Findable, Accessible,
-Interoperable, Reusable) without extra work in the field. The operator answers
-five questions; a background service captures everything else about the robot
-while it records; every saved mission becomes a checksummed
-[RO-Crate](https://www.researchobject.org/ro-crate/) archive.
+ROS F.A.I.R.y (the `ros_fairy` ROS 2 package) makes field-mission data
+[FAIR](references.md#fair): Findable, Accessible, Interoperable and Reusable,
+without extra work in the field. The operator answers five questions; a
+background service captures everything else about the robot while it records;
+every saved mission becomes a checksummed [RO-Crate](references.md#ro-crate)
+archive.
 
 ## For operators
 
@@ -18,12 +19,14 @@ while it records; every saved mission becomes a checksummed
 ## Reference
 
 - [Command reference](commands.md): every verb and option.
-- [Configuration](configuration.md): `robot_identity.yaml`, paths, environment
-  variables, permissions, the systemd unit.
 - [What is captured](what-is-captured.md): every piece of context, recording
   health checks and quality grading.
+- [Configuration](configuration.md): `robot_identity.yaml`, paths, environment
+  variables, permissions, the systemd unit.
 - [Archive format](archive-format.md): the crate layout, the mission record
   schema, the RO-Crate entities, how saving stays crash-safe.
+- [Standards and references](references.md): FAIR, RO-Crate and SOSA/SSN,
+  with citations.
 
 ## For developers
 
