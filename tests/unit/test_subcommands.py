@@ -513,6 +513,15 @@ def test_list_shows_missions(fairy_dirs):
     assert list_missions.run(args, console=console) == 0
     assert "No missions found" in console.file.getvalue()
 
+    console = _console()
+    args.operator, args.search = None, "EELGRASS survey"
+    assert list_missions.run(args, console=console) == 0
+    assert record.identity.mission_id in console.file.getvalue()
+    console = _console()
+    args.search = "kelp"
+    assert list_missions.run(args, console=console) == 0
+    assert "No missions found" in console.file.getvalue()
+
 
 def test_list_flags_incomplete_saves(fairy_dirs):
     harvest, context = _spool(fairy_dirs)

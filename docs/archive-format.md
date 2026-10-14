@@ -165,7 +165,7 @@ Only one save runs at a time per robot (a lock in `.staging/`).
 
 - `missions`: one row per mission, with ID, time, operator, location, goal,
   path, total duration and size, number of recordings and warnings, robot,
-  versions, quality;
+  versions, quality, notes;
 - `mission_bags`: a content fingerprint per recording, used to spot the same
   recording saved twice;
 - `exports`: when each mission was last exported, and where.

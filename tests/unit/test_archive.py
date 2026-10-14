@@ -1,5 +1,6 @@
 import json
 import os
+import sqlite3
 
 import pytest
 
@@ -422,6 +423,79 @@ def test_index_quality_filter(fairy_dirs):
     assert total == 1
     rows, total = index.query(quality="ok")
     assert total == 0
+
+
+def _indexed(fairy_dirs, goal, notes, folder):
+    if not paths.mission_context_path().exists():
+        _spool(fairy_dirs)
+    harvest, context = builder.load_spool()
+    record = builder.build(harvest, context)
+    record.identity.mission_id += folder
+    record.intent.goal = goal
+    record.intent.notes = notes
+    index.insert(record, paths.archive_dir() / folder)
+    return record
+
+
+def test_index_search_goal_and_notes(fairy_dirs):
+    _indexed(fairy_dirs, "Survey eelgrass beds", "Sonar on the north pier",
+             "a")
+    _indexed(fairy_dirs, "Calibrate the sonar", None, "b")
+    _indexed(fairy_dirs, "Ponte di Città", "Vento forte", "c")
+
+    def ids(search):
+        rows, total = index.query(search=search)
+        assert total == len(rows)
+        return sorted(r["archive_path"][-1] for r in rows)
+
+    assert ids("sonar") == ["a", "b"]           # in notes, in goal
+    assert ids("SONAR eelgrass") == ["a"]       # every word must match
+    assert ids("north eelgrass") == ["a"]       # across goal and notes
+    assert ids('"north pier"') == ["a"]         # a quoted phrase
+    assert ids('"pier north"') == []
+    assert ids("citta") == ["c"]                # accents and case ignored
+    assert ids("città VENTO") == ["c"]
+    assert ids('"unbalanced') == []             # bad quoting doesn't raise
+    assert ids("   ") == ["a", "b", "c"]        # no words: no filter
+    rows, _ = index.query(search="pier")
+    assert rows[0]["notes"] == "Sonar on the north pier"
+
+
+def test_index_search_combines_with_other_filters(fairy_dirs):
+    _indexed(fairy_dirs, "Calibrate the sonar", None, "b")
+    assert index.query(search="sonar", operator="jane")[1] == 1
+    assert index.query(search="sonar", operator="nobody")[1] == 0
+
+
+def test_index_migration_backfills_notes(fairy_dirs):
+    # A version 3 index has no notes column: opening it adds the column and
+    # fills it from each mission's record, so search finds them at once.
+    harvest, context = _spool(fairy_dirs)
+    record = builder.build(harvest, context)
+    record.intent.notes = "Low tide at the jetty"
+    folder = assembler.assemble(record, harvest)
+    con = sqlite3.connect(paths.index_db_path())
+    con.execute("ALTER TABLE missions DROP COLUMN notes")
+    con.commit()
+    con.close()
+
+    rows, total = index.query(search="jetty")
+    assert total == 1 and rows[0]["archive_path"] == str(folder)
+
+
+def test_index_search_readonly_pre_notes_db(fairy_dirs, monkeypatch):
+    # An account that can't migrate a version 3 index still searches goals.
+    _indexed(fairy_dirs, "Calibrate the sonar", "by the jetty", "b")
+    con = sqlite3.connect(paths.index_db_path())
+    con.execute("ALTER TABLE missions DROP COLUMN notes")
+    con.commit()
+    con.close()
+
+    def no_write():
+        raise sqlite3.OperationalError("attempt to write a readonly database")
+    monkeypatch.setattr(index, "_connect", no_write)
+    assert index.query(search="sonar")[1] == 1
+    assert index.query(search="jetty")[1] == 0
 
 
 def test_index_query_missing_db_is_empty(fairy_dirs):

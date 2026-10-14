@@ -75,6 +75,7 @@ def run(args, console: Console | None = None) -> int:
             since=getattr(args, "since", None),
             until=getattr(args, "until", None),
             quality=getattr(args, "quality", None),
+            search=getattr(args, "search", None),
             limit=None if show_all else limit)
     except index.IndexUnavailableError as exc:
         if as_json:
@@ -161,6 +162,10 @@ class ListVerb(VerbExtension):
                             help="only missions on or after this date")
         parser.add_argument("--until", metavar="YYYY-MM-DD",
                             help="only missions up to this date")
+        parser.add_argument("--search", metavar="WORDS",
+                            help="only missions whose goal or notes contain "
+                                 "every word (quote a phrase to keep it "
+                                 "together)")
         parser.add_argument("--quality", choices=["ok", "degraded", "poor"],
                             help="only missions with this data-quality verdict")
         parser.add_argument("--limit", type=int, default=20,

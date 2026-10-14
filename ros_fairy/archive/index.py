@@ -7,7 +7,9 @@ the database from them at any time.
 
 import json
 import os
+import shlex
 import sqlite3
+import unicodedata
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -15,7 +17,7 @@ from typing import Any
 from ros_fairy.manifest.schema import MissionRecord, read_record
 from ros_fairy.utils import paths, topic_health
 
-DB_VERSION = "3"
+DB_VERSION = "4"
 
 
 class IndexUnavailableError(Exception):
@@ -36,7 +38,8 @@ CREATE TABLE IF NOT EXISTS missions (
     robot_name        TEXT,
     ros_fairy_version  TEXT,
     schema_version    TEXT NOT NULL,
-    data_quality      TEXT
+    data_quality      TEXT,
+    notes             TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_missions_created
     ON missions(created_at DESC);
@@ -75,7 +78,7 @@ CREATE TABLE IF NOT EXISTS exports (
 _COLUMNS = (
     "mission_id", "created_at", "operator", "location", "goal", "archive_path",
     "duration_s", "size_bytes", "bag_count", "warning_count", "robot_name",
-    "ros_fairy_version", "schema_version", "data_quality",
+    "ros_fairy_version", "schema_version", "data_quality", "notes",
 )
 _INSERT = (f"INSERT OR REPLACE INTO missions ({', '.join(_COLUMNS)}) VALUES "
            f"({', '.join('?' for _ in _COLUMNS)})")
@@ -98,9 +101,27 @@ def _connect() -> sqlite3.Connection:
     existing = {row[1] for row in con.execute("PRAGMA table_info(missions)")}
     if "data_quality" not in existing:
         con.execute("ALTER TABLE missions ADD COLUMN data_quality TEXT")
+    if "notes" not in existing:
+        con.execute("ALTER TABLE missions ADD COLUMN notes TEXT")
+        _backfill_notes(con)
     con.execute("INSERT OR REPLACE INTO meta VALUES ('db_version', ?)",
                 (DB_VERSION,))
     return con
+
+
+def _backfill_notes(con: sqlite3.Connection) -> None:
+    """Fill the notes column (added in DB version 4) from each mission's
+    record, so `list --search` finds them without a full reindex."""
+    for mission_id, archive_path in con.execute(
+            "SELECT mission_id, archive_path FROM missions").fetchall():
+        try:
+            record, _ = read_record(json.loads(
+                (Path(archive_path) / "mission_record.json").read_text()))
+        except Exception:
+            continue  # moved or unreadable: `reindex` will sort it out
+        con.execute("UPDATE missions SET notes = ? WHERE mission_id = ?",
+                    (record.intent.notes, mission_id))
+    con.commit()
 
 
 def _connect_readonly() -> sqlite3.Connection:
@@ -144,6 +165,7 @@ def _row_from_record(record: MissionRecord, archive_path: Path) -> tuple:
         record.provenance.ros_fairy_version,
         record.schema_version,
         record.provenance.data_quality,
+        record.intent.notes,
     )
 
 
@@ -272,15 +294,35 @@ def _utc_bound(value: str, end: bool) -> str:
     return moment.astimezone(timezone.utc).isoformat()
 
 
+def fold(text: str) -> str:
+    """Text as `list --search` compares it: case and accents ignored, so
+    "citta" finds "Città" and "PIER" finds "pier"."""
+    return "".join(c for c in unicodedata.normalize("NFKD", text.casefold())
+                   if not unicodedata.combining(c))
+
+
+def search_terms(text: str) -> list[str]:
+    """The words of a `list --search` query, folded. Quoted words stay
+    together as one phrase: ``'"north pier" sonar'`` is two terms."""
+    try:
+        words = shlex.split(text)
+    except ValueError:  # an unbalanced quote: take the words as typed
+        words = text.split()
+    return [fold(w) for w in words if w.strip()]
+
+
 def query(operator: str | None = None, location: str | None = None,
           since: str | None = None, until: str | None = None,
-          quality: str | None = None,
+          quality: str | None = None, search: str | None = None,
           limit: int | None = 20) -> tuple[list[dict[str, Any]], int]:
     """Filtered mission rows, newest first. Returns (rows, total_matching).
 
-    ``limit=None`` returns every matching row.
+    ``search`` keeps the missions whose goal or notes contain every one of
+    its words (see :func:`search_terms`). ``limit=None`` returns every
+    matching row.
     """
-    where, params = [], []
+    where: list[str] = []
+    params: list[Any] = []
     if operator:
         where.append("operator LIKE ? COLLATE NOCASE")
         params.append(f"%{operator}%")
@@ -296,7 +338,6 @@ def query(operator: str | None = None, location: str | None = None,
     if until:
         where.append("created_at < ?")
         params.append(_utc_bound(until, end=True))
-    clause = (" WHERE " + " AND ".join(where)) if where else ""
     if not Path(paths.index_db_path()).exists():
         return [], 0
     try:
@@ -306,6 +347,21 @@ def query(operator: str | None = None, location: str | None = None,
         # is still fine — WAL setup and schema migration belong to writers.
         con = _connect_readonly()
     try:
+        terms = search_terms(search) if search else []
+        if terms:
+            con.create_function("fairy_fold", 1,
+                                lambda s: fold(s) if s else "",
+                                deterministic=True)
+            columns = {row[1] for row in
+                       con.execute("PRAGMA table_info(missions)")}
+            # A read-only account may still see a pre-4 index (no notes
+            # column) until someone who can write opens it.
+            text = ("goal || char(10) || coalesce(notes, '')"
+                    if "notes" in columns else "goal")
+            for term in terms:
+                where.append(f"instr(fairy_fold({text}), ?) > 0")
+                params.append(term)
+        clause = (" WHERE " + " AND ".join(where)) if where else ""
         with con:
             total = con.execute(
                 f"SELECT COUNT(*) FROM missions{clause}", params).fetchone()[0]

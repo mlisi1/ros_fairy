@@ -228,7 +228,8 @@ There is no `--yes`.
 ```
 ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
                 [--until YYYY-MM-DD] [--quality {ok,degraded,poor}]
-                [--limit N | --all] [--path] [--json] [--debug]
+                [--search WORDS] [--limit N | --all] [--path] [--json]
+                [--debug]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy list` -->
@@ -239,13 +240,15 @@ ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
 | `--operator`, `--location` | Case-insensitive substring match. |
 | `--since`, `--until` | Local dates, both inclusive. |
 | `--quality` | Only missions with this verdict. |
+| `--search WORDS` | Only missions whose goal or notes contain every word, in any order. Case and accents are ignored (`citta` finds "Città"); quote a phrase to keep it together: `--search '"north pier" sonar'`. |
 | `--limit N` | Show the latest N (default 20; at least 1). |
 | `--all` | Show every mission. |
 | `--path` | Add the archive folder column. |
 
 Columns: date, mission ID, goal, location, operator, duration, size, warnings
-and data quality. The newest mission is last. `--json` prints
-`{"missions": [...], "total": N, "shown": M}`.
+and data quality. The newest mission is last. Filters combine: every one must
+match. `--json` prints `{"missions": [...], "total": N, "shown": M}`; each
+mission carries the index columns, `notes` included.
 
 ## diff
 
