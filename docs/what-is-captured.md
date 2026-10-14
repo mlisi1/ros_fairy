@@ -153,6 +153,10 @@ clock steps, and computes the real start and duration. If most stamps are
 implausible, the timing is reported as unknown rather than guessed. Such
 recordings can be made playable with [`repair`](commands.md#repair).
 
+A recording compressed as whole files (`.mcap.zstd`, `.db3.zstd`) can't be
+read message by message. Its start and duration come from `metadata.yaml`, and
+it gets a `compressed_file` note instead of the gap, rate and clock checks.
+
 ## Data quality
 
 At `mission_close` the mission is graded:

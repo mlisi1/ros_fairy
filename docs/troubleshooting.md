@@ -95,6 +95,12 @@ The review lists the reasons. The most common is that no ROS context was capture
 (see above). Saving anyway is a deliberate choice: you can still save, or keep it
 in the spool while you investigate.
 
+**The review says a recording "wasn't checked for gaps or low data rates".**
+It was recorded with `--compression-mode file`, so its files are compressed as a
+whole and their timing can't be read. It is still saved and checksummed. To get
+the checks, record without file compression; per-message compression
+(`--compression-mode message`) and MCAP's own chunk compression are fine.
+
 **"Someone else is saving or reviewing a mission".**
 Another `mission_close` is running on this robot. Only one save runs at a time.
 
@@ -116,4 +122,5 @@ repair anything: it only tells you what's wrong.
 **A recording won't play (`ros2 bag play` stalls).**
 It was most likely recorded with an unsynchronised clock. Run
 `ros2 fairy repair <mission>`, which writes playable copies to
-`./<name>_repaired/` and leaves the originals alone.
+`./<name>_repaired/` and leaves the originals alone. It works on MCAP and
+sqlite3 recordings, but not on ones compressed as whole files.
