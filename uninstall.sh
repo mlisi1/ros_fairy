@@ -16,8 +16,8 @@ set -euo pipefail
 # Deliberately not looked up from the installed package (e.g. `python3 -c
 # "from ros_fairy.subcommands.setup import SERVICE_NAME"`): this script must
 # keep working to clean up a broken/partial install, which is exactly when
-# importing ros_fairy might not. Keep these four in sync by hand with
-# ros_fairy/subcommands/setup.py's SERVICE_NAME/GROUP_NAME and
+# importing ros_fairy might not. tests/unit/test_packaging.py checks these
+# four against ros_fairy/subcommands/setup.py's SERVICE_NAME/GROUP_NAME and
 # ros_fairy/utils/paths.py's DEFAULT_CONFIG_DIR/DEFAULT_VAR_DIR.
 SERVICE_NAME="ros-fairy-watchdog.service"
 GROUP_NAME="ros-fairy"

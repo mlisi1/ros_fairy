@@ -4,8 +4,9 @@ The synthetic fixtures in tests/conftest hand-write metadata.yaml and the
 storage file, so they only prove the code is self-consistent — not that it
 matches what `ros2 bag record` actually produces (Jazzy writes metadata
 version 9 with QoS / compression / type-hash fields the synthetic fixtures
-omit). Drop real bags into tests/fixtures/ (see its README) and these tests
-exercise the real parse -> health -> assemble path.
+omit). Drop real bags into tests/fixtures/ (tools/record_real_fixtures.sh
+records them) and these tests exercise the real parse -> health -> assemble
+path.
 
 They skip cleanly when tests/fixtures/ has no bags, so CI stays green until
 fixtures are added; each test then runs once per discovered bag.
@@ -34,7 +35,8 @@ def _real_bags() -> list[Path]:
 # they exist. Keeps collection clean (no empty-parametrize warning).
 _BAGS = _real_bags() or [pytest.param(
     None, marks=pytest.mark.skip(
-        reason="no real bags in tests/fixtures/ (see its README)"))]
+        reason="no real bags in tests/fixtures/ (record them with "
+               "tools/record_real_fixtures.sh)"))]
 
 
 def _bag_id(p) -> str:

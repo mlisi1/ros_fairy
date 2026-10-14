@@ -1,4 +1,4 @@
-"""Watchdog robustness: FAILURE_CASES W1-W20."""
+"""Watchdog robustness: failure cases W1-W20."""
 
 import errno
 import json

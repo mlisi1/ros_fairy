@@ -36,7 +36,8 @@ def watchdog_env_path() -> Path:
     environment the operator had sourced when running ``setup`` is snapshotted
     here and loaded by the unit (``EnvironmentFile=``). Without it ``ros2`` is
     not on PATH and the graph/description harvest fails. The unit references the
-    default ``/etc/ros-fairy/watchdog.env``; keep them in sync.
+    default ``/etc/ros-fairy/watchdog.env`` (checked by
+    ``tests/unit/test_packaging.py``).
     """
     return config_dir() / "watchdog.env"
 

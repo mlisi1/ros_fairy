@@ -1,4 +1,4 @@
-"""Operator verbs and UI: FAILURE_CASES S1-S20 (S1, S4, S14 and S20 live
+"""Operator verbs and UI: failure cases S1-S20 (S1, S4, S14 and S20 live
 next to the existing tests in test_subcommands.py / test_verify.py)."""
 
 import io

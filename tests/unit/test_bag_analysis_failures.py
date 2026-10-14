@@ -1,4 +1,4 @@
-"""Bag analysis: FAILURE_CASES B1-B9 (readers, timing, health, repair)."""
+"""Bag analysis: failure cases B1-B9 (readers, timing, health, repair)."""
 
 import hashlib
 import json

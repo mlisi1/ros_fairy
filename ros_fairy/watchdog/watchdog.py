@@ -28,10 +28,6 @@ from ros_fairy.watchdog import recorder_scan
 log = logging.getLogger("ros_fairy.watchdog")
 
 BAG_INACTIVITY_S = 30
-DOCKER_TIMEOUT_S = 10
-PIP_TIMEOUT_S = 30
-HARDWARE_CMD_TIMEOUT_S = 10
-HARDWARE_TOTAL_TIMEOUT_S = 60
 ROS_RETRY_INTERVAL_S = 60
 HEARTBEAT_S = 60
 # How often /proc is scanned for recorders (~6 ms per scan on Jo). A

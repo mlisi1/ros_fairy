@@ -1,4 +1,4 @@
-"""Index, lookup and schema: FAILURE_CASES I1-I5."""
+"""Index, lookup and schema: failure cases I1-I5."""
 
 import json
 import os

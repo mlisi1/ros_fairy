@@ -1,5 +1,5 @@
 """Saving a mission safely: interrupted saves, locking, copy failures, and
-the crate details fixed for FAILURE_CASES A1-A16."""
+the crate details fixed for failure cases A1-A16."""
 
 import errno
 import io

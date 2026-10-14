@@ -4,9 +4,10 @@ The watchdog's inotify only sees the spool, where ``ros2 fairy mission_record``
 records. A plain ``ros2 bag record`` in another terminal lands in the operator's
 cwd and is invisible to it. The same goes for the bare recorder node
 (``ros2 run rosbag2_transport recorder --ros-args -p storage.uri:=...``), which
-takes its output directory from ROS parameters rather than ``-o``. This module scans ``/proc`` for a live rosbag2
-*recorder* process and resolves where it is writing — pure ``/proc`` reading, no
-ROS and no sourced environment needed, so it stays version-agnostic.
+takes its output directory from ROS parameters rather than ``-o``. This module
+scans ``/proc`` for a live rosbag2 *recorder* process and resolves where it is
+writing — pure ``/proc`` reading, no ROS and no sourced environment needed, so
+it stays version-agnostic.
 
 A recorder inside a container lives in another mount namespace: its
 ``/proc/<pid>/cwd`` names a path that does not exist on the host. Activity is
@@ -39,7 +40,7 @@ STORAGE_SUFFIXES = (".db3", ".mcap")
 PROC = Path("/proc")
 
 # One-time log keys (per process lifetime), so a recorder we skip on every
-# 5-second scan is reported once, not forever.
+# once-a-second scan is reported once, not forever.
 _reported: set[str] = set()
 
 

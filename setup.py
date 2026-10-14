@@ -56,6 +56,7 @@ setup(
     name=package_name,
     version="0.1.0",
     packages=find_packages(exclude=["tests", "tests.*"]),
+    python_requires=">=3.10",
     package_data={
         "ros_fairy.watchdog": ["ros-fairy-watchdog.service"],
     },

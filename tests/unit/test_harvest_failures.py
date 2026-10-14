@@ -1,5 +1,5 @@
-"""Harvest probes: FAILURE_CASES H1-H19 (the parts testable without ROS;
-the live snapshot was checked on Jo, see FAILURE_CASES.md)."""
+"""Harvest probes: failure cases H1-H19 (the parts testable without ROS;
+the live snapshot was checked on Jo)."""
 
 import json
 import subprocess
