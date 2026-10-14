@@ -238,7 +238,7 @@ ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
 | `--operator`, `--location` | Case-insensitive substring match. |
 | `--since`, `--until` | Local dates, both inclusive. |
 | `--quality` | Only missions with this verdict. |
-| `--limit N` | Show the latest N (default 20). |
+| `--limit N` | Show the latest N (default 20; at least 1). |
 | `--all` | Show every mission. |
 | `--path` | Add the archive folder column. |
 

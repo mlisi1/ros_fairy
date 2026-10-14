@@ -49,6 +49,17 @@ def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
     as_json = getattr(args, "json", False)
+    show_all = getattr(args, "all", False)
+    limit = getattr(args, "limit", None)
+    if limit is None:
+        limit = 20
+    if not show_all and limit < 1:
+        message = (f"--limit must be 1 or more (got {limit}). Use --all to "
+                   "show every mission.")
+        if as_json:
+            return json_error(message)
+        console.print(f"[red]{message}[/red]")
+        return 1
 
     if not paths.index_db_path().is_file():
         if as_json:
@@ -64,8 +75,7 @@ def run(args, console: Console | None = None) -> int:
             since=getattr(args, "since", None),
             until=getattr(args, "until", None),
             quality=getattr(args, "quality", None),
-            limit=None if getattr(args, "all", False)
-            else getattr(args, "limit", 20) or 20)
+            limit=None if show_all else limit)
     except index.IndexUnavailableError as exc:
         if as_json:
             return json_error(str(exc))

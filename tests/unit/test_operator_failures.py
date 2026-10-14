@@ -324,6 +324,21 @@ def test_list_json_index_unavailable(fairy_dirs, capsys, monkeypatch):
     assert _json_out(capsys)["error"] == "no permission"
 
 
+@pytest.mark.parametrize("limit", [0, -3])
+def test_list_rejects_a_limit_below_one(fairy_dirs, capsys, limit):
+    """--limit 0 used to be silently treated as 20."""
+    paths.index_db_path().touch()
+    with mock.patch.object(index, "query") as query:
+        assert list_missions.run(SimpleNamespace(json=True, limit=limit),
+                                 console=_console()) == 1
+        query.assert_not_called()
+    assert "--all" in _json_out(capsys)["error"]
+    with mock.patch.object(index, "query", return_value=([], 0)) as query:
+        assert list_missions.run(SimpleNamespace(limit=limit, all=True),
+                                 console=_console()) == 0
+    assert query.call_args.kwargs["limit"] is None
+
+
 def test_reindex_json_index_unavailable(fairy_dirs, capsys, monkeypatch):
     monkeypatch.setattr(index, "reindex", mock.Mock(
         side_effect=index.IndexUnavailableError("no permission")))
