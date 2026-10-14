@@ -58,9 +58,10 @@ on stdin.
 
 It refuses (exit 1) if ROS isn't sourced, no ROS nodes are visible, or the
 service (which runs as root) couldn't load ros_fairy, e.g. when it is only
-installed in a home directory. It also fails if `sudo` isn't available, or the service doesn't come up within
-10 s (then check `journalctl -u ros-fairy-watchdog`). Declining the review
-writes nothing and exits 0.
+installed in a home directory. It also fails if `sudo` isn't available, or the
+service doesn't come up within 10 s (then check
+`journalctl -u ros-fairy-watchdog`). Declining the review writes nothing and
+exits 0.
 
 `ros-fairy-setup` is the same command as a standalone script.
 
