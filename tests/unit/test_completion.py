@@ -50,6 +50,29 @@ def test_mission_ids_without_an_index_or_access(fairy_dirs, monkeypatch):
     assert completion.mission_ids("") == {}
 
 
+def test_many_missions_offer_only_the_newest(fairy_dirs):
+    con = index._connect()
+    with con:
+        for day in range(1, 29):
+            for month in (1, 2):
+                mid = f"m-2026{month:02d}{day:02d}-090000-{month}{day:03d}"
+                con.execute(
+                    "INSERT INTO missions (mission_id, created_at, operator, "
+                    "location, goal, archive_path, schema_version) "
+                    "VALUES (?, ?, 'J', 'M', 'g', ?, '1.2')",
+                    (mid, f"2026-{month:02d}-{day:02d}T09:00:00+00:00",
+                     f"/archive/{mid}"))
+    con.close()
+    newest = list(completion.mission_ids("m-"))
+    assert len(newest) == completion.MAX_SUGGESTIONS
+    assert newest[0] == "m-20260228-090000-2028"
+    # Older ones are reached by typing their date.
+    assert list(completion.mission_ids("m-2026011")) == [
+        f"m-202601{d}-090000-1{d:03d}" for d in range(19, 9, -1)]
+    assert list(completion.mission_ids("m-20260105")) == \
+        ["m-20260105-090000-1005"]
+
+
 def test_paths_complete_as_folders(fairy_dirs, tmp_path, monkeypatch):
     _index(fairy_dirs)
     (tmp_path / "bags" / "run_1").mkdir(parents=True)

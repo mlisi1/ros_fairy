@@ -377,9 +377,11 @@ def query(operator: str | None = None, location: str | None = None,
     return [dict(r) for r in rows], total
 
 
-def mission_summaries(limit: int = 500) -> list[dict[str, Any]]:
-    """(mission_id, created_at, goal) of the newest missions, read-only:
-    for shell completion, which must never write, migrate or wait."""
+def mission_summaries(prefix: str = "",
+                      limit: int = 20) -> list[dict[str, Any]]:
+    """(mission_id, created_at, goal) of the newest missions whose ID starts
+    with ``prefix``, read-only: for shell completion, which must never
+    write, migrate or wait."""
     if not paths.index_db_path().is_file():
         return []
     con = _connect_readonly()
@@ -387,7 +389,9 @@ def mission_summaries(limit: int = 500) -> list[dict[str, Any]]:
         con.execute("PRAGMA busy_timeout = 200")
         rows = con.execute(
             "SELECT mission_id, created_at, goal FROM missions "
-            "ORDER BY created_at DESC LIMIT ?", (limit,)).fetchall()
+            "WHERE substr(mission_id, 1, ?) = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            (len(prefix), prefix, limit)).fetchall()
     finally:
         con.close()
     return [dict(r) for r in rows]

@@ -4,6 +4,10 @@
 ``setup.bash`` registers it). These completers add the saved missions: a
 verb argument gets one with ``action.completer = ...``, which argparse
 ignores outside completion.
+
+A robot keeps hundreds of missions, so only the newest few that match are
+offered; IDs start with the date (``m-20261002-...``), so typing part of it
+reaches older ones.
 """
 
 import glob
@@ -11,6 +15,10 @@ import os
 from datetime import datetime
 
 from ros_fairy.archive import index
+
+# Like `list`'s default: enough for the missions one usually means, few
+# enough not to fill the screen.
+MAX_SUGGESTIONS = 20
 
 
 def _description(row: dict) -> str:
@@ -26,14 +34,14 @@ def _description(row: dict) -> str:
 
 
 def mission_ids(prefix: str, **_kwargs) -> dict[str, str]:
-    """Saved mission IDs starting with ``prefix``, each described by its
-    date and goal (shown by zsh and fish)."""
+    """The newest saved mission IDs starting with ``prefix`` (at most
+    MAX_SUGGESTIONS), each described by its date and goal (shown by zsh and
+    fish)."""
     try:
-        rows = index.mission_summaries()
+        rows = index.mission_summaries(prefix, MAX_SUGGESTIONS)
     except Exception:  # completion must never print a traceback
         return {}
-    return {row["mission_id"]: _description(row) for row in rows
-            if row["mission_id"].startswith(prefix)}
+    return {row["mission_id"]: _description(row) for row in rows}
 
 
 def _directories(prefix: str) -> dict[str, str]:

@@ -13,8 +13,10 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
   before), or a mission ID such as `m-20261002-082109-1a2b`.
 - **Tab completion.** In a shell where ROS is sourced, Tab completes verbs and
   options, and saved mission IDs wherever a mission is expected (`verify`,
-  `export` and its `--exclude`, `diff`, `repair`, `mission_delete`). zsh and
-  fish also show each mission's date and goal. A word starting with `/`, `.`
+  `export` and its `--exclude`, `diff`, `repair`, `mission_delete`): the 20
+  newest that match what you typed. IDs start with the date, so type part of
+  it to reach older ones (`m-202609<Tab>` for September 2026). zsh and fish
+  also show each mission's date and goal. A word starting with `/`, `.`
   or `~` completes as a folder instead. This is the completion ROS sets up
   for `ros2`; if `ros2 <Tab>` does nothing, see
   [Troubleshooting](troubleshooting.md#setup-and-installation).
