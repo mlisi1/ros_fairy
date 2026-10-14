@@ -67,7 +67,7 @@ def run(args, console: Console | None = None) -> int:
             "Record anyway?", default=False, console=console,
             assume_yes=yes)
         if not proceed:
-            return 1
+            return 0
 
     from ros_fairy.manifest import builder
     if builder.load_spool()[1] is None:

@@ -234,7 +234,7 @@ def _run_batch(args, console: Console, candidates: list[dict],
             f"about {human_size(total_bytes)}. Continue anyway?",
             default=False, console=console, assume_yes=yes)
         if not proceed:
-            return 1
+            return 0
 
     proceed = confirm(
         f"This will export {len(candidates)} mission(s) and could take a "

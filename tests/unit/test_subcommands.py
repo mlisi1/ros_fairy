@@ -279,6 +279,21 @@ def test_mission_record_aborts_on_unsynced_clock(fairy_dirs):
     assert not paths.session_env_path().exists()
 
 
+def test_mission_record_declined_low_disk_exits_0(fairy_dirs):
+    """Declining a question is not a failure: exit 0, like every other
+    "no" (the clock and briefing questions, setup's review)."""
+    _spool(fairy_dirs)
+    with mock.patch.object(mission_record.shutil, "which",
+                           return_value="/usr/bin/ros2"), \
+         mock.patch.object(mission_record.shutil, "disk_usage",
+                           return_value=SimpleNamespace(free=1)), \
+         mock.patch("rich.prompt.Confirm.ask", return_value=False) as ask, \
+         mock.patch.object(mission_record.subprocess, "Popen") as popen:
+        assert mission_record.run(ARGS, console=_console()) == 0
+    assert "Disk space" in ask.call_args[0][0]
+    popen.assert_not_called()
+
+
 def test_build_record_command_default(fairy_dirs):
     cmd = mission_record.build_record_command("/out")
     assert cmd == ["ros2", "bag", "record", "--all", "--output", "/out"]
@@ -1377,7 +1392,7 @@ def test_export_batch_warns_on_low_disk_space(fairy_dirs, tmp_path):
                            return_value=SimpleNamespace(total=0, used=0, free=1)), \
          mock.patch.object(export.Confirm, "ask", side_effect=fake_ask):
         assert export.run(_batch_args(share, all=True, json=False),
-                          console=_console()) == 1
+                          console=_console()) == 0  # declined, not failed
     assert any("free" in c for c in calls)
     assert not list(share.glob("*.zip"))  # nothing was written
 
