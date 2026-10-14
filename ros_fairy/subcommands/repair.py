@@ -20,6 +20,7 @@ from ros_fairy.archive import locate
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
+    completion,
     guarded_main,
     json_error,
     print_json,
@@ -134,10 +135,11 @@ class RepairVerb(VerbExtension):
     """Make a saved mission's unplayable (bad-clock) recordings playable."""
 
     def add_arguments(self, parser, cli_name):
-        parser.add_argument(
+        arg = parser.add_argument(
             "mission", nargs="?",
             help="mission to repair: number (1 = newest), archive path, mission "
                  "ID, or a path to a single bag directory. Defaults to newest.")
+        arg.completer = completion.missions_or_folders  # type: ignore[attr-defined]
         parser.add_argument(
             "--output", "-o",
             help="directory to write repaired recordings into "

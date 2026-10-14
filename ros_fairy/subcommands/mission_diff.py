@@ -6,6 +6,7 @@ from ros_fairy.archive import locate
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
+    completion,
     guarded_main,
     json_error,
     print_json,
@@ -68,14 +69,16 @@ class DiffVerb(VerbExtension):
     """Compare two missions and show what changed between them."""
 
     def add_arguments(self, parser, cli_name):
-        parser.add_argument(
+        arg = parser.add_argument(
             "mission_a", nargs="?",
             help="older mission: number (2 = second newest), archive path, or "
                  "mission ID. Defaults to the second most recent mission.")
-        parser.add_argument(
+        arg.completer = completion.missions_or_folders  # type: ignore[attr-defined]
+        arg = parser.add_argument(
             "mission_b", nargs="?",
             help="newer mission: number (1 = newest), archive path, or mission "
                  "ID. Defaults to the most recent mission.")
+        arg.completer = completion.missions_or_folders  # type: ignore[attr-defined]
         parser.add_argument(
             "--json", action="store_true",
             help="machine-readable output for scripts")
