@@ -128,6 +128,7 @@ with a plain-language sentence, which is what the review and README show:
 | --- | --- |
 | `never_published` | A declared sensor's topic recorded no messages. Also raised when a recording was cut off before rosbag2 could finish it. |
 | `compressed_transport` | (Information only.) A declared camera was recorded only as `…/compressed`, `…/compressedDepth` or `…/theora`. |
+| `compressed_file` | (Information only.) The recording is compressed as whole files (`.mcap.zstd`, `.db3.zstd`, rosbag2's `--compression-mode file`). It is saved and checksummed like any other, but its timing can't be read, so gap, rate and clock checks are skipped. |
 | `gap` | A topic went silent: at the start, in the middle or at the end. |
 | `low_rate` | A topic's average rate was under 25% of its busiest 10-second window. |
 | `truncated` | A storage file was cut off. |

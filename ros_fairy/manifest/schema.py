@@ -285,8 +285,8 @@ class HealthWarning(_Model):
     topic: str
     sensor_id: str | None = None
     # gap | never_published | low_rate | unreliable_clock | clock_step |
-    # truncated | compressed_transport (the last is informational — see
-    # topic_health.INFO_KINDS)
+    # truncated | compressed_transport | compressed_file (the last two are
+    # informational — see topic_health.INFO_KINDS)
     kind: str
     start_offset_s: float | None = None
     duration_s: float | None = None

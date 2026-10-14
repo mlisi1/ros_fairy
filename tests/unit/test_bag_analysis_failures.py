@@ -9,7 +9,7 @@ import pytest
 import yaml
 
 from ros_fairy.utils import bag_repair, bag_storage, topic_health
-from tests.conftest import make_bag
+from tests.conftest import make_bag, make_mcap_bag
 
 T0 = 1_790_000_000.0
 
@@ -252,6 +252,43 @@ def test_storage_files_handles_layouts(tmp_path):
                            side_effect=lambda *a: messages.append(a[0] % a[1:])):
         assert bag_storage.storage_files(zipped, [], ".mcap") == []
     assert "compressed" in messages[0]
+
+
+def _compress_whole_files(bag, suffix):
+    for f in bag.glob(f"*{suffix}"):
+        f.rename(f.with_name(f.name + ".zstd"))
+    meta = yaml.safe_load((bag / "metadata.yaml").read_text())
+    info = meta["rosbag2_bagfile_information"]
+    info["relative_file_paths"] = [p + ".zstd"
+                                   for p in info["relative_file_paths"]]
+    info.update(compression_format="zstd", compression_mode="file")
+    (bag / "metadata.yaml").write_text(yaml.safe_dump(meta))
+    return bag
+
+
+@pytest.mark.parametrize("storage", ["sqlite3", "mcap"])
+def test_file_compressed_bag_says_its_timing_was_not_checked(tmp_path,
+                                                             storage):
+    if storage == "mcap":
+        pytest.importorskip("mcap")
+        bag = make_mcap_bag(tmp_path / "zipped", {"/fix": [T0, T0 + 30]})
+        suffix = ".mcap"
+    else:
+        bag = make_bag(tmp_path / "zipped", {"/fix": [T0, T0 + 30]})
+        suffix = ".db3"
+    assert bag_storage.compressed_files(bag, storage) == []
+    _compress_whole_files(bag, suffix)
+    assert [p.name for p in bag_storage.compressed_files(bag, storage)] == \
+        [f"zipped_0{suffix}.zstd"]
+
+    warnings = topic_health.analyse_bag(bag, [])
+    assert [w["kind"] for w in warnings] == ["compressed_file"]
+    assert "compressed" in warnings[0]["plain_text"]
+    assert "compressed_file" in topic_health.INFO_KINDS
+    # Its length still comes from metadata.yaml.
+    meta = topic_health.parse_bag_metadata(bag)
+    series = topic_health.read_clean_series(bag, meta)
+    assert topic_health.bag_timing(bag, meta, series)[2] == pytest.approx(30)
 
 
 # -- B8: fingerprints of empty recordings --------------------------------------------

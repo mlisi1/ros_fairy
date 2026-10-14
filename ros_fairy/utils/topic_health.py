@@ -97,7 +97,7 @@ IMAGE_TRANSPORT_SUFFIXES = ("compressed", "compressedDepth", "theora")
 # wrong — never counted as a "sensor produced no data" quality hit
 # (manifest/quality.py) and rendered as a plain note, not a "⚠" warning
 # (ui/review.py).
-INFO_KINDS = frozenset({"compressed_transport"})
+INFO_KINDS = frozenset({"compressed_transport", "compressed_file"})
 
 
 # Topics that only carry messages when something happens (a log line, a
@@ -573,6 +573,17 @@ def analyse_bag(bag_dir: Path, sensors: list[dict] | None = None, *,
             "plain_text": f"{who} produced no data at all during this "
                           "recording.",
         })
+
+    if bag_storage.compressed_files(bag_dir, meta["storage_identifier"]):
+        # Gaps, rates and clock steps need every message's time, and a file
+        # compressed as a whole can't be read for them. Say so rather than
+        # report a recording with nothing wrong.
+        warnings.append({
+            "topic": "", "sensor_id": None, "kind": "compressed_file",
+            "start_offset_s": None, "duration_s": None,
+            "plain_text": "This recording is saved compressed, so it wasn't "
+                          "checked for gaps or low data rates."})
+        return warnings
 
     if series is None:
         series = read_clean_series(bag_dir, meta)

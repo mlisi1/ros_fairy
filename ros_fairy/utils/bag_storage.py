@@ -341,6 +341,20 @@ def get_reader(storage_id: str) -> BagStorageReader | None:
     return _READERS.get(storage_id)
 
 
+_SUFFIXES = {"sqlite3": ".db3", "mcap": ".mcap"}
+
+
+def compressed_files(bag_dir: Path, storage_id: str) -> list[Path]:
+    """The bag's storage files compressed as a whole (``.mcap.zstd``,
+    ``.db3.zstd``), when it has no plain ones. rosbag2's file compression
+    leaves only these; no reader can open them, so their timing can't be
+    analysed."""
+    suffix = _SUFFIXES.get(storage_id)
+    if suffix is None or any(bag_dir.glob(f"*{suffix}")):
+        return []
+    return sorted(bag_dir.glob(f"*{suffix}.*"), key=split_index)
+
+
 def supports_timestamps(storage_id: str) -> bool:
     """True if per-message timestamp analysis is available for this format."""
     reader = _READERS.get(storage_id)
