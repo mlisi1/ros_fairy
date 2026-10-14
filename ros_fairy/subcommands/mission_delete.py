@@ -22,12 +22,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from ros_fairy.archive import index
-from ros_fairy.subcommands import (
-    VerbExtension,
-    _configure_logging,
-    completion,
-    guarded_main,
-)
+from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils import paths
 
@@ -225,11 +220,10 @@ class MissionDeleteVerb(VerbExtension):
     """Permanently delete saved missions (asks, then asks you to type a phrase)."""
 
     def add_arguments(self, parser, cli_name):
-        arg = parser.add_argument(
+        parser.add_argument(
             "mission_id", nargs="?", metavar="MISSION_ID",
             help="the mission to delete, e.g. m-20261002-082109-1a2b "
                  "(shown by `ros2 fairy list`)")
-        arg.completer = completion.mission_ids  # type: ignore[attr-defined]
         parser.add_argument(
             "--all", action="store_true",
             help="delete every saved mission (needs sudo)")

@@ -28,7 +28,6 @@ from ros_fairy.archive.assembler import CHECKSUMS_FILE
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
-    completion,
     guarded_main,
     json_error,
     print_json,
@@ -284,11 +283,10 @@ class VerifyVerb(VerbExtension):
     # file by checksums.sha256 (archives saved since 2026-10-06).
 
     def add_arguments(self, parser, cli_name):
-        arg = parser.add_argument(
+        parser.add_argument(
             "mission", nargs="?",
             help="mission to verify: number (1 = newest), archive path, or "
                  "mission ID. Defaults to the most recent mission.")
-        arg.completer = completion.missions_or_folders  # type: ignore[attr-defined]
         parser.add_argument(
             "--json", action="store_true",
             help="machine-readable output for scripts")

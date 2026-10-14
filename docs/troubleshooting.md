@@ -34,12 +34,6 @@ Your account isn't in the `ros-fairy` group, or you haven't logged in again sinc
 being added: `sudo usermod -aG ros-fairy $USER`, then log out and back in. Check
 with `id -nG`.
 
-**Tab completion does nothing.**
-ROS sets up Tab completion for `ros2` when its `setup.bash` (or `setup.zsh` in
-zsh) is sourced, so source it in your shell's startup file and open a new
-terminal. If verbs complete but mission IDs don't, there are no saved missions
-yet, or your account can't read the index (see the previous entry).
-
 ## Capture
 
 **Context captured shows ✗ for the ROS graph.**

@@ -33,7 +33,6 @@ from ros_fairy.archive import index, locate
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
-    completion,
     confirm,
     guarded_main,
     json_error,
@@ -331,12 +330,11 @@ class ExportVerb(VerbExtension):
     """Package a saved mission into one portable file for sharing."""
 
     def add_arguments(self, parser, cli_name):
-        arg = parser.add_argument(
+        parser.add_argument(
             "mission", nargs="?",
             help="mission to export: number (1 = newest), archive path, or "
                  "mission ID. Defaults to the most recent mission. Not used "
                  "with --all/--today.")
-        arg.completer = completion.missions_or_folders  # type: ignore[attr-defined]
         parser.add_argument(
             "--all", action="store_true",
             help="export every saved mission that hasn't been successfully "
@@ -344,11 +342,10 @@ class ExportVerb(VerbExtension):
         parser.add_argument(
             "--today", action="store_true",
             help="export every mission recorded today")
-        arg = parser.add_argument(
+        parser.add_argument(
             "--exclude", "-e", action="append", metavar="MISSION_ID",
             help="mission ID to skip; repeatable. Only applies with "
                  "--all/--today")
-        arg.completer = completion.mission_ids  # type: ignore[attr-defined]
         parser.add_argument(
             "--output", "-o",
             help="output file (single mission), or a directory to write "
