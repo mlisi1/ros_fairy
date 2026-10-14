@@ -84,9 +84,11 @@ setup(
     },
     zip_safe=False,
     cmdclass={"build_py": BuildPyWithBuildInfo},
-    author="ros-fairy contributors",
-    maintainer="ros-fairy contributors",
-    maintainer_email="fleet@example.org",
+    author="Michele Lisi, Giovanni Di Lorenzo",
+    author_email="michele.lisi@phd.unipi.it, giovanni.dilorenzo@phd.unipi.it",
+    maintainer="Michele Lisi, Giovanni Di Lorenzo",
+    maintainer_email="michele.lisi@phd.unipi.it, "
+                     "giovanni.dilorenzo@phd.unipi.it",
     description="Make ROS 2 field mission data FAIR-compliant with zero "
                 "friction: automatic context capture, plain-language "
                 "briefings, RO-Crate archives.",

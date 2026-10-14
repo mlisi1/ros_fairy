@@ -7,7 +7,8 @@
     Make ROS 2 field mission data FAIR-compliant with zero friction:
     automatic context capture, plain-language briefings, RO-Crate archives.
   </description>
-  <maintainer email="fleet@example.org">ros-fairy contributors</maintainer>
+  <maintainer email="michele.lisi@phd.unipi.it">Michele Lisi</maintainer>
+  <maintainer email="giovanni.dilorenzo@phd.unipi.it">Giovanni Di Lorenzo</maintainer>
   <license>Apache-2.0</license>
 
   <depend>ros2cli</depend>
