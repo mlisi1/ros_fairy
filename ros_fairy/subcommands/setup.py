@@ -33,6 +33,8 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SLUG_RE = re.compile(r"^[a-z0-9_]+$")
 SENSOR_TYPES = ["gps", "lidar", "camera", "imu", "sonar", "other"]
 SERVICE_NAME = "ros-fairy-watchdog.service"
+UNIT_DIR = Path("/etc/systemd/system")
+SYSTEM_PYTHON = "/usr/bin/python3"
 GROUP_NAME = "ros-fairy"
 MAX_ATTEMPTS = 3
 
@@ -372,11 +374,83 @@ def _check_ros_visible(console: Console) -> bool:
     return True
 
 
-def install_service(console: Console, env: dict[str, str]) -> bool:
+def interpreter_root_safe(python: str) -> bool:
+    """Only root can change ``python``: the directory it sits in (and, for a
+    symlink such as a venv's ``bin/python``, the one it points into)."""
+    return all(ros_env.root_safe_dir(str(Path(p).parent))
+               for p in (python, os.path.realpath(python)))
+
+
+def service_import_location(python: str, env: dict[str, str]) -> str | None:
+    """Where ``python`` would import ros_fairy from as the watchdog service,
+    or ``None`` if it can't import it at all.
+
+    Reproduces what the unit sees: only the root-safe part of ``env`` (what
+    :func:`write_watchdog_env` writes), no user site-packages, and ``/`` as
+    the working directory, so this checkout isn't found by accident.
+    """
+    safe, _ = ros_env.root_safe_env(env)
+    safe["PYTHONNOUSERSITE"] = "1"
+    try:
+        result = subprocess.run(
+            [python, "-c", "import os, ros_fairy; "
+             "print(os.path.dirname(os.path.realpath(ros_fairy.__file__)))"],
+            env=safe, cwd="/", capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
+def _choose_service_python(console: Console,
+                           env: dict[str, str]) -> str | None:
+    """The interpreter the watchdog unit will run, or ``None`` (and why).
+
+    The one running setup comes first, so a robot whose ROS uses another
+    Python than ``/usr/bin/python3`` still works. It must be root-owned,
+    though: the service runs as root, so an interpreter in a home-directory
+    venv would let that user's files run as root.
+    """
+    candidates = [sys.executable] if interpreter_root_safe(sys.executable) \
+        else []
+    if SYSTEM_PYTHON not in candidates and Path(SYSTEM_PYTHON).exists():
+        candidates.append(SYSTEM_PYTHON)
+    mine = str(Path(__file__).resolve().parents[1])
+    for python in candidates:
+        found = service_import_location(python, env)
+        if found is None:
+            continue
+        if found != mine:
+            console.print(
+                f"[yellow]The watchdog service will run the ros_fairy "
+                f"installed in {found}, not this one ({mine}). Keep them at "
+                "the same version, or `ros2 fairy doctor` will warn that the "
+                "watchdog runs different code.[/yellow]")
+        return python
+    console.print(
+        "[red]The watchdog service runs as root and can only load ros_fairy "
+        "from directories that only root can change. This copy is in "
+        f"{mine}, which the service can't use (a colcon workspace or a venv "
+        "in a home directory, for example).\n"
+        "Install it system-wide from the checkout with `./install.sh`, then "
+        "run `ros2 fairy setup` again.[/red]")
+    return None
+
+
+def install_service(console: Console, env: dict[str, str],
+                    python: str = SYSTEM_PYTHON) -> bool:
+    if not interpreter_root_safe(python):
+        console.print(f"[red]Won't install the watchdog service with {python}:"
+                      " it runs as root, and that interpreter isn't in a "
+                      "root-owned directory.[/red]")
+        return False
     write_watchdog_env(env)
     unit_src = Path(__file__).resolve().parent.parent / "watchdog" / \
         SERVICE_NAME
-    shutil.copy(unit_src, Path("/etc/systemd/system") / SERVICE_NAME)
+    unit = unit_src.read_text().replace(
+        f"ExecStart={SYSTEM_PYTHON} ", f"ExecStart={python} ")
+    (UNIT_DIR / SERVICE_NAME).write_text(unit)
     subprocess.run(["systemctl", "daemon-reload"], check=True)
     subprocess.run(["systemctl", "enable", "--now", SERVICE_NAME],
                    check=True)
@@ -452,7 +526,8 @@ def _apply(console: Console, payload: dict) -> bool:
         console.print(f"[yellow]Remember to add operator accounts to the "
                       f"'{GROUP_NAME}' group (usermod -aG {GROUP_NAME} <user>) "
                       "or they won't be able to record missions.[/yellow]")
-    if install_service(console, payload["env"]):
+    if install_service(console, payload["env"],
+                       payload.get("python", SYSTEM_PYTHON)):
         console.print(Panel("Setup complete. ros-fairy is now watching for "
                             "recordings.", border_style="green"))
         return True
@@ -534,10 +609,15 @@ def run(args, console: Console | None = None) -> int:
                       "be skipped. That's fine if this robot doesn't use "
                       "containers.[/yellow]")
 
+    env = ros_env.capture()
+    python = _choose_service_python(console, env)
+    if python is None:
+        return 1
+
     config = _collect(console)
     if config is None:
         return 0
-    payload = {"config": config, "env": ros_env.capture()}
+    payload = {"config": config, "env": env, "python": python}
 
     if os.geteuid() == 0:
         return 0 if _apply(console, payload) else 1

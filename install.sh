@@ -11,8 +11,8 @@
 # site-packages so both `ros2` and the systemd watchdog service can find the
 # package. Rather than requiring `sudo ./install.sh` up front, this tries a
 # plain install first and only escalates if that actually fails for a
-# permissions reason — so on a setup that doesn't need it (e.g. an already
-# writable venv), no sudo prompt ever appears.
+# permissions reason — so on a setup that doesn't need it, no sudo prompt
+# ever appears.
 #
 # Usage: ./install.sh [--dev]
 #   --dev   also install the dev/test extras (pytest, ruff, mypy, rocrate)
@@ -61,8 +61,7 @@ elif grep -qiE "read-only file system|errno 30|EROFS" "$LOG"; then
     # robot images with a read-only rootfs overlay). Retrying as root would
     # just fail the same way, so say so instead of retrying.
     echo "The filesystem pip is trying to write to is read-only, so sudo" >&2
-    echo "won't help. Remount it read-write, or install into a venv on" >&2
-    echo "writable storage: python3 -m venv ~/ros_fairy_venv && ~/ros_fairy_venv/bin/pip install $TARGET" >&2
+    echo "won't help. Remount it read-write and run this script again." >&2
     cat "$LOG" >&2
     exit 1
 elif grep -qiE "permission denied|errno 13|externally-managed-environment" "$LOG"; then

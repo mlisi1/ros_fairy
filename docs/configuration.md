@@ -150,7 +150,7 @@ Any value other than empty or `0` counts.
 | --- | --- |
 | `After=local-fs.target` only | It must keep working when ROS, the network or Docker are down. It only needs the spool. |
 | `EnvironmentFile=-/etc/ros-fairy/watchdog.env` | The ROS environment. The `-` lets it start without one. |
-| `ExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog` | The system interpreter. |
+| `ExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog` | The interpreter `setup` ran under, if root owns it and it can load ros_fairy as the service would; otherwise `/usr/bin/python3`. `setup` stops if neither can. |
 | `Group=ros-fairy`, `UMask=0002` | Operators can read and clean up what it writes. |
 | `Restart=always`, `RestartSec=5` | It recovers from crashes on its own ([crash recovery](architecture.md#crash-and-power-loss-recovery)). |
 | `Nice=10` | It yields CPU to the robot's own software. |

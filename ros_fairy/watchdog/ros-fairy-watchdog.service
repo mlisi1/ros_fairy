@@ -15,6 +15,8 @@ Type=simple
 # domain or RMW that drifted from this frozen snapshot still harvests the right
 # graph. Loader paths from that group-writable file are never trusted.
 EnvironmentFile=-/etc/ros-fairy/watchdog.env
+# `ros2 fairy setup` replaces /usr/bin/python3 with the interpreter it ran
+# under when that one is root-owned and can import ros_fairy.
 ExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog
 Restart=always
 RestartSec=5

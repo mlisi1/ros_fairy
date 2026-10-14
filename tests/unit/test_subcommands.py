@@ -616,6 +616,8 @@ def test_run_as_normal_user_needs_no_root_until_apply(fairy_dirs):
     with mock.patch.object(setup_cmd.os, "geteuid", return_value=1000), \
             mock.patch.object(setup_cmd, "_check_ros_visible",
                               return_value=True), \
+            mock.patch.object(setup_cmd, "_choose_service_python",
+                              return_value="/usr/bin/python3"), \
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
             mock.patch.object(setup_cmd, "_collect", return_value=config), \
@@ -628,7 +630,8 @@ def test_run_as_normal_user_needs_no_root_until_apply(fairy_dirs):
     apply_direct.assert_not_called()
     apply_sudo.assert_called_once()
     payload = apply_sudo.call_args[0][1]
-    assert payload == {"config": config, "env": {"ROS_DISTRO": "jazzy"}}
+    assert payload == {"config": config, "env": {"ROS_DISTRO": "jazzy"},
+                       "python": "/usr/bin/python3"}
     assert "password" in console.file.getvalue().lower()
 
 
@@ -640,6 +643,8 @@ def test_run_as_root_applies_directly_no_sudo_reexec(fairy_dirs):
                               return_value=True), \
             mock.patch.object(setup_cmd, "_check_ros_visible",
                               return_value=True), \
+            mock.patch.object(setup_cmd, "_choose_service_python",
+                              return_value="/usr/bin/python3"), \
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
             mock.patch.object(setup_cmd, "_collect", return_value=config), \
@@ -658,6 +663,8 @@ def test_run_declined_review_writes_nothing(fairy_dirs):
     with mock.patch.object(setup_cmd.os, "geteuid", return_value=1000), \
             mock.patch.object(setup_cmd, "_check_ros_visible",
                               return_value=True), \
+            mock.patch.object(setup_cmd, "_choose_service_python",
+                              return_value="/usr/bin/python3"), \
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
             mock.patch.object(setup_cmd, "_collect", return_value=None), \
@@ -742,7 +749,7 @@ def test_apply_writes_identity_dirs_and_service_with_given_env(fairy_dirs):
         assert setup_cmd._apply(console, payload) is True
     wi.assert_called_once_with(payload["config"])
     cd.assert_called_once()
-    inst.assert_called_once_with(console, payload["env"])
+    inst.assert_called_once_with(console, payload["env"], "/usr/bin/python3")
 
 
 def test_apply_reports_group_add_failure_instead_of_false_success(fairy_dirs):
@@ -796,12 +803,99 @@ def test_install_service_stops_polling_on_failed_unit(fairy_dirs):
         return SimpleNamespace(returncode=0, stdout="")
 
     with mock.patch.object(setup_cmd, "write_watchdog_env"), \
-            mock.patch.object(setup_cmd.shutil, "copy"), \
+            mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]), \
             mock.patch.object(setup_cmd.subprocess, "run",
                               side_effect=fake_run):
         assert setup_cmd.install_service(console, {}) is False
     is_active_calls = [c for c in calls if c[:2] == ["systemctl", "is-active"]]
     assert len(is_active_calls) == 1
+
+
+def test_install_service_writes_the_chosen_interpreter(fairy_dirs):
+    """The unit runs the interpreter setup chose, not always /usr/bin/python3."""
+    def fake_run(cmd, **kwargs):
+        return SimpleNamespace(returncode=0, stdout="failed\n")
+
+    with mock.patch.object(setup_cmd, "write_watchdog_env"), \
+            mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]), \
+            mock.patch.object(setup_cmd, "interpreter_root_safe",
+                              return_value=True), \
+            mock.patch.object(setup_cmd.subprocess, "run",
+                              side_effect=fake_run):
+        setup_cmd.install_service(_console(), {}, "/opt/py/bin/python3")
+    unit = (fairy_dirs["cfg"] / setup_cmd.SERVICE_NAME).read_text()
+    assert "ExecStart=/opt/py/bin/python3 -m ros_fairy.watchdog.watchdog" \
+        in unit
+    assert "ExecStart=/usr/bin/python3" not in unit
+
+
+def test_install_service_refuses_a_user_writable_interpreter(fairy_dirs):
+    console = _console()
+    with mock.patch.object(setup_cmd, "write_watchdog_env") as wenv, \
+            mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]):
+        assert setup_cmd.install_service(
+            console, {}, str(fairy_dirs["cfg"] / "python3")) is False
+    wenv.assert_not_called()
+    assert not (fairy_dirs["cfg"] / setup_cmd.SERVICE_NAME).exists()
+
+
+def test_service_import_location_sees_only_what_the_service_sees(fairy_dirs):
+    """A home-directory copy on PYTHONPATH (colcon workspace) is dropped, as
+    the service drops it, so the check fails instead of the service."""
+    user_dir = fairy_dirs["cfg"] / "ws"
+    (user_dir / "ros_fairy").mkdir(parents=True)
+    (user_dir / "ros_fairy" / "__init__.py").write_text("")
+    env = {"PYTHONPATH": str(user_dir), "PATH": "/usr/bin:/bin"}
+    assert setup_cmd.service_import_location("/usr/bin/python3", env) is None
+
+
+def test_service_import_location_reports_where_it_imports_from(fairy_dirs):
+    def fake_run(cmd, **kwargs):
+        assert kwargs["cwd"] == "/"
+        assert kwargs["env"]["PYTHONNOUSERSITE"] == "1"
+        return SimpleNamespace(returncode=0, stdout="/usr/lib/x/ros_fairy\n")
+
+    with mock.patch.object(setup_cmd.subprocess, "run", side_effect=fake_run):
+        assert setup_cmd.service_import_location("/usr/bin/python3", {}) == \
+            "/usr/lib/x/ros_fairy"
+
+
+def test_choose_service_python_refuses_when_nothing_can_import(fairy_dirs):
+    console = _console()
+    with mock.patch.object(setup_cmd, "service_import_location",
+                           return_value=None):
+        assert setup_cmd._choose_service_python(console, {}) is None
+    assert "./install.sh" in console.file.getvalue()
+
+
+def test_choose_service_python_skips_a_user_writable_interpreter(fairy_dirs):
+    tried = []
+
+    def fake_location(python, env):
+        tried.append(python)
+        return str(Path(setup_cmd.__file__).resolve().parents[1])
+
+    with mock.patch.object(setup_cmd.sys, "executable",
+                           "/home/u/venv/bin/python"), \
+            mock.patch.object(setup_cmd, "interpreter_root_safe",
+                              return_value=False), \
+            mock.patch.object(setup_cmd, "service_import_location",
+                              side_effect=fake_location):
+        assert setup_cmd._choose_service_python(_console(), {}) == \
+            setup_cmd.SYSTEM_PYTHON
+    assert tried == [setup_cmd.SYSTEM_PYTHON]
+
+
+def test_run_stops_before_the_wizard_when_service_cant_load(fairy_dirs):
+    console = _console()
+    with mock.patch.object(setup_cmd.os, "geteuid", return_value=1000), \
+            mock.patch.object(setup_cmd, "_check_ros_visible",
+                              return_value=True), \
+            mock.patch.object(setup_cmd, "_choose_service_python",
+                              return_value=None), \
+            mock.patch.object(setup_cmd, "_collect") as collect:
+        assert setup_cmd.run(ARGS, console=console) == 1
+    collect.assert_not_called()
 
 
 def test_collect_returns_none_when_review_declined(fairy_dirs):
@@ -1297,6 +1391,21 @@ def test_doctor_check_clock(monkeypatch):
     assert doctor._check_clock()["status"] == doctor.OK
     monkeypatch.setattr(doctor.clock, "is_synchronized", lambda: None)
     assert doctor._check_clock()["status"] == doctor.SKIP
+
+
+def test_doctor_service_python_reads_the_installed_unit(fairy_dirs):
+    with mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]):
+        assert doctor._check_service_python()["status"] == doctor.SKIP
+        (fairy_dirs["cfg"] / setup_cmd.SERVICE_NAME).write_text(
+            "[Service]\nExecStart=/opt/py/bin/python3 -m x\n")
+        with mock.patch.object(setup_cmd, "service_import_location",
+                               return_value=None) as loc:
+            c = doctor._check_service_python()
+        assert c["status"] == doctor.FAIL and "install.sh" in c["hint"]
+        assert loc.call_args[0][0] == "/opt/py/bin/python3"
+        with mock.patch.object(setup_cmd, "service_import_location",
+                               return_value="/usr/lib/ros_fairy"):
+            assert doctor._check_service_python()["status"] == doctor.OK
 
 
 def test_doctor_watchdog_stale_heartbeat_only_matters_while_recording():

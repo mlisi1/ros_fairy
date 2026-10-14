@@ -169,7 +169,7 @@ def write_file(path: Path, env: dict[str, str], mode: int = 0o644) -> None:
 ROOT_SAFE_PATH_KEYS = ("PATH", "PYTHONPATH", "LD_LIBRARY_PATH")
 
 
-def _root_safe_dir(entry: str) -> bool:
+def root_safe_dir(entry: str) -> bool:
     """A directory only root can change: root-owned, not writable by others
     (group-writable only when the group is root too)."""
     try:
@@ -191,7 +191,7 @@ def root_safe_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
         if key not in out:
             continue
         entries = [e for e in out[key].split(os.pathsep) if e]
-        keep = [e for e in entries if _root_safe_dir(e)]
+        keep = [e for e in entries if root_safe_dir(e)]
         dropped += [e for e in entries if e not in keep]
         out[key] = os.pathsep.join(keep)
     return out, dropped

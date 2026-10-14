@@ -56,8 +56,9 @@ on stdin.
 | --- | --- |
 | `--ros-setup PATH` | Only when running setup directly as root (`sudo ros-fairy-setup`): the ROS 2 `setup.bash` to source. Auto-detected when there is exactly one `/opt/ros/*/setup.bash`. |
 
-It refuses (exit 1) if ROS isn't sourced or no ROS nodes are visible. It also
-fails if `sudo` isn't available, or the service doesn't come up within
+It refuses (exit 1) if ROS isn't sourced, no ROS nodes are visible, or the
+service (which runs as root) couldn't load ros_fairy, e.g. when it is only
+installed in a home directory. It also fails if `sudo` isn't available, or the service doesn't come up within
 10 s (then check `journalctl -u ros-fairy-watchdog`). Declining the review
 writes nothing and exits 0.
 
@@ -78,6 +79,7 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | --- | --- |
 | Robot identity | `robot_identity.yaml` is missing or invalid |
 | Recording assistant | the watchdog isn't running, or has been recording with no heartbeat for 5 minutes |
+| Service interpreter | the installed service's interpreter can't load ros_fairy (only installed in a home directory) |
 | Watchdog code | the running watchdog's code differs from the installed code (restart it) |
 | ROS graph | `ros2` isn't on `PATH`, ROS isn't reachable, or no nodes are running |
 | ROS environment | `ROS_DISTRO` isn't set in this shell |

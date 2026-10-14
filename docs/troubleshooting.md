@@ -19,11 +19,11 @@ several distros are installed.
 
 **"Recording assistant is not running".**
 `systemctl status ros-fairy-watchdog` and `journalctl -u ros-fairy-watchdog`
-show why. A common cause is that ros_fairy was built only in a colcon
-workspace in a home directory: the service runs as root and can't use that
-workspace (see [Or build it in a colcon workspace](getting-started.md#or-build-it-in-a-colcon-workspace)).
-Install it system-wide with `./install.sh` (see
-[Install the package](getting-started.md#1-install-the-package)).
+show why. If `doctor` also says "Background service can't load ros_fairy",
+it is only installed in a home directory, where the service (running as root)
+won't load it from: install it with `./install.sh` (see
+[Install the package](getting-started.md#1-install-the-package)) and re-run
+`ros2 fairy setup`.
 
 **"Watchdog runs different code than this command".**
 ros_fairy was updated but the service still runs the old code:

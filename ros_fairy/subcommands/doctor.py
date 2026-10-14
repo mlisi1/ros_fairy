@@ -150,6 +150,36 @@ def _check_service_env() -> dict:
             "detail": f"distro: {env['ROS_DISTRO']}", "hint": ""}
 
 
+def _check_service_python() -> dict:
+    """Can the installed unit's interpreter load ros_fairy at all?
+
+    The service runs as root with only the root-owned part of watchdog.env,
+    so a copy installed in a home directory (colcon workspace, venv) works in
+    the operator's shell but not in the service.
+    """
+    from ros_fairy.subcommands import setup
+    unit = setup.UNIT_DIR / setup.SERVICE_NAME
+    try:
+        text = unit.read_text()
+    except OSError:
+        return {"status": SKIP, "title": "Watchdog service not installed",
+                "detail": str(unit), "hint": ""}
+    python = next((line.split("=", 1)[1].split()[0]
+                   for line in text.splitlines()
+                   if line.startswith("ExecStart=")), setup.SYSTEM_PYTHON)
+    env = ros_env.read_file(paths.watchdog_env_path())
+    found = setup.service_import_location(python, env)
+    if found is None:
+        return {"status": FAIL,
+                "title": "Background service can't load ros_fairy",
+                "detail": f"{python} can't import it as the service would",
+                "hint": "ros_fairy is probably only in a home-directory "
+                        "workspace or venv; install it system-wide with "
+                        "`./install.sh`, then re-run `ros2 fairy setup`"}
+    return {"status": OK, "title": "Background service can load ros_fairy",
+            "detail": f"{python}, from {found}", "hint": ""}
+
+
 def _check_service_harvest() -> dict:
     """What the watchdog's own (service-context) harvest last achieved.
 
@@ -311,7 +341,8 @@ def _check_watchdog_code() -> dict:
                     "install (a checkout or ~/.local) than the service"}
 
 
-_CHECKS = (_check_identity, _check_watchdog, _check_watchdog_code,
+_CHECKS = (_check_identity, _check_watchdog, _check_service_python,
+           _check_watchdog_code,
            _check_ros_reachable,
            _check_ros_environment, _check_service_env, _check_service_harvest,
            _check_clock, _check_mcap, _check_disk, _check_docker, _check_archive)

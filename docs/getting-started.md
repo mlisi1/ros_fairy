@@ -6,8 +6,8 @@ This page takes a robot from nothing to a first saved mission.
 
 - Linux with systemd (the watchdog runs as a system service).
 - ROS 2 Humble, Jazzy or newer, sourced in the shell you install from.
-- Python 3.10 or newer, as the system `python3`: the watchdog service runs
-  `/usr/bin/python3`.
+- Python 3.10 or newer, in a root-owned location such as `/usr/bin/python3`:
+  the watchdog service runs as root, with the interpreter `setup` runs under.
 - `sudo` rights for the one-time setup.
 - Optional: Docker, if the robot runs software in containers. Without it,
   container snapshots are skipped.
@@ -48,10 +48,10 @@ colcon doesn't install Python dependencies. Install them with rosdep
 (`rosdep install --from-paths src --ignore-src`) or pip: `pydantic>=2.5`,
 `rich>=13`, `PyYAML>=6`, `inotify_simple>=1.3`, `mcap`.
 
-> **The service can't see a workspace in your home directory.** The watchdog
-> runs as root and drops any `PYTHONPATH` entry that root doesn't own (see
-> [watchdog.env](configuration.md#watchdogenv)). For a robot in the field,
-> prefer the system-wide `./install.sh`.
+> **The service can't use a workspace in your home directory.** It runs as
+> root and only loads code from directories root owns. `setup` checks this and
+> stops if the service couldn't load ros_fairy; install it with `./install.sh`
+> in that case.
 
 ## 2. Set up the robot
 
