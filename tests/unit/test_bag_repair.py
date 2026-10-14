@@ -1,6 +1,7 @@
 import importlib.util
 
 import pytest
+import yaml
 
 from ros_fairy.utils import bag_repair, topic_health
 from tests.conftest import make_mcap_bag
@@ -47,8 +48,16 @@ def test_restamp_produces_playable_bag(tmp_path):
     assert bag_repair.needs_repair(src) is True
 
 
-def test_restamp_rejects_non_mcap(tmp_path):
-    from tests.conftest import make_bag
-    src = make_bag(tmp_path / "sql", {"/data": [T0, T0 + 1]})  # sqlite3
-    with pytest.raises(bag_repair.BagRepairError, match="only MCAP"):
-        bag_repair.restamp_bag(src, tmp_path / "out")
+def test_restamp_keeps_per_message_compression(tmp_path):
+    # Payloads are copied as they are, so a bag compressed per message must
+    # still say so; one compressed per file can't be read at all.
+    src = make_mcap_bag(tmp_path / "bad", _bad_clock_topics())
+    meta = yaml.safe_load((src / "metadata.yaml").read_text())
+    meta["rosbag2_bagfile_information"].update(
+        compression_format="zstd", compression_mode="message")
+    (src / "metadata.yaml").write_text(yaml.safe_dump(meta))
+    bag_repair.restamp_bag(src, tmp_path / "fixed")
+    info = yaml.safe_load((tmp_path / "fixed" / "metadata.yaml").read_text())[
+        "rosbag2_bagfile_information"]
+    assert (info["compression_format"], info["compression_mode"]) == \
+        ("zstd", "message")

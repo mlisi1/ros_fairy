@@ -329,10 +329,12 @@ ros2 fairy repair [MISSION | BAG_DIR] [-o DIR] [--all] [--duration SECONDS]
 | `--all` | Re-stamp every recording, not only those with a broken clock. |
 | `--duration` | Playback length in seconds for each repaired recording. |
 
-Writes new MCAP bags with evenly spaced synthetic timestamps and a
-regenerated `metadata.yaml`, so they play without `ros2 bag reindex`. Message
-order, types and bytes are unchanged. Originals are never modified. Non-MCAP
-bags are reported as unsupported.
+Writes new bags with evenly spaced synthetic timestamps and a regenerated
+`metadata.yaml`, so they play without `ros2 bag reindex`. Message order, types
+and bytes are unchanged. Originals are never modified. MCAP recordings come out
+as one `.mcap` file; sqlite3 recordings keep their `.db3` files, splits
+included. Bags in another storage format, or compressed as whole files
+(`.mcap.zstd`, `.db3.zstd`), are reported as unsupported.
 
 `tools/restamp_bag.py <in> <out> [--duration S]` does the same for one bag
 without needing the CLI.

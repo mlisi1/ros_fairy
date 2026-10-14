@@ -1,4 +1,4 @@
-"""Repair an MCAP bag whose recording clock was broken.
+"""Repair a bag (MCAP or sqlite3) whose recording clock was broken.
 
 When the system clock was unsynchronised during recording, most messages are
 stamped near the epoch (1970) and a few at the real time, so ``ros2 bag play``
@@ -16,6 +16,7 @@ Shared by ``ros2 fairy repair`` and ``tools/restamp_bag.py``.
 """
 
 import copy
+import sqlite3
 import time
 from pathlib import Path
 from typing import Any
@@ -49,13 +50,49 @@ def _raw_metadata(bag_dir: Path) -> dict[str, Any]:
     return raw["rosbag2_bagfile_information"]
 
 
+def _span_ns(total: int, good: list[int], duration_s: float | None) -> int:
+    """How long the repaired recording lasts: ``duration_s`` if given, else
+    the span of the few real stamps, else DEFAULT_DURATION_S."""
+    if duration_s is not None:
+        return int(duration_s * 1e9)
+    if len(good) >= 2:
+        return max(good) - min(good)
+    return int(DEFAULT_DURATION_S * 1e9)
+
+
 def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
                 duration_s: float | None = None) -> dict[str, Any]:
-    """Write a re-stamped, playable copy of an MCAP bag into ``dest_bag_dir``.
+    """Write a re-stamped, playable copy of a bag into ``dest_bag_dir``.
 
-    Returns a summary dict. Raises BagRepairError for non-MCAP bags or when the
-    ``mcap`` package is unavailable.
+    Returns a summary dict. Raises BagRepairError for a storage format that
+    can't be repaired (anything but MCAP and sqlite3, or a file-compressed
+    bag) or when the ``mcap`` package is needed but unavailable.
     """
+    meta = topic_health.parse_bag_metadata(src_bag_dir)
+    if meta is None:
+        raise BagRepairError(f"{src_bag_dir.name} has no readable metadata")
+    storage = meta["storage_identifier"]
+    if storage == "sqlite3":
+        return _restamp_sqlite(src_bag_dir, dest_bag_dir, meta, duration_s)
+    if storage != "mcap":
+        raise BagRepairError(
+            f"only MCAP and sqlite3 bags can be repaired "
+            f"({src_bag_dir.name} is {storage})")
+    return _restamp_mcap(src_bag_dir, dest_bag_dir, meta, duration_s)
+
+
+def _no_files_error(src_bag_dir: Path, suffix: str) -> BagRepairError:
+    if any(src_bag_dir.glob(f"*{suffix}.*")):
+        return BagRepairError(
+            f"{src_bag_dir.name} is stored compressed ({suffix} files "
+            "compressed as a whole); decompress it first, e.g. with "
+            "`ros2 bag convert`")
+    return BagRepairError(f"no {suffix} data found in {src_bag_dir.name}")
+
+
+def _restamp_mcap(src_bag_dir: Path, dest_bag_dir: Path,
+                  meta: dict[str, Any],
+                  duration_s: float | None) -> dict[str, Any]:
     if not bag_storage.supports_timestamps("mcap"):
         raise BagRepairError("the 'mcap' package is required to repair bags")
     try:
@@ -65,19 +102,11 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
         raise BagRepairError("the 'mcap' package is required to repair "
                              "bags") from exc
 
-    meta = topic_health.parse_bag_metadata(src_bag_dir)
-    if meta is None:
-        raise BagRepairError(f"{src_bag_dir.name} has no readable metadata")
-    if meta["storage_identifier"] != "mcap":
-        raise BagRepairError(
-            f"only MCAP bags can be repaired ({src_bag_dir.name} is "
-            f"{meta['storage_identifier']})")
-
     # Splits in recording order (name_2 before name_10).
     src_files = bag_storage.storage_files(
         src_bag_dir, meta["relative_file_paths"], ".mcap")
     if not src_files:
-        raise BagRepairError(f"no .mcap data found in {src_bag_dir.name}")
+        raise _no_files_error(src_bag_dir, ".mcap")
 
     # Count messages first, and note any real-stamp span to size the default.
     total, good = 0, []
@@ -91,13 +120,7 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
     if total == 0:
         raise BagRepairError(f"{src_bag_dir.name} contains no messages")
 
-    if duration_s is not None:
-        span_ns = int(duration_s * 1e9)
-    elif len(good) >= 2:
-        span_ns = max(good) - min(good)
-    else:
-        span_ns = int(DEFAULT_DURATION_S * 1e9)
-    step = max(1, span_ns // total)
+    step = max(1, _span_ns(total, good, duration_s) // total)
     base = time.time_ns()  # a plausible recent epoch so the bag also looks sane
 
     created_dir = not dest_bag_dir.exists()
@@ -142,8 +165,8 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
                         i += 1
             writer.finish()
         new_span = (total - 1) * step
-        _write_repaired_metadata(src_bag_dir, dest_bag_dir, out_name, base,
-                                 new_span, total)
+        _write_repaired_metadata(src_bag_dir, dest_bag_dir, "mcap",
+                                 [(out_name, base, new_span, total)])
     except BaseException:
         # Leave nothing that looks like a repaired bag: no data file without
         # metadata, no half-written metadata, no folder we made for nothing.
@@ -163,25 +186,143 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
     }
 
 
+def _sqlite_stats(db_file: Path) -> tuple[int, list[int]]:
+    """(message count, [first, last] real stamp or fewer) of one .db3."""
+    floor = int(topic_health.EPOCH_FLOOR_S * 1e9)
+    con = sqlite3.connect(f"file:{db_file}?mode=ro", uri=True)
+    try:
+        total = con.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        lo, hi = con.execute(
+            "SELECT MIN(timestamp), MAX(timestamp) FROM messages "
+            "WHERE timestamp >= ?", (floor,)).fetchone()
+    finally:
+        con.close()
+    return total, [t for t in (lo, hi) if t is not None]
+
+
+def _restamp_sqlite(src_bag_dir: Path, dest_bag_dir: Path,
+                    meta: dict[str, Any],
+                    duration_s: float | None) -> dict[str, Any]:
+    """Copy each split with SQLite's backup API, then rewrite its
+    ``messages.timestamp`` column in row-id (arrival) order. Topics, payloads
+    and row ids are kept, and the splits stay separate files."""
+    src_files = bag_storage.storage_files(
+        src_bag_dir, meta["relative_file_paths"], ".db3")
+    if not src_files:
+        raise _no_files_error(src_bag_dir, ".db3")
+    try:
+        stats = [_sqlite_stats(f) for f in src_files]
+    except sqlite3.Error as exc:
+        raise BagRepairError(
+            f"{src_bag_dir.name} can't be read as sqlite3: {exc}") from exc
+    total = sum(n for n, _ in stats)
+    if total == 0:
+        raise BagRepairError(f"{src_bag_dir.name} contains no messages")
+    good = [t for _, ends in stats for t in ends]
+    step = max(1, _span_ns(total, good, duration_s) // total)
+    base = time.time_ns()
+
+    created_dir = not dest_bag_dir.exists()
+    dest_bag_dir.mkdir(parents=True, exist_ok=True)
+    written: list[Path] = []
+    files: list[tuple[str, int, int, int]] = []
+    meta_path = dest_bag_dir / "metadata.yaml"
+    i = 0
+    try:
+        for src, (count, _) in zip(src_files, stats, strict=True):
+            out = dest_bag_dir / src.name
+            written.append(out)
+            source = sqlite3.connect(f"file:{src}?mode=ro", uri=True)
+            con = sqlite3.connect(out)
+            try:
+                source.backup(con)
+                with con:
+                    con.execute("CREATE TEMP TABLE arrival "
+                                "(id INTEGER PRIMARY KEY, n INTEGER)")
+                    con.execute("INSERT INTO arrival SELECT id, ROW_NUMBER() "
+                                "OVER (ORDER BY id) - 1 FROM messages")
+                    con.execute(
+                        "UPDATE messages SET timestamp = ? + (? + (SELECT n "
+                        "FROM arrival WHERE arrival.id = messages.id)) * ?",
+                        (base, i, step))
+            finally:
+                con.close()
+                source.close()
+            files.append((out.name, base + i * step,
+                          max(0, count - 1) * step, count))
+            i += count
+        new_span = (total - 1) * step
+        info = _write_repaired_metadata(src_bag_dir, dest_bag_dir, "sqlite3",
+                                        files)
+        for out in written:
+            _update_stored_metadata(out, info)
+    except BaseException:
+        for path in [*written, meta_path]:
+            path.unlink(missing_ok=True)
+            for sidecar in ("-wal", "-shm", "-journal"):
+                Path(f"{path}{sidecar}").unlink(missing_ok=True)
+        if created_dir:
+            try:
+                dest_bag_dir.rmdir()
+            except OSError:
+                pass
+        raise
+    return {
+        "source": str(src_bag_dir),
+        "dest": str(dest_bag_dir),
+        "messages": total,
+        "new_duration_s": round(new_span / 1e9, 3),
+    }
+
+
+def _update_stored_metadata(db_file: Path, info: dict[str, Any]) -> None:
+    """rosbag2 from Iron on also keeps the bag's metadata inside each .db3
+    (the ``metadata`` table, read when metadata.yaml is lost). Give it the
+    new timing too, so the copy inside doesn't contradict the file next
+    to it."""
+    con = sqlite3.connect(db_file)
+    try:
+        has_table = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' "
+            "AND name = 'metadata'").fetchone()
+        if has_table:
+            with con:
+                con.execute("UPDATE metadata SET metadata = ?",
+                            (yaml.safe_dump(info, default_flow_style=False,
+                                            sort_keys=False),))
+    finally:
+        con.close()
+
+
 def _write_repaired_metadata(src_bag_dir: Path, dest_bag_dir: Path,
-                             out_name: str, base_ns: int, span_ns: int,
-                             count: int) -> None:
+                             storage: str,
+                             files: list[tuple[str, int, int, int]]
+                             ) -> dict[str, Any]:
     """Reuse the source metadata (keeps topic types/QoS), fix only timing and
-    the storage file so the repaired bag is immediately playable."""
+    the storage files so the repaired bag is immediately playable.
+
+    ``files`` holds (name, start ns, span ns, message count) per storage
+    file, in order. Per-message compression is kept (the payloads are copied
+    as they are); the files themselves are never compressed.
+    """
     info = copy.deepcopy(_raw_metadata(src_bag_dir))
-    info["storage_identifier"] = "mcap"
-    info["relative_file_paths"] = [out_name]
-    info["starting_time"] = {"nanoseconds_since_epoch": base_ns}
-    info["duration"] = {"nanoseconds": span_ns}
-    info["message_count"] = count
-    info["compression_format"] = ""
-    info["compression_mode"] = ""
+    start = files[0][1]
+    end = max(s + d for _n, s, d, _c in files)
+    info["storage_identifier"] = storage
+    info["relative_file_paths"] = [name for name, *_ in files]
+    info["starting_time"] = {"nanoseconds_since_epoch": start}
+    info["duration"] = {"nanoseconds": end - start}
+    info["message_count"] = sum(c for *_, c in files)
+    if info.get("compression_mode") != "message":
+        info["compression_format"] = ""
+        info["compression_mode"] = ""
     info["files"] = [{
-        "path": out_name,
-        "starting_time": {"nanoseconds_since_epoch": base_ns},
-        "duration": {"nanoseconds": span_ns},
+        "path": name,
+        "starting_time": {"nanoseconds_since_epoch": file_start},
+        "duration": {"nanoseconds": span},
         "message_count": count,
-    }]
+    } for name, file_start, span, count in files]
     (dest_bag_dir / "metadata.yaml").write_text(
         yaml.safe_dump({"rosbag2_bagfile_information": info},
                        default_flow_style=False, sort_keys=False))
+    return info

@@ -211,9 +211,10 @@ ros2 fairy repair 1                   # newest mission → ./<name>_repaired/
 ros2 fairy repair /path/to/bag        # a single bag folder
 ```
 
-This writes **new**, playable MCAP bags and never touches the originals. The
-new timing is evenly spaced and synthetic: fine for looking at the data, not
-for timing-sensitive processing. Only MCAP recordings can be repaired.
+This writes **new**, playable bags (MCAP or sqlite3, like the originals) and
+never touches the originals. The new timing is evenly spaced and synthetic:
+fine for looking at the data, not for timing-sensitive processing. A recording
+compressed as a whole file (`.mcap.zstd`, `.db3.zstd`) can't be repaired.
 `--duration` sets the playback length.
 
 ### Deleting saved missions: `mission_delete`

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Re-stamp an MCAP rosbag2 bag whose recording clock was broken.
+"""Re-stamp a rosbag2 bag (MCAP or sqlite3) whose recording clock was broken.
 
 Standalone wrapper around ``ros_fairy.utils.bag_repair`` for use outside a ROS
 environment. Prefer ``ros2 fairy repair`` when ros-fairy is installed and sourced;
