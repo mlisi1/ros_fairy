@@ -65,6 +65,12 @@ IDENTITY = {
 }
 
 
+def no_recorders():
+    """The recorder scan for tests: the real one reads this machine's /proc,
+    so a `ros2 bag record` running here would leak into the test."""
+    return []
+
+
 def good_pipeline():
     return builder.compose_harvest(
         identity=IDENTITY,
@@ -83,7 +89,8 @@ def rig(fairy_dirs):
     ino = FakeINotify()
     clock = FakeClock()
     dog = Watchdog(inotify=ino, clock=clock, pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     return ino, clock, dog
 
@@ -207,7 +214,8 @@ def test_ros_down_schedules_retry_and_recovers(fairy_dirs):
         return good_pipeline()
 
     dog = Watchdog(inotify=ino, clock=clock, pipeline=flaky_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     bag = _record_bag((ino, clock, dog))
     harvest, _ = builder.load_spool()
@@ -231,7 +239,8 @@ def test_recovery_finalises_leftover_bag(fairy_dirs):
                    {"/fix": _steady(T0, T0 + 60, 10)})
     ino, clock = FakeINotify(), FakeClock()
     dog = Watchdog(inotify=ino, clock=clock, pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     assert dog.state == IDLE
     harvest, _ = builder.load_spool()
@@ -266,7 +275,8 @@ def test_recovery_resumes_recording(fairy_dirs):
     (bag / "metadata.yaml").unlink()
     ino, clock = FakeINotify(), FakeClock()
     dog = Watchdog(inotify=ino, clock=clock, pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     assert dog.state == RECORDING
     assert dog.active_bag_dir == bag
@@ -312,7 +322,8 @@ def test_short_recording_waits_for_inflight_harvest(fairy_dirs):
 
     ino = FakeINotify()
     dog = Watchdog(inotify=ino, clock=FakeClock(), pipeline=slow_pipeline,
-                   harvest_in_thread=True)
+                   harvest_in_thread=True,
+                   scan_recorders=no_recorders)
     dog.start()
     bag = make_bag(paths.bags_dir() / "rosbag2_short",
                    {"/fix": _steady(T0, T0 + 5, 10)})
@@ -362,7 +373,8 @@ def test_apply_session_env_adopts_recording_shell(fairy_dirs):
     ros_env.write_file(paths.session_env_path(),
                        {"ROS_DOMAIN_ID": "42", "RMW_IMPLEMENTATION": "rmw_x"})
     dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     with mock.patch.dict(wd_mod.os.environ, {"ROS_DOMAIN_ID": "0"}, clear=False):
         dog._apply_session_env()
         assert wd_mod.os.environ["ROS_DOMAIN_ID"] == "42"
@@ -380,7 +392,8 @@ def test_apply_session_env_ignores_loader_paths(fairy_dirs):
                        {"ROS_DOMAIN_ID": "42", "PYTHONPATH": "/tmp/evil",
                         "LD_LIBRARY_PATH": "/tmp/evil", "PATH": "/tmp/evil"})
     dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     with mock.patch.dict(wd_mod.os.environ,
                          {"PATH": "/usr/bin", "PYTHONPATH": "/safe"},
                          clear=False):
@@ -401,7 +414,8 @@ def test_apply_session_env_reverts_keys_absent_from_session(fairy_dirs):
     with mock.patch.dict(wd_mod.os.environ,
                          {"RMW_IMPLEMENTATION": "rmw_base"}, clear=False):
         dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
-                       harvest_in_thread=False)
+                       harvest_in_thread=False,
+                       scan_recorders=no_recorders)
         wd_mod.os.environ["RMW_IMPLEMENTATION"] = "rmw_leaked"  # stale prior run
         dog._apply_session_env()
         assert wd_mod.os.environ["ROS_DOMAIN_ID"] == "42"
@@ -410,7 +424,8 @@ def test_apply_session_env_reverts_keys_absent_from_session(fairy_dirs):
 
 def test_apply_session_env_noop_without_file(fairy_dirs):
     dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog._apply_session_env()  # must not raise when no session.env exists
 
 
@@ -539,7 +554,8 @@ def test_later_failed_harvest_keeps_the_earlier_graph(fairy_dirs):
     ino, clock = FakeINotify(), FakeClock()
     dog = Watchdog(inotify=ino, clock=clock,
                    pipeline=_graph_pipeline(["/navsat", "/bt_navigator"]),
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     _record_bag((ino, clock, dog), with_metadata=False)
 
@@ -561,7 +577,8 @@ def test_later_better_harvest_still_replaces_a_failed_one(fairy_dirs):
     ino, clock = FakeINotify(), FakeClock()
     dog = Watchdog(inotify=ino, clock=clock,
                    pipeline=_graph_pipeline([], status="failed"),
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     _record_bag((ino, clock, dog), with_metadata=False)
     dog.pipeline = _graph_pipeline(["/navsat"])
@@ -582,7 +599,8 @@ def test_recording_start_supersedes_a_pending_retry(fairy_dirs):
         return good_pipeline()
 
     dog = Watchdog(inotify=ino, clock=clock, pipeline=counting,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     dog._next_retry = clock.now - 1  # expired while idle
     _record_bag((ino, clock, dog), with_metadata=False)
@@ -663,7 +681,8 @@ def test_a_real_capture_is_never_replaced_by_an_older_one(fairy_dirs):
     ino, clock = FakeINotify(), FakeClock()
     dog = Watchdog(inotify=ino, clock=clock,
                    pipeline=_graph_pipeline(["/talker"]),
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
     _record_bag((ino, clock, dog), with_metadata=False)
     live = [f"/node_{i}" for i in range(38)]

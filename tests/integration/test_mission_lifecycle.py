@@ -21,7 +21,12 @@ from ros_fairy.utils import paths
 from ros_fairy.watchdog.watchdog import Watchdog
 from tests.conftest import make_bag
 from tests.unit.test_archive import _spool
-from tests.unit.test_watchdog import FakeClock, FakeINotify, good_pipeline
+from tests.unit.test_watchdog import (
+    FakeClock,
+    FakeINotify,
+    good_pipeline,
+    no_recorders,
+)
 
 T0 = 1_750_000_000.0
 
@@ -34,7 +39,8 @@ def test_full_mission_lifecycle(fairy_dirs, tmp_path, capsys):
     # 1. watchdog comes up with an empty spool (boot)
     ino, clock = FakeINotify(), FakeClock()
     dog = Watchdog(inotify=ino, clock=clock, pipeline=good_pipeline,
-                   harvest_in_thread=False)
+                   harvest_in_thread=False,
+                   scan_recorders=no_recorders)
     dog.start()
 
     # 2. operator runs the briefing

@@ -119,10 +119,6 @@ def test_resolve_output_recorder_node(tmp_path):
     assert recorder_scan._resolve_output(argv, tmp_path) == active
 
 
-def test_scan_returns_empty_when_no_recorder():
-    assert recorder_scan.scan() == []  # no ros2 bag record on this machine
-
-
 # -- containerised recorders (mount-namespace translation) ---------------------
 
 def test_parse_mountinfo_unescapes_octal():
@@ -192,6 +188,13 @@ def _patched_scan(monkeypatch, proc, self_mountinfo=""):
     monkeypatch.setattr(recorder_scan, "PROC", proc)
     monkeypatch.setattr(recorder_scan, "_reported", set())
     return recorder_scan.scan()
+
+
+def test_scan_returns_empty_when_no_recorder(tmp_path, monkeypatch):
+    proc = _fake_proc(tmp_path)
+    _fake_recorder(proc, 4242, ["/bin/bash", "-l"])
+    _fake_recorder(proc, 4243, [NODE.replace("recorder", "player"), "x.mcap"])
+    assert _patched_scan(monkeypatch, proc) == []
 
 
 def test_scan_detects_host_recorder_in_fake_proc(tmp_path, monkeypatch):

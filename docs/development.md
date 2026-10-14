@@ -80,16 +80,10 @@ How things are faked:
 | The harvest | `pipeline=` replaced by a function returning a canned document |
 | Subprocesses | `subprocess.run` monkeypatched to return `CompletedProcess` |
 | sysfs, udev rules, dpkg | a fake tree under `tmp_path`, by patching `usb_udev.ROOT` and `RULE_DIRS` (marker `real_usb_udev`; by default `usb_udev.harvest` is stubbed out for every test) |
+| Recorders on the machine | `scan_recorders=no_recorders` (`tests/unit/test_watchdog.py`) for every test `Watchdog`, so a `ros2 bag record` running on the machine doesn't leak in |
 | `/proc` | `recorder_scan.PROC` patched to a fabricated tree |
 | Paths | the `fairy_dirs` fixture points `ROS_FAIRY_VAR_DIR`/`ROS_FAIRY_CONFIG_DIR` at `tmp_path` |
 | Bags | `make_bag()` (sqlite3) and `make_mcap_bag()` in `tests/conftest.py` |
-
-> **Known issue: tests can see real recorders.** Tests that build a `Watchdog`
-> without `scan_recorders=`, and `test_scan_returns_empty_when_no_recorder`,
-> scan the real `/proc`. If a `ros2 bag record` is running on the machine (on
-> the host or in a container), `test_scan_returns_empty_when_no_recorder` and
-> `test_inactivity_finalises_crashed_bag` fail. Run the suite with no
-> recorder running, or start recorders with `ROS_FAIRY_IGNORE=1`.
 
 ## Documentation
 
