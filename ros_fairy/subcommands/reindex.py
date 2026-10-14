@@ -6,12 +6,16 @@ every saved crate's ``mission_record.json``. Read-only with respect to the
 archives themselves.
 """
 
-import json
-
 from rich.console import Console
 
 from ros_fairy.archive import index
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.utils import paths
 
 
@@ -23,18 +27,17 @@ def run(args, console: Console | None = None) -> int:
         count = index.reindex(report=report)
     except index.IndexUnavailableError as exc:
         if getattr(args, "json", False):
-            print(json.dumps({"ok": False, "error": str(exc)}, indent=2))
-        else:
-            console.print(f"[red]{exc}[/red]")
+            return json_error(str(exc))
+        console.print(f"[red]{exc}[/red]")
         return 1
     skipped = report.get("skipped", [])
     duplicates = report.get("duplicates", {})
     if getattr(args, "json", False):
-        print(json.dumps({"ok": True, "missions": count,
-                          "archive_dir": str(paths.archive_dir()),
-                          "skipped": [{"folder": f, "reason": r}
-                                      for f, r in skipped],
-                          "duplicates": duplicates}, indent=2))
+        print_json({"missions": count,
+                    "archive_dir": str(paths.archive_dir()),
+                    "skipped": [{"folder": f, "reason": r}
+                                for f, r in skipped],
+                    "duplicates": duplicates})
         return 0
     if count == 0:
         console.print("No saved missions found in "

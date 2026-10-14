@@ -7,7 +7,7 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
 - **`--debug`** (every verb): verbose logging to stderr, and full tracebacks
   instead of the friendly error message.
 - **`--json`** (where listed): machine-readable output on stdout. Errors are
-  `{"status": "error", "error": "<message>"}`, except where noted.
+  `{"status": "error", "error": "<message>"}`.
 - **Mission identifiers.** Verbs that take a mission accept, in order of
   precedence: an archive folder path, a number (`1` = newest, `2` = the one
   before), or a mission ID such as `m-20261002-082109-1a2b`.
@@ -328,8 +328,7 @@ ros2 fairy repair [MISSION | BAG_DIR] [-o DIR] [--all] [--duration SECONDS]
 Writes new MCAP bags with evenly spaced synthetic timestamps and a
 regenerated `metadata.yaml`, so they play without `ros2 bag reindex`. Message
 order, types and bytes are unchanged. Originals are never modified. Non-MCAP
-bags are reported as unsupported. With `--json`, a mission that can't be found is
-reported as plain text.
+bags are reported as unsupported.
 
 `tools/restamp_bag.py <in> <out> [--duration S]` does the same for one bag
 without needing the CLI.
@@ -358,5 +357,4 @@ folders are reported and skipped. If the same mission was saved twice, the most
 recent save is listed and you are told about the other. Export history is
 kept.
 
-`--json` prints `{"ok": true, "missions": N, "archive_dir": ..., "skipped": [...], "duplicates": {...}}`,
-or `{"ok": false, "error": ...}` on failure.
+`--json` prints `{"missions": N, "archive_dir": ..., "skipped": [...], "duplicates": {...}}`.

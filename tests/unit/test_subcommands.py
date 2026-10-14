@@ -1715,7 +1715,6 @@ def test_reindex_verb_json_and_empty_archive(fairy_dirs, capsys):
     args = SimpleNamespace(json=True, debug=False)
     assert reindex.run(args, console=_console()) == 0
     data = json.loads(capsys.readouterr().out)
-    assert data["ok"] is True
     assert data["missions"] == 0
 
 

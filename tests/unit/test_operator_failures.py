@@ -26,6 +26,8 @@ from ros_fairy.subcommands import (
     mission_diff,
     mission_record,
     mission_start,
+    reindex,
+    repair,
     verify,
 )
 from ros_fairy.subcommands import setup as setup_cmd
@@ -303,6 +305,8 @@ def test_adopt_json_survives_long_paths_and_brackets(fairy_dirs, tmp_path,
     (export, SimpleNamespace(mission="no-such", json=True, all=False,
                              today=False, output=None, format="zip",
                              force=False)),
+    (repair, SimpleNamespace(mission="no-such", json=True, output=None,
+                             all=False, duration=None, force=False)),
 ])
 def test_json_errors_are_json(fairy_dirs, capsys, verb, args):
     paths.index_db_path().touch()
@@ -318,6 +322,14 @@ def test_list_json_index_unavailable(fairy_dirs, capsys, monkeypatch):
     assert list_missions.run(SimpleNamespace(json=True),
                              console=_console()) == 1
     assert _json_out(capsys)["error"] == "no permission"
+
+
+def test_reindex_json_index_unavailable(fairy_dirs, capsys, monkeypatch):
+    monkeypatch.setattr(index, "reindex", mock.Mock(
+        side_effect=index.IndexUnavailableError("no permission")))
+    assert reindex.run(SimpleNamespace(json=True), console=_console()) == 1
+    doc = _json_out(capsys)
+    assert doc == {"status": "error", "error": "no permission"}
 
 
 def test_unexpected_error_with_json_is_json(capsys):

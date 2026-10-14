@@ -11,14 +11,19 @@ Accepts a saved mission (number / archive path / ID, like ``verify``) or a path
 to a single bag directory.
 """
 
-import json
 from pathlib import Path
 
 from rich.console import Console
 from rich.table import Table
 
 from ros_fairy.archive import locate
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    json_error,
+    print_json,
+)
 from ros_fairy.utils import bag_repair
 
 
@@ -42,18 +47,24 @@ def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
 
+    as_json = getattr(args, "json", False)
     target = getattr(args, "mission", None) or "1"
     try:
         label, bag_dirs = _bag_dirs(target)
     except locate.LocateError as exc:
+        if as_json:
+            return json_error(str(exc))
         console.print(f"[red]{exc}[/red]")
         return 1
 
     out_root = Path(getattr(args, "output", None) or f"{label}_repaired")
     if out_root.exists() and any(out_root.iterdir()) \
             and not getattr(args, "force", False):
-        console.print(f"[red]{out_root} already exists and isn't empty. Choose "
-                      "another --output, or pass --force.[/red]")
+        message = (f"{out_root} already exists and isn't empty. Choose "
+                   "another --output, or pass --force.")
+        if as_json:
+            return json_error(message)
+        console.print(f"[red]{message}[/red]")
         return 1
 
     do_all = getattr(args, "all", False)
@@ -79,9 +90,9 @@ def run(args, console: Console | None = None) -> int:
             results.append({"bag": bag_dir.name, "status": "unsupported",
                             "detail": str(exc)})
 
-    if getattr(args, "json", False):
-        print(json.dumps({"target": label, "output": str(out_root),
-                          "repaired": repaired, "bags": results}, indent=2))
+    if as_json:
+        print_json({"target": label, "output": str(out_root),
+                    "repaired": repaired, "bags": results})
         return 0
 
     _render(console, label, out_root, results, repaired)
