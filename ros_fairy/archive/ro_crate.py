@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from ros_fairy.manifest.schema import MissionRecord
 
-ROS_FAIRY_ID = "https://github.com/gdl-res/ros_fairy"
+ROS_FAIRY_ID = "https://github.com/mlisi1/ros_fairy"
 
 _ENCODING = {
     "sqlite3": "application/x-sqlite3",

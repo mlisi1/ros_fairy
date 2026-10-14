@@ -24,7 +24,7 @@ verified, diffed, and shared as a single checksummed file.
 ## Install
 
 ```bash
-git clone https://github.com/gdl-res/ros_fairy.git
+git clone https://github.com/mlisi1/ros_fairy.git
 cd ros_fairy
 ./install.sh                   # pip-installs the package (asks for sudo
                                 #   only if it actually needs root)
@@ -39,7 +39,7 @@ newer)? That works too — `install.sh` is just `pip install`, nothing it does
 is colcon-specific:
 
 ```bash
-cd ~/ros2_ws/src && git clone https://github.com/gdl-res/ros_fairy.git
+cd ~/ros2_ws/src && git clone https://github.com/mlisi1/ros_fairy.git
 cd ~/ros2_ws && colcon build --packages-select ros_fairy
 source install/setup.bash
 ros2 fairy setup

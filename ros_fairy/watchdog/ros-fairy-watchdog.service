@@ -1,6 +1,6 @@
 [Unit]
 Description=ros-fairy recording assistant (mission context watchdog)
-Documentation=https://github.com/gdl-res/ros_fairy
+Documentation=https://github.com/mlisi1/ros_fairy
 After=local-fs.target
 
 [Service]
