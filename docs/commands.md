@@ -110,7 +110,9 @@ NOT READY. `--json` prints `{"result": ..., "checks": [{status, title, detail, h
 ## mission_start
 
 ```
-ros2 fairy mission_start [--debug]
+ros2 fairy mission_start [--operator NAME] [--goal TEXT] [--location PLACE]
+                         [--environment TEXT] [--notes TEXT] [--yes] [--json]
+                         [--debug]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy mission_start` -->
@@ -120,9 +122,24 @@ Asks the [five briefing questions](operator-guide.md#1-start-the-mission-mission
 and saves them to the spool. It also records the shell's DDS settings for the
 watchdog (`session.env`).
 
+| Option | |
+| --- | --- |
+| `--operator`, `--goal`, `--location` | The required answers. Each one given skips its question. |
+| `--environment`, `--notes` | The optional answers. |
+| `--yes`, `-y` | Replace an unfinished mission that has no recordings without asking. |
+| `--json` | Print `{"mission_id": ..., "operator": ..., "goal": ..., "location": ...}`; everything else goes to stderr. Needs the three required answers and implies `--yes`. |
+
+With no answer options it asks all five questions. With some, it asks only the
+required ones still missing, on a terminal. With no terminal to ask on (a
+script, a launch file) it exits 2 and names the missing options. An empty
+`--goal ""` counts as missing.
+
 It refuses (exit 1) while a recording is running, or while the spool holds
-recordings that haven't been saved or discarded. It asks before replacing an
-unfinished mission that has no recordings. There is no `--yes`.
+recordings that haven't been saved or discarded (`--yes` doesn't change that).
+It asks before replacing an unfinished mission that has no recordings;
+without a terminal and without `--yes` that exits 2 and keeps the old
+mission. Recordings made while no mission was open are not taken into the
+new one with `--yes`: they stay on disk, and `adopt` attaches them.
 
 ## mission_record
 

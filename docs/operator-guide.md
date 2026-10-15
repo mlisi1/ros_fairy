@@ -51,6 +51,34 @@ the robot is captured automatically.
 
 Pressing Ctrl-C during the questions changes nothing.
 
+**From a script or a launch file**, give the answers as options; nothing is
+asked:
+
+```bash
+ros2 fairy mission_start --operator Ana --goal "Survey the north pier" \
+    --location "North pier" --environment marine --yes
+```
+
+`--yes` replaces an unfinished mission that has no recordings (one with
+recordings is never replaced). Add `--json` to get the new mission's ID. In a
+launch file:
+
+```python
+from launch import LaunchDescription
+from launch.actions import ExecuteProcess
+
+
+def generate_launch_description():
+    return LaunchDescription([ExecuteProcess(
+        cmd=["ros2", "fairy", "mission_start", "--yes",
+             "--operator", "Ana", "--goal", "Survey the north pier",
+             "--location", "North pier"],
+        output="screen")])
+```
+
+A missing required answer stops it (exit 2) with the option to add. See
+[`mission_start`](commands.md#mission_start) for the details.
+
 ## 2. Record: `mission_record`
 
 ```bash
