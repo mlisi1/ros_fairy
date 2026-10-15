@@ -61,6 +61,19 @@ def verify_archive(crate: Path) -> list[dict]:
     if set_aside:
         add(WARN, "Saved by a newer ros-fairy: some details can't be read "
                   "by this version", ", ".join(set_aside))
+    from ros_fairy.archive import edit
+    if edit.interrupted(crate):
+        add(FAIL, "An edit of the briefing was interrupted",
+            "run `ros2 fairy mission_edit "
+            f"{record.identity.mission_id}` to finish or undo it")
+    edits = record.provenance.edits
+    if edits:
+        fields = sorted({f for e in edits for f in e.changes})
+        add(OK, f"Briefing edited after saving: {len(edits)} time"
+                f"{'s' if len(edits) != 1 else ''}, last "
+                f"{edits[-1].at.astimezone().strftime('%Y-%m-%d %H:%M')}"
+                + (f" by {edits[-1].account}" if edits[-1].account else ""),
+            ", ".join(f.replace("_", " ") for f in fields))
     built = record.provenance.assembled_by
     if built is not None:
         from ros_fairy.build_info import short

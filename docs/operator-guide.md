@@ -262,6 +262,25 @@ It says which number the recording got (`Adopted run1 as #4`); `ros2 fairy drop
 `mission_close` then copies it into the archive and leaves the original
 untouched.
 
+### A mistake in a saved mission's briefing: `mission_edit`
+
+A typo in the place name, a goal worded better, notes added afterwards:
+
+```bash
+ros2 fairy mission_edit 1                       # asks again, saved answers as defaults
+ros2 fairy mission_edit 1 --location "North pier" --notes "gusty after 11:00"
+```
+
+It keeps the archive consistent (record, README, RO-Crate, checksums) and
+notes the change in the mission's history, so `verify` still passes and shows
+that the briefing was edited. The recordings aren't touched. If you had
+exported the mission, export it again: the message gives the command.
+
+The old values stay in that history. If they shouldn't be kept at all (a
+phone number typed into the notes, say), an engineer can remove them with
+`--redact --by "Their Name"`, which needs their sudo password; see
+[`mission_edit`](commands.md#mission_edit).
+
 ### Unplayable recordings: `repair`
 
 Recordings made while the clock was not synchronised often have most messages
@@ -308,6 +327,7 @@ source of truth; the list is only a cache.
 | start / record / finish | `mission_start` · `mission_record` · `mission_close` |
 | give up on this mission | `ros2 fairy mission_abort` |
 | take one recording out of it | `ros2 fairy drop <#>` |
+| fix a saved mission's briefing | `ros2 fairy mission_edit <n>` |
 | attach a bag recorded elsewhere | `ros2 fairy adopt <folder>` |
 | find a mission | `ros2 fairy list` |
 | send a mission to someone | `ros2 fairy export <n>` |

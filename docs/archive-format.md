@@ -65,7 +65,7 @@ Files without "always" are present only when there was something to write.
 
 | Section | Contents |
 | --- | --- |
-| `schema_version` | Record format version (currently `1.2`). |
+| `schema_version` | Record format version (currently `1.3`). |
 | `identity` | `mission_id`, `created_at` (UTC), `operator_name`, `operator_contact` |
 | `intent` | `goal`, `location_name`, `environment`, `notes` |
 | `robot` | `name`, `platform`, `serial_number`, `owner_organization`, `owner_contact`. `null` if the robot wasn't set up. |
@@ -77,12 +77,23 @@ Files without "always" are present only when there was something to write.
 | `hardware_devices[]` | One entry per device found. |
 | `usb` | `usbcore`, `driver_parameters`, `devices[]` (each with `power`, `interfaces`, `serial_ports`, `udev_rules_applied`), `ports[]` |
 | `udev_rules` | `custom[]` (archived files, with `reason`, `sha256`, `archived_path`), `default[]` |
-| `provenance` | `ros_fairy_version`, `schema_version`, `harvested_at`, `assembled_at`, `hostname`, `kernel`, `arch`, `clock_synchronized`, `harvest_status`, `field_confidence`, `data_quality`, `harvested_by`, `assembled_by` |
+| `provenance` | `ros_fairy_version`, `schema_version`, `harvested_at`, `assembled_at`, `hostname`, `kernel`, `arch`, `clock_synchronized`, `harvest_status`, `field_confidence`, `data_quality`, `harvested_by`, `assembled_by`, `edits[]` |
 
 All timestamps carry a timezone. `null` consistently means *not captured / couldn't
 tell*, as distinct from an empty list, which means *captured, and there were none*.
 For example, `docker_containers: null` means Docker wasn't reachable, while `[]`
 means no containers were running.
+
+Each `provenance.edits[]` entry is one change to the briefing made after saving
+with [`mission_edit`](commands.md#mission_edit): `at` (when), `account` (who ran
+it) and `changes`, mapping each changed field (`operator_name`, `goal`,
+`location_name`, `environment`, `notes`) to its `before` and `after` values.
+The record keeps the edited values; the history shows what they replaced.
+
+A redaction (`mission_edit --redact`) has `redacted: true` and `by` (the name
+of the person who did it; `account` is the one behind `sudo`). Its fields have
+no `before`, and earlier entries of the same fields are blanked: their
+`before` and `after` are `null` and `redacted` is `true`.
 
 Each `health_warnings[]` entry has `topic`, `sensor_id`, `kind`, `plain_text`,
 `start_offset_s` and `duration_s`. The kinds are listed in
@@ -103,6 +114,7 @@ Each `health_warnings[]` entry has `topic`, `sensor_id`, `kind`, `plain_text`,
 | 1.0 | First version. |
 | 1.1 | Added `usb`, `udev_rules`, `ros_graph.parameters_not_captured`, `docker_containers[].python_packages`; `apt_ros_versions` and `docker_containers` may be `null`. |
 | 1.2 | Added `provenance.harvested_by` and `provenance.assembled_by`. |
+| 1.3 | Added `provenance.edits` (with `redacted` and `by` for redactions). An edited record is rewritten in the current version. |
 
 ## The RO-Crate
 
@@ -113,7 +125,7 @@ load it.
 
 | Entity | Type | Describes |
 | --- | --- | --- |
-| `./` | `Dataset` | The mission. `identifier` = mission ID, `name` = goal, `dateCreated`, `keywords`, `license` (from `owner.default_license`, if set), `publisher`, `author`, `contentLocation`. |
+| `./` | `Dataset` | The mission. `identifier` = mission ID, `name` = goal, `dateCreated`, `dateModified` (the last `mission_edit`, if any), `keywords`, `license` (from `owner.default_license`, if set), `publisher`, `author`, `contentLocation`. |
 | `#mission` | `CreateAction` | The run itself. `agent` (operator), `location`, `startTime`/`endTime` from the recordings, `instrument` (robot and software), `result` = `./`. |
 | `#operator` | `Person` | The operator. |
 | `#organization` | `Organization` | The robot's owner. |

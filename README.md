@@ -35,8 +35,8 @@ ros2 fairy setup                # identity file, directories, watchdog service
 ros2 fairy doctor               # confirm the robot is ready to capture
 ```
 
-Prefer a colcon workspace instead (`ament_python`, ROS 2 Humble/Jazzy or
-newer)? That works too — `install.sh` is just `pip install`, nothing it does
+Prefer a colcon workspace instead (`ament_python`, ROS 2 Jazzy)? That works
+too — `install.sh` is just `pip install`, nothing it does
 is colcon-specific:
 
 ```bash
@@ -79,6 +79,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `mission_record` | Record mission data (wraps `ros2 bag record`, and takes its options) |
 | `mission_status` | Show what the recording assistant is doing right now |
 | `mission_close` | Review the finished mission and save it or discard it |
+| `mission_edit` | Fix a saved mission's briefing (typo in the place, notes added later); keeps the archive consistent and the change in its history (`--redact` removes old values, with sudo) |
 | `mission_delete` | Permanently delete saved missions: one by ID, `--today` or `--all` (batch forms need sudo); always asks you to type a confirmation phrase |
 | `mission_abort` | Abandon the open mission without saving (asks first; asks again before deleting recordings) |
 | `drop` | Take one recording out of the open mission, by the number `mission_status` shows (the opposite of `adopt`) |

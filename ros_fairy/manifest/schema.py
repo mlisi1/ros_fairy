@@ -337,6 +337,28 @@ class SoftwareBuild(_Model):
     source: str | None = None    # "install" | "checkout" | "unknown"
 
 
+class EditedValue(_Model):
+    before: str | None = None
+    after: str | None = None
+    # The value(s) were removed by a redaction (`mission_edit --redact`):
+    # before/after are then None however the field read at the time.
+    redacted: bool = False
+
+
+class RecordEdit(_Model):
+    """One change to the briefing after the mission was saved."""
+    at: AwareDatetime
+    # The account that ran it; for a redaction, the one behind sudo.
+    account: str = ""
+    # A redaction: the old values of the changed fields were removed, here
+    # and in every earlier edit, and `by` names the person who did it.
+    redacted: bool = False
+    by: str | None = None
+    # Briefing field (operator_name, goal, location_name, environment,
+    # notes) -> its value before and after.
+    changes: dict[str, EditedValue] = Field(default_factory=dict)
+
+
 class Provenance(_Model):
     ros_fairy_version: str
     schema_version: str = SCHEMA_VERSION
@@ -359,6 +381,8 @@ class Provenance(_Model):
     # (mission_close). None in records written before 1.2.
     harvested_by: SoftwareBuild | None = None
     assembled_by: SoftwareBuild | None = None
+    # Changes made to the briefing after saving, oldest first (1.3).
+    edits: list[RecordEdit] = Field(default_factory=list)
 
 
 class MissionRecord(_Model):

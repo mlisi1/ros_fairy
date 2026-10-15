@@ -255,6 +255,38 @@ def mark_exported(mission_id: str, bundle_path: Path, fmt: str,
              str(bundle_path), fmt, sha256))
 
 
+def compact() -> None:
+    """Rewrite index.db without free pages and write-ahead log, so text
+    replaced in it (a redacted briefing) is gone from the file too."""
+    con = _connect()
+    try:
+        con.commit()  # VACUUM can't run inside the transaction _connect opened
+        con.isolation_level = None
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        con.execute("VACUUM")
+        con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        con.close()
+
+
+def forget_export(mission_id: str) -> dict[str, Any] | None:
+    """Drop the export record of ``mission_id`` (its bundle no longer
+    matches the archive, e.g. after mission_edit), so `export --all` exports
+    it again. Returns the record it had, or None."""
+    if not paths.index_db_path().is_file():
+        return None
+    con = _connect()
+    try:
+        with con:
+            row = con.execute("SELECT * FROM exports WHERE mission_id = ?",
+                              (mission_id,)).fetchone()
+            con.execute("DELETE FROM exports WHERE mission_id = ?",
+                        (mission_id,))
+    finally:
+        con.close()
+    return dict(row) if row else None
+
+
 def exported_mission_ids() -> set[str]:
     """Every mission_id with at least one recorded successful export."""
     if not Path(paths.index_db_path()).exists():

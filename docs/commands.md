@@ -30,6 +30,7 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
 | [`mission_close`](#mission_close) | Review the finished mission and save or discard it |
 | [`mission_abort`](#mission_abort) | Abandon the open mission without saving |
 | [`drop`](#drop) | Take one recording out of the open mission (the opposite of `adopt`) |
+| [`mission_edit`](#mission_edit) | Change a saved mission's briefing |
 | [`mission_delete`](#mission_delete) | Permanently delete saved missions |
 | [`list`](#list) | List the missions saved on this robot |
 | [`diff`](#diff) | Compare two missions and show what changed |
@@ -290,6 +291,76 @@ It refuses (exit 1) while a recording is in progress or still being processed,
 or while `mission_close` runs. Exit 1 also for a number or path that isn't in
 the mission.
 
+## mission_edit
+
+```
+ros2 fairy mission_edit [MISSION] [--operator NAME] [--goal TEXT]
+                        [--location PLACE] [--environment TEXT] [--notes TEXT]
+                        [--redact --by NAME] [--yes] [--debug]
+```
+
+Changes a saved mission's briefing: the operator, goal, place, environment and
+notes. `MISSION` is a number (`1` = newest, the default), an archive folder or
+a mission ID.
+
+| Option | |
+| --- | --- |
+| `--operator`, `--goal`, `--location` | New values (they can't be empty). |
+| `--environment`, `--notes` | New values; `""` clears them. |
+| `--redact` | Also remove the old values (see below). Needs `--by` and your sudo password. |
+| `--by NAME` | With `--redact`: your full name, recorded with it (asked on a terminal if missing). |
+| `--yes`, `-y` | Don't ask before saving the changes. |
+
+Without options it asks the five questions with the saved answers as defaults:
+Enter keeps one, `-` clears an optional one. With no terminal and no options it
+exits 2. It shows each change (now → will be) and asks before saving.
+
+The briefing is in four files of the crate, rewritten together:
+`mission_record.json` (the new values, and the change in
+[`provenance.edits`](archive-format.md#the-mission-record)), `README.md`
+(rendered again, keeping the warnings it was saved with),
+`ro-crate-metadata.json` (only the values that depend on the briefing, plus
+`dateModified`) and `checksums.sha256` (those three files' lines). The mission
+list is updated. The recordings, the other files and the folder's name don't
+change, so paths to the mission still work.
+
+- **The archive must be as it was saved.** If `checksums.sha256` doesn't match
+  a file, it refuses (exit 1) rather than re-hash a change made by hand:
+  `verify` shows what changed.
+- **Exports go stale.** A bundle exported before no longer matches. Its export
+  record is dropped, so `export --all` exports the mission again, and the
+  message gives the `export … --force` command that replaces the old bundle.
+- **Crash-safe.** The new files are written next to the old ones and swapped in
+  once all are complete. If it's interrupted, `verify` says so and the next
+  `mission_edit` of that mission finishes the swap (or throws away a
+  half-written edit, leaving the mission as it was).
+- **Newer records** (saved by a newer ros_fairy, with fields this version
+  doesn't know) are refused: rewriting them would lose those fields.
+
+**Redacting.** A normal edit keeps the old values in the mission's history
+(`provenance.edits`). When the old text shouldn't be there at all (a person's
+name or a phone number in the notes), `--redact` removes it:
+
+```bash
+ros2 fairy mission_edit 1 --notes "weather fine" --redact --by "Ana Rossi"
+```
+
+- The changed fields' old values aren't kept, and earlier history entries of
+  those fields are blanked (marked `redacted`). The entry still records the
+  time, your account, your name (`by`) and which fields changed. Fields not
+  being changed keep their history.
+- If the place or the operator is redacted, the archive folder (whose name is
+  built from them) is renamed, and the mission list follows.
+- The mission list (`index.db`) is compacted, so no old page of it keeps the
+  text.
+- The write runs as root through `sudo`, which asks for your password: the
+  system's auth log keeps the exact command next to your account. A wrong
+  password changes nothing. It asks before saving (default no), and with no
+  terminal it needs `--by`.
+- **Copies made before are out of its reach:** bundles exported earlier (the
+  message names the last one) and backups still hold the old values. Delete or
+  replace them.
+
 ## mission_delete
 
 ```
@@ -372,7 +443,9 @@ Defaults to the newest mission. Read-only. Checks that:
 - every calibration file matches its sha256;
 - every other file matches `checksums.sha256`, and none were added;
 - every file the RO-Crate lists exists;
-- the mission is in the index, at this path.
+- the mission is in the index, at this path;
+- no [`mission_edit`](#mission_edit) was left half-done. Edits made after saving
+  are listed (how many, the last one's time and account, which fields).
 
 Result: **PASS**, **PASS (with notes)** or **FAIL**. Exit 1 on FAIL.
 

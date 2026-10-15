@@ -126,6 +126,8 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
     }
     if record.provenance.assembled_at:
         root["datePublished"] = record.provenance.assembled_at.isoformat()
+    if record.provenance.edits:
+        root["dateModified"] = record.provenance.edits[-1].at.isoformat()
     if record.robot:
         root["publisher"] = {"@id": "#organization"}
     if license_url:

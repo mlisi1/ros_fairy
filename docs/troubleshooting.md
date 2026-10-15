@@ -163,6 +163,17 @@ A file is missing or has changed since saving. If the archive was copied from
 elsewhere, copy it again and check the bundle's `.sha256` first. `verify` can't
 repair anything: it only tells you what's wrong.
 
+**`mission_edit`: "the archive was changed after it was saved".**
+A file of the mission no longer matches `checksums.sha256`. Run
+`ros2 fairy verify <mission>` to see which. Put the original back (from an
+export, for example) and edit again; `mission_edit` won't re-hash a change it
+didn't make.
+
+**`verify`: "An edit of the briefing was interrupted".**
+A `mission_edit` was stopped half-way (a crash, a power cut). Run
+`ros2 fairy mission_edit <mission>` again: it finishes the edit if it was
+complete, or throws the half-written one away, before asking anything.
+
 **A recording won't play (`ros2 bag play` stalls).**
 It was most likely recorded with an unsynchronised clock. Run
 `ros2 fairy repair <mission>`, which writes playable copies to
