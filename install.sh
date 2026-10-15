@@ -54,7 +54,11 @@ if ! rm -rf "${STALE[@]}" 2>/dev/null; then
 fi
 
 echo "Installing ros_fairy..."
-if python3 -m pip install "$TARGET" >"$LOG" 2>&1; then
+# --no-user: without write access to the system site-packages, pip may
+# quietly install into ~/.local instead of failing (when PEP 668 doesn't stop
+# it first). The watchdog service (root) can't use that copy, and we'd never
+# escalate.
+if python3 -m pip install --no-user "$TARGET" >"$LOG" 2>&1; then
     cat "$LOG"
 elif grep -qiE "read-only file system|errno 30|EROFS" "$LOG"; then
     # sudo can't fix this — the filesystem itself refuses writes (common on
@@ -79,6 +83,19 @@ else
     cat "$LOG" >&2
     exit 1
 fi
+
+# A copy in ~/.local (left by an older install.sh) would shadow this one in
+# this account's shell, while the service runs the new one.
+SHADOW="$(cd / && python3 -c 'import os, ros_fairy; print(os.path.dirname(ros_fairy.__file__))' 2>/dev/null || true)"
+case "$SHADOW" in
+    "$HOME"/*)
+        echo "" >&2
+        echo "Warning: an older ros_fairy in $SHADOW is used in your shell" >&2
+        echo "instead of the one just installed. Remove it (as $(id -un)," >&2
+        echo "without sudo) with:" >&2
+        echo "    python3 -m pip uninstall ros_fairy" >&2
+        ;;
+esac
 
 cat <<'EOF'
 

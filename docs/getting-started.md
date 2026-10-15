@@ -5,7 +5,8 @@ This page takes a robot from nothing to a first saved mission.
 ## Requirements
 
 - Linux with systemd (the watchdog runs as a system service).
-- ROS 2 Humble, Jazzy or newer, sourced in the shell you install from.
+- ROS 2 Jazzy (Ubuntu 24.04), sourced in the shell you install from. Other
+  distros aren't supported yet.
 - Python 3.10 or newer, in a root-owned location such as `/usr/bin/python3`:
   the watchdog service runs as root, with the interpreter `setup` runs under.
 - `sudo` rights for the one-time setup.
@@ -25,11 +26,15 @@ cd ros_fairy
 1. It removes any stale `build/` and `*.egg-info` in the checkout. pip would
    otherwise reuse an old `build/` and resurrect deleted modules. If an
    earlier root install left them root-owned, it uses `sudo` to remove them.
-2. It runs `python3 -m pip install .`.
+2. It runs `python3 -m pip install --no-user .`. Without `--no-user`, pip can
+   quietly install into `~/.local` when it can't write system-wide, and the
+   watchdog service can't use a copy there.
 3. If that fails because the system Python is managed by the OS (PEP 668) or
    isn't writable, it retries as root with `--break-system-packages`, asking
    for your password through `sudo`.
 4. If the filesystem is read-only, it stops and explains: sudo won't help.
+5. If an older copy in your home directory (`~/.local`) would still be the one
+   your shell uses, it says so and how to remove it.
 
 If `ros2` isn't on your `PATH`, the script only prints a reminder: ROS is
 needed to *use* ros_fairy, not to install it.
