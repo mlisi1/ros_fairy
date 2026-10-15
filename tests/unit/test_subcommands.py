@@ -83,6 +83,15 @@ def test_mission_record_snapshots_session_ros_env(fairy_dirs):
     assert env.get("ROS_DOMAIN_ID") == "9"
 
 
+def test_recorder_gets_no_terminal_on_stdin():
+    # From Jazzy on, a recorder with a terminal on stdin turns on keyboard
+    # controls; as a background job (its own process group) that stops it
+    # (SIGTTOU) before it records anything.
+    with mock.patch.object(mission_record.subprocess, "Popen") as popen:
+        mission_record._start(["ros2", "bag", "record", "--all"])
+    assert popen.call_args.kwargs["stdin"] is mission_record.subprocess.DEVNULL
+
+
 def test_mission_start_keeps_existing_when_declined(fairy_dirs):
     existing = builder.new_mission_context("Sam", "Old goal", "Old place")
     fsio.atomic_write_json(paths.mission_context_path(), existing)

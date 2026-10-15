@@ -127,10 +127,21 @@ def run(args, console: Console | None = None) -> int:
 
 
 def _start(command: list[str]) -> subprocess.Popen:
-    """The recorder, in a process group of its own."""
+    """The recorder, in a process group of its own, with no terminal on
+    stdin.
+
+    Its own group keeps the terminal's Ctrl-C away from it (we forward one).
+    That also makes it a background job of the terminal, and from Jazzy on
+    the recorder's keyboard controls switch the terminal to raw mode at
+    start: a background job doing that is stopped by the kernel (SIGTTOU),
+    so it would record nothing and never exit. With stdin not a terminal
+    the keyboard controls stay off, on every distro.
+    """
     if sys.version_info >= (3, 11):
-        return subprocess.Popen(command, process_group=0)
-    return subprocess.Popen(command, preexec_fn=os.setpgrp)  # noqa: PLW1509
+        return subprocess.Popen(command, process_group=0,
+                                stdin=subprocess.DEVNULL)
+    return subprocess.Popen(command, preexec_fn=os.setpgrp,  # noqa: PLW1509
+                            stdin=subprocess.DEVNULL)
 
 
 def _wait(child: subprocess.Popen) -> int:
