@@ -220,10 +220,12 @@ def run(args, console: Console | None = None) -> int:
         return answers
     if drop_previous:
         _drop_previous_harvest(console)
+    # The required answers are never None here: _answers asks for them or
+    # refuses.
     context = builder.new_mission_context(
-        operator_name=answers["operator_name"],
-        goal=answers["goal"],
-        location_name=answers["location_name"],
+        operator_name=answers["operator_name"] or "",
+        goal=answers["goal"] or "",
+        location_name=answers["location_name"] or "",
         environment=answers["environment"],
         notes=answers["notes"])
     paths.spool_dir().mkdir(parents=True, exist_ok=True)
