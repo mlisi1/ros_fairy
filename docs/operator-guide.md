@@ -121,7 +121,8 @@ and the recording may then be cut off. A cut-off recording is still kept and
 is read back from the bag itself when you save.
 
 You can run `mission_record` several times in one mission: each run is another
-recording in the same mission.
+recording in the same mission. `mission_status` lists them with a number each
+(#1, #2, …), which [`drop`](#one-recording-too-many-drop) uses to take one out.
 
 ### Recording without `mission_record`
 
@@ -224,6 +225,27 @@ Abandons the open mission without saving. It asks twice: once to abort, and
 again before deleting recordings. Recordings in the spool are deleted.
 Recordings made outside ros_fairy stay where they are on disk.
 
+### One recording too many: `drop`
+
+A test run, a false start, a recording of the wrong topics: take it out and
+keep the rest of the mission. `mission_status` numbers the recordings:
+
+```
+Recordings waiting  3 (1.2 GB) — run: ros2 fairy mission_close
+                     #1  10:02:11, 12 minutes, 640 MB
+                     #2  10:15:40, 40 seconds, 21 MB
+                     #3  10:17:03, 10 minutes, 550 MB
+```
+
+```bash
+ros2 fairy drop 2        # takes #2 out; #1 and #3 keep their numbers
+ros2 fairy drop          # lists them and asks which
+```
+
+A recording made with `mission_record` is deleted (it asks first). One made
+elsewhere is only taken out of the mission and stays where it is; `adopt`
+attaches it again.
+
 ### Recordings made elsewhere
 
 A plain `ros2 bag record` or the recorder node is normally noticed on its own
@@ -235,8 +257,10 @@ example, the bag was copied over from another machine), attach it yourself:
 ros2 fairy adopt /path/to/rosbag2_folder
 ```
 
-The folder stays where it is until you save. `mission_close` then copies it
-into the archive and leaves the original untouched.
+It says which number the recording got (`Adopted run1 as #4`); `ros2 fairy drop
+4` takes it out again. The folder stays where it is until you save.
+`mission_close` then copies it into the archive and leaves the original
+untouched.
 
 ### Unplayable recordings: `repair`
 
@@ -283,6 +307,7 @@ source of truth; the list is only a cache.
 | see what's happening now | `ros2 fairy mission_status` |
 | start / record / finish | `mission_start` · `mission_record` · `mission_close` |
 | give up on this mission | `ros2 fairy mission_abort` |
+| take one recording out of it | `ros2 fairy drop <#>` |
 | attach a bag recorded elsewhere | `ros2 fairy adopt <folder>` |
 | find a mission | `ros2 fairy list` |
 | send a mission to someone | `ros2 fairy export <n>` |

@@ -97,13 +97,17 @@ def run(args, console: Console | None = None) -> int:
     if want_json:
         print_json({"bag": bag_dir.name, "source": "adopted",
                     "path": str(bag_dir), "status": "adopted",
+                    "recording_id": bag.get("recording_id"),
                     "health_warnings": len(warnings)})
         return 0
 
     dur = th.humanize_duration(bag["duration_s"]) \
         if bag.get("duration_s") else "length unknown"
     size = f"{bag.get('size_bytes', 0) / 1e9:.1f} GB"
-    console.print(f"[green]Adopted[/green] {bag_dir.name} ({dur}, {size}).")
+    number = f" as #{bag['recording_id']}" if bag.get("recording_id") else ""
+    console.print(f"[green]Adopted[/green] {bag_dir.name}{number} ({dur}, "
+                  f"{size}). Take it out again with [bold]ros2 fairy drop "
+                  f"{bag.get('recording_id') or bag_dir}[/bold].")
     if warnings:
         console.print(f"[yellow]Note:[/yellow] {warnings[0]['plain_text']}")
     console.print("Run [bold]ros2 fairy mission_close[/bold] to review and save.")

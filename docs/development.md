@@ -96,7 +96,8 @@ end to end without touching your own machine's install.
 
 ```bash
 tools/sandbox/sandbox.sh up            # build the image, boot the container
-tools/sandbox/sandbox.sh install       # copy this checkout in, ./install.sh
+tools/sandbox/sandbox.sh install       # copy this checkout in, ./install.sh,
+                                       #   restart the watchdog if set up
 tools/sandbox/sandbox.sh run smoke.py  # setup, then one mission end to end
 tools/sandbox/sandbox.sh shell         # look around as ana
 tools/sandbox/sandbox.sh reset         # a fresh robot

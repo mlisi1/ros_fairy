@@ -110,6 +110,12 @@ environment, so it works whatever the ROS distro.
 Bags found this way get `source: detected` in the mission record (spool bags get
 `mission_record`, `ros2 fairy adopt` gives `adopted`).
 
+While the mission is open, every bag record also carries a `recording_id`: the
+number (#1, #2, …) `mission_status` shows and `ros2 fairy drop` takes. It comes
+from a counter in `harvest.json` (`next_recording_id`) that every rewrite of the
+file carries over, so a number is never reused within a mission.
+`builder.build` leaves it out of the saved `mission_record.json`.
+
 ### DDS environment: `watchdog.env` and `session.env`
 
 The harvest has to see the same ROS graph as the operator's shell. The

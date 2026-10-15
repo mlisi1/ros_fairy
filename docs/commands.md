@@ -29,6 +29,7 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
 | [`mission_status`](#mission_status) | Show what the recording assistant is doing right now |
 | [`mission_close`](#mission_close) | Review the finished mission and save or discard it |
 | [`mission_abort`](#mission_abort) | Abandon the open mission without saving |
+| [`drop`](#drop) | Take one recording out of the open mission (the opposite of `adopt`) |
 | [`mission_delete`](#mission_delete) | Permanently delete saved missions |
 | [`list`](#list) | List the missions saved on this robot |
 | [`diff`](#diff) | Compare two missions and show what changed |
@@ -204,11 +205,11 @@ Shows:
 | Assistant | not running · not responding · recording (since when) · wrapping up · watching |
 | Briefing | operator and goal, or "not started yet" |
 | Recording | the active bag and its size so far |
-| Recordings waiting | recordings to close, with total size |
+| Recordings waiting | recordings to close, with total size, then one line each: its number (#1, #2, … for [`drop`](#drop)), start time, length, size, and where it is if it wasn't made in the spool |
 | Context captured | per harvest module: ✓ captured, ⚠ partial, – not used on this robot, ✗ will keep trying |
 
 `--json` keys: `assistant`, `watchdog_state`, `mission_context`, `spool_bags`,
-`recordings`, `recording_now`. Always exits 0.
+`recordings`, `recording_ids` (path → number), `recording_now`. Always exits 0.
 
 ## mission_close
 
@@ -252,7 +253,42 @@ ros2 fairy mission_abort [--yes] [--debug]
 
 Abandons the open mission. It asks to confirm, and again before deleting
 spool recordings. Recordings made outside ros_fairy are never deleted.
-`--yes` skips both questions. It refuses while a recording is in progress.
+`--yes` skips both questions. It refuses while a recording is in progress. To
+take out only one recording and keep the mission, use
+[`drop`](#drop).
+
+## drop
+
+```
+ros2 fairy drop [RECORDING] [--yes] [--debug]
+```
+
+Takes one recording out of the open mission; the briefing and the other
+recordings stay. It is the opposite of [`adopt`](#adopt).
+
+| Option | |
+| --- | --- |
+| `RECORDING` | Its number as [`mission_status`](#mission_status) shows it (`3` or `#3`), or its path. Without it, the recordings are listed and it asks which; with no terminal it lists them and exits 2. |
+| `--yes`, `-y` | Don't ask before deleting or detaching it. |
+
+**The numbers.** Each recording gets a number (#1, #2, …) when the watchdog
+takes it into the mission: one made with `mission_record` or noticed on its
+own once it has been processed, one attached with `adopt` at once. A number
+never changes and is never given to another recording of the same mission, so
+after `drop 2` the others keep theirs, and a new recording gets the next
+unused one. A recording still being processed has no number yet (`–` in the
+list): use its path. The numbers only name recordings while the mission is
+open; `mission_record.json` doesn't keep them (the raw `harvest/harvest.json`
+copy in the crate still shows them).
+
+A recording in the spool (made with `mission_record`) is **deleted**, after a
+confirmation (default no). One made elsewhere and only referenced (noticed by
+the watchdog, or attached with `adopt`) is **detached**: it stays on disk, and
+`ros2 fairy adopt <path>` attaches it again (with a new number).
+
+It refuses (exit 1) while a recording is in progress or still being processed,
+or while `mission_close` runs. Exit 1 also for a number or path that isn't in
+the mission.
 
 ## mission_delete
 
@@ -396,6 +432,9 @@ ros2 fairy adopt BAGDIR [--json] [--debug]
 Attaches a rosbag2 folder (`metadata.yaml` plus a `.mcap`/`.db3` file) to the
 current mission, where it is. If the watchdog hasn't captured anything yet, it
 runs a capture now. The bag is copied into the archive at `mission_close`.
+
+It says which number the recording got in the mission (`--json`:
+`recording_id`); [`drop`](#drop) with that number takes it out again.
 
 Refuses while the watchdog is busy recording. Adopting the same bag twice is a
 no-op.

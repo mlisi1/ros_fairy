@@ -46,12 +46,14 @@ def sh(user: str, command: str, check: bool = True,
 
 
 def interact(user: str, command: str, answers: dict, timeout: int = 90,
-             interrupt_after: float | None = None) -> int:
+             interrupt_after: float | None = None,
+             interrupt: str = "ros2 fairy") -> int:
     """Run ``command`` as ``user`` on a terminal, answering prompts.
 
     ``answers`` maps a regex for a prompt to the reply, or to a list of
     replies used in turn when the prompt repeats. ``interrupt_after``
-    interrupts it like Ctrl-C after that many seconds (for mission_record).
+    interrupts it like Ctrl-C after that many seconds (for mission_record):
+    the newest process of ``user`` whose command line has ``interrupt``.
     Returns the exit status.
     """
     print(f"$ ({user}) {command}")
@@ -75,7 +77,7 @@ def interact(user: str, command: str, answers: dict, timeout: int = 90,
                 # What Ctrl-C delivers: SIGINT to the verb's process. (The
                 # keystroke itself would stop at sudo's own terminal.)
                 subprocess.run(["pkill", "-INT", "-n", "-u", user, "-f",
-                                "ros2 fairy"])
+                                interrupt])
                 deadline = None
                 continue
             expect(False, f"`{command}` stalled waiting for input")

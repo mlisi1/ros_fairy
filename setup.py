@@ -110,6 +110,7 @@ setup(
             "MissionCloseVerb",
             "mission_abort = ros_fairy.subcommands.mission_abort:"
             "MissionAbortVerb",
+            "drop = ros_fairy.subcommands.drop:DropVerb",
             "mission_delete = ros_fairy.subcommands.mission_delete:"
             "MissionDeleteVerb",
             "mission_status = ros_fairy.subcommands.mission_status:"

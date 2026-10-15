@@ -81,12 +81,13 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `mission_close` | Review the finished mission and save it or discard it |
 | `mission_delete` | Permanently delete saved missions: one by ID, `--today` or `--all` (batch forms need sudo); always asks you to type a confirmation phrase |
 | `mission_abort` | Abandon the open mission without saving (asks first; asks again before deleting recordings) |
+| `drop` | Take one recording out of the open mission, by the number `mission_status` shows (the opposite of `adopt`) |
 | `list` | List the missions saved on this robot, newest last (latest 20 by default; `--limit N`, `--all`); filter by operator, place, date, quality, or words in the goal or notes (`--search`) |
 | `diff` | Compare two missions and show what changed |
 | `verify` | Check that a saved archive is complete and unmodified |
 | `export` | Package a mission — or `--all` unexported ones, or `--today`'s — into portable files |
 | `repair` | Make unplayable (bad-clock) recordings playable |
-| `adopt` | Ingest a bag recorded outside `mission_record` |
+| `adopt` | Ingest a bag recorded outside `mission_record` (`drop` undoes it) |
 | `reindex` | Rebuild the mission list from the archives on disk |
 | `add_operator` | Let more accounts record missions (adds them to the `ros-fairy` group) |
 | `move_data` | Move the recordings and saved missions to another folder or disk |

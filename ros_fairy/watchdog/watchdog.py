@@ -880,6 +880,9 @@ class Watchdog:
                 doc = _keep_better_ros_capture(
                     existing, doc,
                     prefer_existing=("ros_graph",) if keep_graph else ())
+            if existing and existing.get("next_recording_id"):
+                doc = {**doc,
+                       "next_recording_id": existing["next_recording_id"]}
             if existing and existing.get("bags"):
                 doc = {**doc, "bags": existing["bags"]}
                 if existing.get("provenance", {}).get("harvested_at"):
@@ -1035,10 +1038,26 @@ def append_bag_record(bag_dir: Path, source: str = "mission_record") -> None:
             harvest_doc = builder.compose_harvest(
                 None, None, None, None, None,
                 {m: "failed" for m in builder.HARVEST_MODULES})
-        harvest_doc["bags"] = [b for b in harvest_doc.get("bags", [])
+        bags = harvest_doc.get("bags", [])
+        earlier = next((b for b in bags if b.get("path") == str(bag_dir)),
+                       None)
+        bag["recording_id"] = (earlier or {}).get("recording_id") or \
+            _next_recording_id(harvest_doc)
+        harvest_doc["bags"] = [b for b in bags
                                if b.get("path") != str(bag_dir)] + [bag]
         harvest_doc.setdefault("provenance", {})["harvested_at"] = _now_iso()
         fsio.atomic_write_json(paths.harvest_json_path(), harvest_doc)
+
+
+def _next_recording_id(harvest_doc: dict) -> int:
+    """The open mission's next recording number (1, 2, 3, ...): shown by
+    mission_status and taken by `drop`. Never reused within a mission, so a
+    number seen earlier can't name another recording after a drop."""
+    used = [b.get("recording_id") or 0 for b in harvest_doc.get("bags", [])]
+    number = max([harvest_doc.get("next_recording_id") or 1,
+                  max(used, default=0) + 1])
+    harvest_doc["next_recording_id"] = number + 1
+    return number
 
 
 def drop_bag_record(bag_dir: Path) -> None:

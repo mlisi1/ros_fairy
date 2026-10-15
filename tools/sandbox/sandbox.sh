@@ -5,7 +5,8 @@
 # Usage: tools/sandbox/sandbox.sh <command> [args]
 #
 #   up            build the image if needed and start the container
-#   install       copy this checkout in and run ./install.sh as ana
+#   install       copy this checkout in, run ./install.sh as ana, and
+#                 restart the watchdog if the robot is set up
 #   setup         run `ros2 fairy setup` as ana with scripted answers
 #   run SCENARIO  run tools/sandbox/scenarios/SCENARIO (as root; it switches
 #                 user itself), e.g. `run smoke.py`
@@ -28,7 +29,7 @@ DISTRO=jazzy
 IMAGE="fairy-sandbox:$DISTRO"
 NAME="fairy-sandbox-$DISTRO"
 
-usage() { sed -n '2,21p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
+usage() { sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-0}"; }
 
 running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]; }
 
@@ -79,6 +80,10 @@ cmd_install() {
         /src/ /home/ana/ros_fairy/
     docker exec "$NAME" chown -R ana:ana /home/ana/ros_fairy
     as_user ana "cd ~/ros_fairy && ./install.sh"
+    # As after any upgrade on a robot: the running watchdog keeps the old
+    # code until it restarts.
+    docker exec "$NAME" sh -c 'systemctl is-enabled --quiet ros-fairy-watchdog \
+        2>/dev/null && systemctl restart ros-fairy-watchdog || true'
 }
 
 cmd_down() {

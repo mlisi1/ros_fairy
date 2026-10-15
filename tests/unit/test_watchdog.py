@@ -264,8 +264,10 @@ def test_unreliable_clock_bag_records_unknown_duration(fairy_dirs):
     assert rec["start_time"] is None and rec["end_time"] is None
     assert all(t["avg_frequency_hz"] is None for t in rec["topics"])
     assert any(w["kind"] == "unreliable_clock" for w in rec["health_warnings"])
-    # the record still validates against the schema (timing fields optional).
+    # the record still validates against the schema (timing fields optional),
+    # as builder.build passes it: without the open mission's recording number.
     from ros_fairy.manifest.schema import Bag
+    assert rec.pop("recording_id") == 1
     Bag.model_validate(rec)
 
 

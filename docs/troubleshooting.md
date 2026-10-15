@@ -103,10 +103,11 @@ The account running `doctor` may not use Docker. Run it from an account in the
 `docker` group to include the check.
 
 **A `ros2 bag record` I didn't want ended up in the mission.**
-The watchdog attaches any recording it sees on the machine. Start throw-away
-recordings with `ROS_FAIRY_IGNORE=1`. There is no command to detach a single recording.
-`mission_abort` drops the whole mission; recordings made outside ros_fairy stay
-on disk.
+The watchdog attaches any recording it sees on the machine. Take it out with
+`ros2 fairy drop <#>`, with the number `mission_status` shows for it (it stays
+on disk, since ros_fairy didn't make it).
+Start throw-away recordings with `ROS_FAIRY_IGNORE=1` so they aren't attached
+in the first place.
 
 **A recording made inside a container wasn't picked up.**
 The container writes to a folder the host can't see (its private overlay, not

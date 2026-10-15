@@ -105,16 +105,19 @@ def show_status(state: dict | None, context: dict | None,
                                   "ros2 fairy mission_start")
 
     active = _live_recording(state)
-    waiting = [p for p in mission_recordings() if p != active]
+    waiting = [r for r in recording_list() if r["path"] != active]
     if active is not None:
         size = human_size(fsio.dir_size_bytes(active)) \
             if active.is_dir() else "?"
         table.add_row("Recording", f"{active.name} — {size} so far, growing")
     if waiting:
-        total = sum(fsio.dir_size_bytes(b) for b in waiting if b.is_dir())
+        total = sum(fsio.dir_size_bytes(r["path"]) for r in waiting
+                    if r["path"].is_dir())
         table.add_row("Recordings waiting",
                       f"{len(waiting)} ({human_size(total)}) — run: "
                       f"ros2 fairy mission_close")
+        table.add_row("", "\n".join(recording_line(r) for r in waiting))
+        table.add_row("", "[dim]take one out with: ros2 fairy drop <#>[/dim]")
     elif active is None:
         table.add_row("Recording", "none")
 
@@ -147,6 +150,47 @@ def mission_recordings() -> list[Path]:
     return found
 
 
+def recording_list() -> list[dict]:
+    """The open mission's recordings, in mission_recordings' order: path,
+    whether it's in the spool, its harvest record (None until the watchdog
+    has processed it) and its number (``recording_id``, None until then)."""
+    from ros_fairy.manifest import builder
+    records = {b.get("path"): b
+               for b in (builder.load_spool()[0] or {}).get("bags", [])}
+    found = []
+    for path in mission_recordings():
+        record = records.get(str(path))
+        found.append({"path": path, "in_spool": path.parent == paths.bags_dir(),
+                      "record": record,
+                      "id": (record or {}).get("recording_id")})
+    return found
+
+
+def recording_line(rec: dict) -> str:
+    """One recording for people: #number, start, length, size, and where
+    it is when it isn't in the spool."""
+    record = rec["record"] or {}
+    number = f"#{rec['id']}" if rec["id"] else "– "
+    bits = []
+    if record.get("start_time"):
+        try:
+            bits.append(datetime.fromisoformat(record["start_time"])
+                        .astimezone().strftime("%H:%M:%S"))
+        except ValueError:
+            pass
+    if record.get("duration_s"):
+        bits.append(humanize_duration(record["duration_s"]))
+    try:
+        bits.append(human_size(fsio.dir_size_bytes(rec["path"])))
+    except OSError:
+        bits.append("missing")
+    if not rec["record"]:
+        bits.append("being processed")
+    if not rec["in_spool"]:
+        bits.append(str(rec["path"]))
+    return f"{number:>3}  " + ", ".join(bits)
+
+
 def status_as_dict(state: dict | None, context: dict | None) -> dict:
     """Machine-readable status for --json (the one sanctioned JSON output)."""
     bags = sorted(str(p) for p in paths.bags_dir().glob("*") if p.is_dir()) \
@@ -158,5 +202,7 @@ def status_as_dict(state: dict | None, context: dict | None) -> dict:
         "mission_context": context,
         "spool_bags": bags,
         "recordings": [str(p) for p in mission_recordings()],
+        "recording_ids": {str(r["path"]): r["id"] for r in recording_list()
+                          if r["id"]},
         "recording_now": str(active) if active else None,
     }

@@ -250,7 +250,10 @@ def build(harvest: dict | None, context: dict | None) -> MissionRecord:
         "software": harvest["software"],
         "ros_graph": harvest.get("ros_graph", {}),
         "calibrations": harvest.get("calibrations", []),
-        "bags": harvest.get("bags", []),
+        # recording_id only names a recording while the mission is open
+        # (mission_status, drop); it isn't part of the saved record.
+        "bags": [{k: v for k, v in bag.items() if k != "recording_id"}
+                 for bag in harvest.get("bags", [])],
         "hardware_devices": harvest.get("hardware_devices", []),
         "usb": harvest.get("usb"),
         "udev_rules": harvest.get("udev_rules"),
