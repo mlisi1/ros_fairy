@@ -144,22 +144,41 @@ new one with `--yes`: they stay on disk, and `adopt` attaches them.
 ## mission_record
 
 ```
-ros2 fairy mission_record [--yes] [--debug]
+ros2 fairy mission_record [--yes] [--debug] [<ros2 bag record options>]
 ```
 
 Runs:
 
 ```
-ros2 bag record <topics…|--all> [--storage <format>] --output <spool>/bags/<mission_id>_<YYYYmmdd-HHMMSS>
+ros2 bag record <topics…|--all> [--storage <format>] --output <spool>/bags/<mission_id>_<YYYYmmdd-HHMMSS> [<your options>]
 ```
 
 Topics and storage come from `recording:` in
 [`robot_identity.yaml`](configuration.md#robot_identityyaml). Without a mission
-open, the folder prefix is `unbriefed`. No other options are passed through.
+open, the folder prefix is `unbriefed`.
 
 | Option | |
 | --- | --- |
 | `--yes`, `-y` | Record without asking about low disk space, a missing briefing or an unsynchronised clock. |
+| any `ros2 bag record` option | Passed on as typed, e.g. `--max-bag-size 1000000000`, `--compression-mode file --compression-format zstd`, `--qos-profile-overrides-path qos.yaml`, or topics. `ros2 fairy mission_record -h` lists them, and Tab completes them. |
+
+`mission_record` takes `ros2 bag record`'s options directly: they come from the
+installed rosbag2, so a typo or an option this rosbag2 doesn't have stops it at
+once with the usual usage message (exit 2), before any question or check.
+Then:
+
+- `-o`/`--output` is refused: recordings go to the spool, where the watchdog
+  finds them.
+- A topic selection of your own (topics, `--topics`, `--services`,
+  `--topic-types`, `-a`/`--all`, `--all-topics`, `--all-services`,
+  `-e`/`--regex`) replaces the one from `robot_identity.yaml`, and it says so.
+  Exclusions (`--exclude-…`) are added to it.
+- `--storage` of your own replaces the configured one.
+- Everything else is passed as written.
+
+A recording compressed as whole files (`--compression-mode file`) is saved like
+any other, but its timing can't be checked: see
+[recording health](what-is-captured.md#recording-health).
 
 Before recording it checks that `ros2` exists (exit 1 if not), free disk space
 (at least 1 GiB, otherwise it asks), that a briefing exists, that the watchdog

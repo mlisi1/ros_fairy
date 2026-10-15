@@ -106,7 +106,7 @@ recording:                        # optional, used by mission_record
 | `owner` | `organization`, `contact_email` | `default_license` becomes the RO-Crate's `license`; without it the crate has none. |
 | `sensors[]` | `sensor_id`, `type`, `make_model`, `topic` | `sensor_id` must be unique. Topics are made absolute. |
 | `calibrations[]` | `name`, `source_path` | The file is copied into each saved mission with its sha256. |
-| `recording` | none | `topics` may be a list or a single string. |
+| `recording` | none | `topics` may be a list or a single string. A topic selection or `--storage` given to `mission_record` replaces these for that recording. |
 
 All required fields must be non-empty strings. A broken file is reported in
 plain language by `doctor` and in the harvest status. Missions recorded while

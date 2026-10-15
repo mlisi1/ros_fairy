@@ -1,5 +1,15 @@
-"""ros2 fairy mission_record — safe wrapper around ros2 bag record."""
+"""ros2 fairy mission_record — safe wrapper around ros2 bag record.
 
+It also takes ``ros2 bag record``'s own options (``--max-bag-size``,
+compression, QoS overrides, topics, ...): they are added to this verb's
+parser from the installed rosbag2, so ``-h`` lists them and argparse rejects
+what this rosbag2 doesn't have. They are passed on as typed.
+``-o``/``--output`` is refused (recordings go to the spool, where the watchdog
+finds them), and a topic selection or ``--storage`` given here replaces the
+one from robot_identity.yaml.
+"""
+
+import argparse
 import os
 import shutil
 import signal
@@ -25,8 +35,93 @@ MIN_FREE_BYTES = 1 << 30  # 1 GiB
 FORCE_AFTER_PRESSES = 2
 
 
-def build_record_command(output_dir: str) -> list[str]:
-    """The exact subprocess invocation."""
+# rosbag2's destinations (ros2bag.verb.record) that choose what is recorded:
+# given to mission_record, they replace robot_identity.yaml's selection.
+SELECTION_DESTS = {"topics_positional", "topics", "services", "topic_types",
+                   "all", "all_topics", "all_services", "regex"}
+
+
+class RecordOptionsError(Exception):
+    """Options for ros2 bag record that can't be used, in plain words."""
+
+
+class _Parser(argparse.ArgumentParser):
+    def error(self, message):  # instead of printing usage and exiting
+        raise RecordOptionsError(message)
+
+
+def _record_parser() -> argparse.ArgumentParser | None:
+    """``ros2 bag record``'s own parser, or None if ros2bag isn't
+    importable (then only -o/--output is checked)."""
+    try:
+        from ros2bag.verb.record import RecordVerb
+    except ImportError:
+        return None
+    parser = _Parser(prog="ros2 bag record", add_help=False)
+    RecordVerb().add_arguments(parser, "ros2 bag record")
+    return parser
+
+
+def given_options(extra: list[str]) -> set[str]:
+    """Which of ros2 bag record's settings ``extra`` sets (argparse
+    destinations). Raises RecordOptionsError for options it rejects, and
+    for -o/--output."""
+    if not extra:
+        return set()
+    parser = _record_parser()
+    if parser is None:
+        given = {"output"} if any(a in ("-o", "--output") or
+                                  a.startswith("--output=") for a in extra) \
+            else set()
+    else:
+        defaults = vars(parser.parse_args([]))
+        parsed = vars(parser.parse_args(extra))
+        given = {k for k, v in parsed.items() if v != defaults.get(k)}
+    if "output" in given:
+        raise RecordOptionsError(
+            "-o/--output can't be used: mission_record records into the "
+            "spool, where the recording assistant finds it. Leave it out.")
+    return given
+
+
+# mission_record's own options, which are not passed on.
+OWN_OPTIONS = {"--yes", "-y", "--debug"}
+
+
+def add_record_options(parser: argparse.ArgumentParser) -> None:
+    """Add ros2 bag record's options, from the installed rosbag2, to
+    mission_record's parser, in their own group of the help."""
+    try:
+        from ros2bag.verb.record import RecordVerb
+    except ImportError:
+        return  # no rosbag2 here: mission_record takes no recorder options
+    group = parser.add_argument_group(
+        "options passed on to ros2 bag record",
+        "Any of these is passed on as typed, except -o/--output (recordings "
+        "go to the spool). Topics or a topic selection given here replace "
+        "robot_identity.yaml's `recording:` topics, and --storage its "
+        "storage.")
+    RecordVerb().add_arguments(group, "ros2 bag record")
+
+
+def record_tokens(argv: list[str]) -> list[str]:
+    """What was typed after ``mission_record``, without its own options:
+    the options for ros2 bag record, exactly as typed (a parsed value, such
+    as an opened --qos-profile-overrides-path, can't be passed on)."""
+    try:
+        start = len(argv) - argv[::-1].index("mission_record")
+    except ValueError:
+        return []
+    return [t for t in argv[start:] if t not in OWN_OPTIONS and t != "--"]
+
+
+def build_record_command(output_dir: str,
+                         extra: list[str] | None = None) -> list[str]:
+    """The exact subprocess invocation. ``extra`` (options for ros2 bag
+    record, checked with :func:`given_options`) goes last; a topic selection
+    or storage in it replaces robot_identity.yaml's."""
+    extra = list(extra or [])
+    given = given_options(extra)
     topics: list[str] | None = None
     storage: str | None = None
     try:
@@ -36,11 +131,12 @@ def build_record_command(output_dir: str) -> list[str]:
     except robot_identity.RobotIdentityError:
         pass
     cmd = ["ros2", "bag", "record"]
-    cmd += topics if topics else ["--all"]
-    if storage:
+    if not given & SELECTION_DESTS:
+        cmd += topics if topics else ["--all"]
+    if storage and "storage" not in given:
         cmd += ["--storage", storage]
     cmd += ["--output", output_dir]
-    return cmd
+    return cmd + extra
 
 
 def _bag_prefix() -> str:
@@ -62,6 +158,16 @@ def run(args, console: Console | None = None) -> int:
         console.print("[red]I can't find ROS 2. Make sure the robot "
                       "software is started, then try again.[/red]")
         return 1
+
+    extra = list(getattr(args, "record_args", None) or [])
+    try:
+        given = given_options(extra)
+    except RecordOptionsError as exc:
+        console.print(f"[red]Can't pass that to ros2 bag record: {exc}[/red]")
+        return 1
+    if given & SELECTION_DESTS:
+        console.print("[dim]Recording the topics chosen here, instead of "
+                      "robot_identity.yaml's selection.[/dim]")
 
     paths.bags_dir().mkdir(parents=True, exist_ok=True)
     free = shutil.disk_usage(paths.spool_dir()).free
@@ -98,7 +204,7 @@ def run(args, console: Console | None = None) -> int:
 
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     output = str(paths.bags_dir() / f"{_bag_prefix()}_{stamp}")
-    command = build_record_command(output)
+    command = build_record_command(output, extra)
     console.print(f"[dim]Recording to {output} — press Ctrl-C to stop.[/dim]")
 
     # Hand this shell's ROS environment to the watchdog now that recording is
@@ -200,9 +306,11 @@ class MissionRecordVerb(VerbExtension):
             "--yes", "-y", action="store_true",
             help="record without asking about low disk space, a missing "
                  "briefing or an unsynchronised clock")
+        add_record_options(parser)
         parser.add_argument(
             "--debug", action="store_true",
             help="verbose logging to stderr (for engineers)")
 
     def main(self, *, args):
+        args.record_args = record_tokens(sys.argv)
         return guarded_main(run, args)

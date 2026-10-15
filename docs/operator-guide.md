@@ -100,10 +100,20 @@ This runs `ros2 bag record` for you, into the spool, with some checks first:
 
 **What gets recorded** comes from the robot's
 [`recording:` settings](configuration.md#robot_identityyaml): specific topics
-and a storage format, or every topic by default. You can't pass extra
-`ros2 bag record` options through `mission_record`. If you need them, run
-`ros2 bag record` yourself: the assistant notices it and attaches the recording
-to the mission (see [Recording without `mission_record`](#recording-without-mission_record)).
+and a storage format, or every topic by default.
+
+**Options for `ros2 bag record`** can be given to `mission_record` directly:
+
+```bash
+ros2 fairy mission_record --max-bag-duration 600        # a new file every 10 min
+ros2 fairy mission_record /camera/image_raw /imu/data   # only these topics
+ros2 fairy mission_record -h                            # what you can pass
+```
+
+Topics chosen there replace the robot's `recording:` topics for this
+recording. `-o`/`--output` isn't allowed: the recording has to go where the
+assistant looks. A mistyped option stops it before anything is recorded. See
+[`mission_record`](commands.md#mission_record) for the details.
 
 **To stop, press Ctrl-C once** and wait for "saved". Pressing it again prints
 *"Still saving the recording — please wait…"*. A third press forces it to stop,

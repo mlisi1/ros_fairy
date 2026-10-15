@@ -76,7 +76,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `setup` | One-time robot setup: identity file, directories, watchdog service |
 | `doctor` | Check that this robot is ready to capture a mission |
 | `mission_start` | Answer five quick questions to describe the mission (or give them as options, for scripts and launch files) |
-| `mission_record` | Record mission data (wraps `ros2 bag record`) |
+| `mission_record` | Record mission data (wraps `ros2 bag record`, and takes its options) |
 | `mission_status` | Show what the recording assistant is doing right now |
 | `mission_close` | Review the finished mission and save it or discard it |
 | `mission_delete` | Permanently delete saved missions: one by ID, `--today` or `--all` (batch forms need sudo); always asks you to type a confirmation phrase |
