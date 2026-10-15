@@ -27,7 +27,8 @@ verified, diffed, and shared as a single checksummed file.
 git clone https://github.com/mlisi1/ros_fairy.git
 cd ros_fairy
 ./install.sh                   # pip-installs the package (asks for sudo
-                                #   only if it actually needs root)
+                                #   only if it actually needs root), then
+                                #   offers the optional tools it uses
 ros2 fairy setup                # identity file, directories, watchdog service
                                 #   — no sudo up front; prompts for your
                                 #   password only when it writes /etc

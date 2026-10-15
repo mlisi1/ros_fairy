@@ -90,6 +90,7 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | Last harvest | the last ROS capture failed |
 | Clock | the system clock isn't NTP-synchronised |
 | MCAP support | the `mcap` Python package is missing |
+| Harvest tools | an optional tool the harvest uses is missing (`lsusb`, `lspci`, `v4l2-ctl`, `udevadm`, `setpriv`, `dmesg`, or the `rocrate` package); the hint gives the install commands |
 | Disk space | less than 1 GiB free for the spool |
 | Docker | (skipped when Docker isn't used) |
 | Saved missions | an interrupted save is waiting to be finished |

@@ -126,8 +126,11 @@ def ensure_talkers() -> None:
         time.sleep(4)  # discovery
 
 
-def wait_until_idle(timeout: float = 30) -> None:
-    """Until the watchdog has finished with the last recording."""
+def wait_until_idle(timeout: float = 150) -> None:
+    """Until the watchdog has finished with the last recording. The harvest
+    can take a minute or more: the container sees the host's USB devices,
+    and a sleeping one is slow to answer (lsusb -v alone may hit its 20 s
+    limit)."""
     state_file = Path("/var/ros-fairy/watchdog.state")
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

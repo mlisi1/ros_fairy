@@ -59,9 +59,10 @@ publishers but nothing arrived within the time allowed. The watchdog retries
 twice per recording.
 
 **Hardware or udev is "partial".**
-`lsusb -v` or `dmesg` were refused, or the time budget ran out. If `setpriv`
-isn't installed, the "which rules applied" trace is skipped (it is never run
-as root).
+A tool it uses is missing (`ros2 fairy doctor` says which, and how to install
+it; or re-run `./install.sh --with-deps`), `lsusb -v` or `dmesg` were refused,
+or the time budget ran out. If `setpriv` isn't installed, the "which rules
+applied" trace is skipped (it is never run as root).
 
 **A `ros2 bag record` I didn't want ended up in the mission.**
 The watchdog attaches any recording it sees on the machine. Start throw-away

@@ -21,6 +21,12 @@ cd ros_fairy
 ./install.sh            # add --dev for pytest, rocrate, ruff and mypy
 ```
 
+| Option | |
+| --- | --- |
+| `--dev` | Also install pytest, rocrate, ruff and mypy. |
+| `--with-deps` | Install the missing optional tools (step 6) without asking. |
+| `--no-deps` | Don't install them, and don't ask. |
+
 `install.sh` is a thin wrapper around `pip install`:
 
 1. It removes any stale `build/` and `*.egg-info` in the checkout. pip would
@@ -35,6 +41,24 @@ cd ros_fairy
 4. If the filesystem is read-only, it stops and explains: sudo won't help.
 5. If an older copy in your home directory (`~/.local`) would still be the one
    your shell uses, it says so and how to remove it.
+6. It lists the optional tools the recording assistant uses to describe the
+   robot that are missing, and asks "Install them now? [Y/n]" (Enter means
+   yes). Without them those details are left out of every mission:
+
+   | Tool | Package | Records |
+   | --- | --- | --- |
+   | `lsusb` | `usbutils` | USB devices and their serial numbers |
+   | `lspci` | `pciutils` | PCI devices (GPUs, network cards) |
+   | `v4l2-ctl` | `v4l-utils` | cameras |
+   | `udevadm` | `udev` | device details and the udev rules applied |
+   | `setpriv`, `dmesg` | `util-linux` | replaying udev rules safely; kernel messages about devices |
+   | `rocrate` | Python package | the full RO-Crate check in `verify` |
+
+   The apt packages are installed with `apt-get` (refreshing the package lists
+   if needed), `rocrate` with pip like ros_fairy itself. With no terminal to
+   ask on, it skips them and says so. Docker is never installed: whether the
+   robot runs containers is your choice. `ros2 fairy doctor` lists whatever is
+   still missing.
 
 If `ros2` isn't on your `PATH`, the script only prints a reminder: ROS is
 needed to *use* ros_fairy, not to install it.

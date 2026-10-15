@@ -252,6 +252,22 @@ def _check_mcap() -> dict:
                     "checks need it on Jazzy)"}
 
 
+def _check_harvest_tools() -> dict:
+    from ros_fairy.utils import harvest_tools
+    tools = harvest_tools.missing_tools()
+    modules = harvest_tools.missing_modules()
+    if not tools and not modules:
+        return {"status": OK, "title": "Harvest tools installed",
+                "detail": "", "hint": ""}
+    names = [t.command for t in tools] + [m.module for m in modules]
+    gives = [t.gives for t in tools] + [m.gives for m in modules]
+    return {"status": WARN,
+            "title": f"Harvest tools missing: {', '.join(names)}",
+            "detail": "left out of every mission: " + "; ".join(gives),
+            "hint": "install them: `" + harvest_tools.install_hint(
+                tools, modules) + "` (or re-run `./install.sh --with-deps`)"}
+
+
 def _check_disk() -> dict:
     # The spool may not exist yet (pre-setup); measure the nearest existing
     # ancestor so the check still reports the right filesystem.
@@ -345,7 +361,8 @@ _CHECKS = (_check_identity, _check_watchdog, _check_service_python,
            _check_watchdog_code,
            _check_ros_reachable,
            _check_ros_environment, _check_service_env, _check_service_harvest,
-           _check_clock, _check_mcap, _check_disk, _check_docker, _check_archive)
+           _check_clock, _check_mcap, _check_harvest_tools, _check_disk,
+           _check_docker, _check_archive)
 
 
 def diagnose() -> list[dict]:
