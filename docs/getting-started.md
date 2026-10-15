@@ -79,6 +79,9 @@ It then asks a few questions (existing answers are offered as defaults):
   `camera`, `imu`, `sonar`, `other`), make and model, the topic it publishes
   on, an optional TF frame and an optional calibration file. Live topics are
   listed to choose from.
+- **Operators:** the other accounts that will record missions (names separated
+  by spaces). You are added anyway. In a script, give them with
+  `--operator USER` (repeatable) instead.
 
 After a review screen, the only step that needs root asks for your password
 through `sudo`. It:
@@ -87,7 +90,8 @@ through `sudo`. It:
    ([format](configuration.md#robot_identityyaml));
 2. creates the `ros-fairy` system group and the directories under
    `/var/ros-fairy`, owned by that group;
-3. adds **you** (the account that ran `sudo`) to the `ros-fairy` group;
+3. adds **you** (the account that ran `sudo`) and the operators you named to
+   the `ros-fairy` group;
 4. writes `/etc/ros-fairy/watchdog.env` from your shell's ROS environment;
 5. installs, enables and starts `ros-fairy-watchdog.service`, then waits up to
    10 s for it to come up.
@@ -99,8 +103,8 @@ through `sudo`. It:
 > newgrp ros-fairy        # this terminal only; other terminals still need a new login
 > ```
 >
-> Every other operator account must be added by hand:
-> `sudo usermod -aG ros-fairy <user>`.
+> To add operators later: `ros2 fairy add_operator <user>`
+> ([details](commands.md#add_operator)).
 
 ### Changing the robot's configuration later
 

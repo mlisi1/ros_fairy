@@ -45,6 +45,19 @@ def json_error(message: str, code: int = 1, **extra: Any) -> int:
     return code
 
 
+def refuse_without_access(console, as_json: bool = False) -> int | None:
+    """Exit code 1 (after saying why) when this account isn't an operator,
+    before any question is asked; None when it is."""
+    from ros_fairy.utils import operators
+    problem = operators.access_problem()
+    if problem is None:
+        return None
+    if as_json:
+        return json_error(problem)
+    console.print(f"[red]{problem}[/red]")
+    return 1
+
+
 def confirm(question: str, *, default: bool, console,
             assume_yes: bool = False) -> bool:
     """Ask a yes/no question; ``assume_yes`` (a verb's --yes) answers it."""

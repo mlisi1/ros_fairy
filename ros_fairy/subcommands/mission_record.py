@@ -16,6 +16,7 @@ from ros_fairy.subcommands import (
     _configure_logging,
     confirm,
     guarded_main,
+    refuse_without_access,
 )
 from ros_fairy.utils import clock, paths, ros_env
 
@@ -53,6 +54,9 @@ def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
     yes = getattr(args, "yes", False)
+    refused = refuse_without_access(console)
+    if refused is not None:
+        return refused
 
     if shutil.which("ros2") is None:
         console.print("[red]I can't find ROS 2. Make sure the robot "

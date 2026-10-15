@@ -27,7 +27,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
-from ros_fairy.utils import paths, ros_env
+from ros_fairy.utils import operators, paths, ros_env
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SLUG_RE = re.compile(r"^[a-z0-9_]+$")
@@ -35,7 +35,7 @@ SENSOR_TYPES = ["gps", "lidar", "camera", "imu", "sonar", "other"]
 SERVICE_NAME = "ros-fairy-watchdog.service"
 UNIT_DIR = Path("/etc/systemd/system")
 SYSTEM_PYTHON = "/usr/bin/python3"
-GROUP_NAME = "ros-fairy"
+GROUP_NAME = operators.GROUP_NAME
 MAX_ATTEMPTS = 3
 
 # The single fix for every "watchdog harvested nothing" failure: run setup
@@ -192,7 +192,33 @@ def ask_sensors(console: Console, current: dict) -> tuple[list, list]:
     return sensors, calibrations
 
 
-def review(console: Console, config: dict) -> bool:
+def ask_operators(console: Console) -> list[str]:
+    """Other accounts that will record missions on this robot.
+
+    The account running setup is added anyway (it's the one behind sudo);
+    accounts already in the group are listed so nobody is asked twice.
+    """
+    me = operators.invoking_user()
+    already = [m for m in operators.members() if m != me]
+    if already:
+        console.print(f"[dim]Already in the '{GROUP_NAME}' group: "
+                      f"{', '.join(already)}[/dim]")
+    prompt = ("Other accounts that will record missions (names separated by "
+              "spaces, Enter for none)")
+    for _ in range(MAX_ATTEMPTS):
+        names = [n for n in operators.parse_names(
+            Prompt.ask(prompt, default="", console=console))
+            if n != me and n not in already]
+        unknown = [n for n in names if not operators.account_exists(n)]
+        if not unknown:
+            return names
+        console.print(f"[yellow]Sorry, there's no account named "
+                      f"{', '.join(unknown)} on this computer.[/yellow]")
+    raise SetupAborted(f"Gave up on '{prompt}' after {MAX_ATTEMPTS} attempts.")
+
+
+def review(console: Console, config: dict,
+           operator_names: list[str] | None = None) -> bool:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold")
     table.add_column()
@@ -207,6 +233,8 @@ def review(console: Console, config: dict) -> bool:
         table.add_row(f"Sensor {sensor['sensor_id']}",
                       f"{sensor['type']} — {sensor['make_model']} on "
                       f"{sensor['topic']}{cal}")
+    table.add_row("Operators", ", ".join(
+        [f"{operators.invoking_user()} (you)", *(operator_names or [])]))
     console.print(Panel(table, title="Configuration review",
                         border_style="cyan"))
     return Confirm.ask("Write this configuration?", default=True,
@@ -222,9 +250,8 @@ def write_identity(config: dict) -> None:
     path.chmod(0o644)
 
 
-def create_dirs() -> bool | None:
-    """Create the shared dirs/group; returns :func:`_add_operator_to_group`'s
-    outcome (whether the invoking operator actually ended up in the group)."""
+def create_dirs() -> None:
+    """Create the ``ros-fairy`` group and the shared directories it owns."""
     try:
         gid = grp.getgrnam(GROUP_NAME).gr_gid
     except KeyError:
@@ -251,34 +278,40 @@ def create_dirs() -> bool | None:
                     os.chown(f, -1, gid)
             except OSError:
                 pass
-    return _add_operator_to_group()
 
 
-def _add_operator_to_group() -> bool | None:
-    """Put the human behind sudo into the ros-fairy group.
+def add_operators(console: Console, extra: list[str]) -> None:
+    """Put the human behind sudo, and ``extra``, into the ros-fairy group.
 
-    Without this every non-root account is locked out of the spool and the
-    index, so mission_start fails on the first real mission. Best-effort:
-    SUDO_USER survives `sudo su` (su without `-` keeps the environment), but
-    a login shell loses it — then the engineer adds operators by hand.
-
-    Returns True if the operator is (now) a member, False if adding them
-    failed, or None if there was no operator to add (root, or no SUDO_USER —
-    the caller falls back to the generic "remember to add operators" hint
-    either way, so the two non-True cases are treated the same by callers
-    that don't need to distinguish them).
+    Without it every non-root account is locked out of the spool and the
+    index, so mission_start fails on the first real mission. SUDO_USER
+    survives `sudo su` (su without `-` keeps the environment) but not a
+    login shell; then only ``extra`` is added.
     """
-    operator = os.environ.get("SUDO_USER", "")
-    if not operator or operator == "root":
-        return None
-    try:
-        if operator in grp.getgrnam(GROUP_NAME).gr_mem:
-            return True
-    except KeyError:
-        return None
-    result = subprocess.run(["usermod", "-aG", GROUP_NAME, operator],
-                            check=False)
-    return result.returncode == 0
+    me = os.environ.get("SUDO_USER", "")
+    names = list(dict.fromkeys(
+        ([me] if me and me != "root" else []) + list(extra)))
+    if not names:
+        console.print(f"[yellow]No operator accounts were added to the "
+                      f"'{GROUP_NAME}' group, so only root can record "
+                      f"missions. Add them with: {operators.ADD_HINT}"
+                      "[/yellow]")
+        return
+    outcome = operators.add(names)
+    added = [n for n in names if outcome[n] == operators.ADDED]
+    for state, style, text in (
+            (operators.ADDED, "green", "Added to the '{g}' group: {n}."),
+            (operators.ALREADY, "dim", "Already in the '{g}' group: {n}."),
+            (operators.NO_ACCOUNT, "yellow", "No such account, skipped: {n}."),
+            (operators.FAILED, "red",
+             "Couldn't add {n} (`usermod` failed). Try again later with: "
+             "ros2 fairy add_operator {n}")):
+        which = [n for n in names if outcome[n] == state]
+        if which:
+            console.print(f"[{style}]" + text.format(
+                g=GROUP_NAME, n=", ".join(which)) + f"[/{style}]")
+    if added:
+        console.print(f"[dim]{operators.NEXT_LOGIN}[/dim]")
 
 
 def write_watchdog_env(env: dict[str, str]) -> None:
@@ -467,8 +500,12 @@ def install_service(console: Console, env: dict[str, str],
     return False
 
 
-def _collect(console: Console) -> dict | None:
+def _collect(console: Console, operator_names: list[str] | None = None
+             ) -> tuple[dict, list[str]] | None:
     """The unprivileged half: the interactive wizard. No root needed.
+
+    Returns the robot configuration and the other operator accounts to add
+    (``operator_names`` when given: --operator skips that question).
 
     Reading /etc/ros-fairy/robot_identity.yaml to offer current values as
     defaults works without root too — :func:`write_identity` leaves it
@@ -491,13 +528,15 @@ def _collect(console: Console) -> dict | None:
         for key, value in current.items():
             if key not in ("robot", "owner", "sensors", "calibrations"):
                 config[key] = value
-        if not review(console, config):
+        if operator_names is None:
+            operator_names = ask_operators(console)
+        if not review(console, config, operator_names):
             console.print("Nothing was written.")
             return None
     except SetupAborted as exc:
         console.print(f"[red]{exc}[/red]")
         return None
-    return config
+    return config, operator_names
 
 
 def _apply(console: Console, payload: dict) -> bool:
@@ -511,21 +550,8 @@ def _apply(console: Console, payload: dict) -> bool:
     so it needs nothing beyond filesystem/systemd privileges.
     """
     write_identity(payload["config"])
-    added = create_dirs()
-    operator = os.environ.get("SUDO_USER", "")
-    if added is True:
-        console.print(f"[dim]Added {operator} to the '{GROUP_NAME}' group so "
-                      "missions can be recorded without root (takes effect at "
-                      "next login). Add other operator accounts with: "
-                      f"usermod -aG {GROUP_NAME} <user>[/dim]")
-    elif added is False:
-        console.print(f"[red]Couldn't add {operator} to the '{GROUP_NAME}' "
-                      f"group (`usermod` failed) — add them by hand: "
-                      f"usermod -aG {GROUP_NAME} {operator}[/red]")
-    else:
-        console.print(f"[yellow]Remember to add operator accounts to the "
-                      f"'{GROUP_NAME}' group (usermod -aG {GROUP_NAME} <user>) "
-                      "or they won't be able to record missions.[/yellow]")
+    create_dirs()
+    add_operators(console, payload.get("operators", []))
     if install_service(console, payload["env"],
                        payload.get("python", SYSTEM_PYTHON)):
         console.print(Panel("Setup complete. ros-fairy is now watching for "
@@ -614,10 +640,21 @@ def run(args, console: Console | None = None) -> int:
     if python is None:
         return 1
 
-    config = _collect(console)
-    if config is None:
+    wanted = getattr(args, "operator", None)
+    if wanted:
+        wanted = list(dict.fromkeys(wanted))
+        unknown = [n for n in wanted if not operators.account_exists(n)]
+        if unknown:
+            console.print(f"[red]There's no account named {', '.join(unknown)}"
+                          " on this computer (--operator).[/red]")
+            return 1
+
+    collected = _collect(console, wanted)
+    if collected is None:
         return 0
-    payload = {"config": config, "env": env, "python": python}
+    config, operator_names = collected
+    payload = {"config": config, "env": env, "python": python,
+               "operators": operator_names}
 
     if os.geteuid() == 0:
         return 0 if _apply(console, payload) else 1
@@ -637,6 +674,10 @@ def _add_setup_arguments(parser) -> None:
         help="only used when running setup directly as root: path to the "
              "ROS 2 setup.bash to source (auto-detected from "
              "/opt/ros/*/setup.bash when there's exactly one)")
+    parser.add_argument(
+        "--operator", action="append", metavar="USER",
+        help="another account that will record missions; repeatable. "
+             "Skips the question about other operators")
     parser.add_argument(
         "--apply-from-stdin", action="store_true",
         help=argparse.SUPPRESS)  # internal: used by the root re-exec only

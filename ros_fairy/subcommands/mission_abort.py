@@ -11,14 +11,16 @@ from pathlib import Path
 
 from rich.console import Console
 from rich.prompt import Confirm  # noqa: F401 (tests patch Confirm.ask)
+
 from ros_fairy.manifest import builder
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
     confirm,
     guarded_main,
+    mission_close,
+    refuse_without_access,
 )
-from ros_fairy.subcommands import mission_close
 from ros_fairy.ui.review import human_size
 from ros_fairy.utils import fsio, paths
 
@@ -57,6 +59,9 @@ def _size(path: Path) -> str:
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
+    refused = refuse_without_access(console)
+    if refused is not None:
+        return refused
 
     if mission_close._recording_in_progress():
         console.print("[yellow]A recording is still in progress. Stop it "

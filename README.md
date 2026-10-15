@@ -87,6 +87,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `repair` | Make unplayable (bad-clock) recordings playable |
 | `adopt` | Ingest a bag recorded outside `mission_record` |
 | `reindex` | Rebuild the mission list from the archives on disk |
+| `add_operator` | Let more accounts record missions (adds them to the `ros-fairy` group) |
 
 ## Where things live
 

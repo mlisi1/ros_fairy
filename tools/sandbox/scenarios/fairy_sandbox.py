@@ -31,8 +31,10 @@ def _login(user: str, command: str) -> list[str]:
 def sh(user: str, command: str, check: bool = True,
        quiet: bool = False) -> subprocess.CompletedProcess:
     """``command`` in a login shell as ``user`` (ROS sourced, groups fresh)."""
+    # No stdin: a question nobody expected fails at once instead of hanging.
     result = subprocess.run(_login(user, f"COLUMNS=160 {command}"),
-                            capture_output=True, text=True)
+                            capture_output=True, text=True,
+                            stdin=subprocess.DEVNULL)
     if not quiet:
         print(f"$ ({user}) {command}")
         sys.stdout.write(result.stdout)
@@ -153,6 +155,7 @@ SETUP_ANSWERS = {
     r"isn't being published": "y",
     r"TF frame id": ["gps_link", "lidar_link"],
     r"Calibration file path": "",
+    r"Other accounts that will record missions": "",
     r"Write this configuration\?": "y",
 }
 
@@ -170,6 +173,12 @@ BRIEFING = {
     r"environment like\?": "indoor",
     r"Anything else worth noting\?": "",
 }
+
+
+def group_members(group: str = "ros-fairy") -> set[str]:
+    line = subprocess.run(["getent", "group", group], capture_output=True,
+                          text=True).stdout.strip()
+    return set(filter(None, line.split(":")[-1].split(","))) if line else set()
 
 
 def finish() -> int:

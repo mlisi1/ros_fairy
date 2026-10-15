@@ -268,7 +268,7 @@ def save_lock() -> Iterator[None]:
         raise AssemblyError(
             f"I don't have permission to write to the mission archive "
             f"({paths.archive_dir()}). Ask your engineer to add your account "
-            "to the 'ros-fairy' group (sudo usermod -aG ros-fairy <your "
+            "to the 'ros-fairy' group (ros2 fairy add_operator <your "
             "username>), then log out and back in.") from exc
     try:
         try:

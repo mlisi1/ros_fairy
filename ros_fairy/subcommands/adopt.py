@@ -23,6 +23,7 @@ from ros_fairy.subcommands import (
     guarded_main,
     json_error,
     print_json,
+    refuse_without_access,
 )
 from ros_fairy.utils import fsio, paths
 from ros_fairy.utils import topic_health as th
@@ -43,6 +44,9 @@ def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
     want_json = getattr(args, "json", False)
+    refused = refuse_without_access(console, want_json)
+    if refused is not None:
+        return refused
 
     bag_dir = Path(args.bagdir).expanduser()
     try:

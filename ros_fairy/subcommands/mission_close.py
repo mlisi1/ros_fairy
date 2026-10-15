@@ -16,6 +16,7 @@ from ros_fairy.subcommands import (
     _configure_logging,
     confirm,
     guarded_main,
+    refuse_without_access,
 )
 from ros_fairy.ui import briefing, review
 from ros_fairy.utils import fsio, paths
@@ -180,6 +181,9 @@ def _print_notices(console: Console, notices: list[str]) -> None:
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
+    refused = refuse_without_access(console)
+    if refused is not None:
+        return refused
     try:
         with assembler.save_lock():
             return _run_locked(args, console)

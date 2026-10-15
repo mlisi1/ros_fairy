@@ -7,7 +7,12 @@ from rich.panel import Panel
 from rich.prompt import Confirm
 
 from ros_fairy.manifest import builder
-from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
+from ros_fairy.subcommands import (
+    VerbExtension,
+    _configure_logging,
+    guarded_main,
+    refuse_without_access,
+)
 from ros_fairy.ui import briefing
 from ros_fairy.utils import clock, fsio, paths, ros_env
 from ros_fairy.watchdog import watchdog as wd
@@ -79,6 +84,9 @@ def _drop_previous_harvest(console: Console) -> None:
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
+    refused = refuse_without_access(console)
+    if refused is not None:
+        return refused
 
     if not _watchdog_alive():
         console.print("[yellow]Background recording assistant isn't running "

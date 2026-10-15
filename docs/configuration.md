@@ -39,9 +39,9 @@ both variables through `sudo`.
 - The `ros-fairy` group owns `/var/ros-fairy` and everything below it.
   Directories are `2775` (setgid, so new files inherit the group), the index is
   `0664`, and saved crates are made group-writable.
-- Every operator account must be in that group. Without it, commands fail with
-  a message telling you to run `sudo usermod -aG ros-fairy <user>` (then log in
-  again).
+- Every operator account must be in that group: `setup` adds the ones you
+  name, and `ros2 fairy add_operator <user>` adds more. Without it, the verbs
+  that record or save stop before asking anything and say so.
 - `/etc/ros-fairy` and `robot_identity.yaml` are world-readable and
   root-writable.
 - The watchdog runs as **root** with group `ros-fairy` and `UMask=0002`.

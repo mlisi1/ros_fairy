@@ -143,7 +143,7 @@ def _connect_readonly() -> sqlite3.Connection:
         raise IndexUnavailableError(
             f"I don't have permission to read the mission index ({db}). "
             "Ask your engineer to add your account to the 'ros-fairy' group "
-            "(sudo usermod -aG ros-fairy <your username>), then log out and "
+            "(ros2 fairy add_operator <your username>), then log out and "
             "back in.") from exc
 
 

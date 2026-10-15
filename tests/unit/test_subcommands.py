@@ -653,7 +653,8 @@ def test_run_as_normal_user_needs_no_root_until_apply(fairy_dirs):
                               return_value="/usr/bin/python3"), \
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
-            mock.patch.object(setup_cmd, "_collect", return_value=config), \
+            mock.patch.object(setup_cmd, "_collect",
+                              return_value=(config, ["ben"])), \
             mock.patch.object(setup_cmd.ros_env, "capture",
                               return_value={"ROS_DISTRO": "jazzy"}), \
             mock.patch.object(setup_cmd, "_apply_via_sudo",
@@ -664,7 +665,7 @@ def test_run_as_normal_user_needs_no_root_until_apply(fairy_dirs):
     apply_sudo.assert_called_once()
     payload = apply_sudo.call_args[0][1]
     assert payload == {"config": config, "env": {"ROS_DISTRO": "jazzy"},
-                       "python": "/usr/bin/python3"}
+                       "python": "/usr/bin/python3", "operators": ["ben"]}
     assert "password" in console.file.getvalue().lower()
 
 
@@ -680,7 +681,8 @@ def test_run_as_root_applies_directly_no_sudo_reexec(fairy_dirs):
                               return_value="/usr/bin/python3"), \
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
-            mock.patch.object(setup_cmd, "_collect", return_value=config), \
+            mock.patch.object(setup_cmd, "_collect",
+                              return_value=(config, [])), \
             mock.patch.object(setup_cmd.ros_env, "capture",
                               return_value={"ROS_DISTRO": "jazzy"}), \
             mock.patch.object(setup_cmd, "_apply",
@@ -789,38 +791,76 @@ def test_apply_reports_group_add_failure_instead_of_false_success(fairy_dirs):
     """A failed `usermod` must not be reported to the operator as success —
     they'd otherwise find out the hard way when mission_start denies them."""
     console = _console()
-    payload = {"config": {"robot": {"name": "X"}}, "env": {}}
+    payload = {"config": {"robot": {"name": "X"}}, "env": {},
+               "operators": ["ben"]}
     with mock.patch.object(setup_cmd, "write_identity"), \
-            mock.patch.object(setup_cmd, "create_dirs", return_value=False), \
+            mock.patch.object(setup_cmd, "create_dirs"), \
             mock.patch.object(setup_cmd, "install_service", return_value=True), \
+            mock.patch.object(setup_cmd.operators, "add",
+                              return_value={"jane": "failed",
+                                            "ben": "added"}) as add, \
             mock.patch.dict(setup_cmd.os.environ, {"SUDO_USER": "jane"}):
         assert setup_cmd._apply(console, payload) is True
+    add.assert_called_once_with(["jane", "ben"])
     out = console.file.getvalue()
     assert "Couldn't add jane" in out
-    assert "Added jane" not in out
+    assert "ros2 fairy add_operator jane" in out
+    assert "Added to the 'ros-fairy' group: ben." in out
+    assert "next login" in out
 
 
-def test_add_operator_to_group_returns_none_with_no_sudo_user(fairy_dirs):
-    with mock.patch.dict(setup_cmd.os.environ, {}, clear=True):
-        assert setup_cmd._add_operator_to_group() is None
+def test_add_operators_with_nobody_to_add_says_how(fairy_dirs):
+    console = _console()
+    with mock.patch.dict(setup_cmd.os.environ, {}, clear=True), \
+            mock.patch.object(setup_cmd.operators, "add") as add:
+        setup_cmd.add_operators(console, [])
+    add.assert_not_called()
+    assert "ros2 fairy add_operator <user>" in \
+        " ".join(console.file.getvalue().split())
 
 
-def test_add_operator_to_group_returns_true_when_already_member(fairy_dirs):
-    fake_group = SimpleNamespace(gr_mem=["jane"])
-    with mock.patch.dict(setup_cmd.os.environ, {"SUDO_USER": "jane"}), \
-            mock.patch.object(setup_cmd.grp, "getgrnam",
-                              return_value=fake_group):
-        assert setup_cmd._add_operator_to_group() is True
+def test_add_operators_skips_root_as_sudo_user(fairy_dirs):
+    console = _console()
+    with mock.patch.dict(setup_cmd.os.environ, {"SUDO_USER": "root"}), \
+            mock.patch.object(setup_cmd.operators, "add",
+                              return_value={"ben": "already"}) as add:
+        setup_cmd.add_operators(console, ["ben"])
+    add.assert_called_once_with(["ben"])
+    assert "Already in the 'ros-fairy' group: ben." in console.file.getvalue()
+    assert "next login" not in console.file.getvalue()
 
 
-def test_add_operator_to_group_returns_usermod_outcome(fairy_dirs):
-    fake_group = SimpleNamespace(gr_mem=[])
-    with mock.patch.dict(setup_cmd.os.environ, {"SUDO_USER": "jane"}), \
-            mock.patch.object(setup_cmd.grp, "getgrnam",
-                              return_value=fake_group), \
-            mock.patch.object(setup_cmd.subprocess, "run",
-                              return_value=SimpleNamespace(returncode=1)):
-        assert setup_cmd._add_operator_to_group() is False
+def test_ask_operators_validates_and_skips_known(fairy_dirs):
+    console = _console()
+    answers = iter(["ben nobody", "ben, cleo ana cleo"])
+    with mock.patch.object(setup_cmd.operators, "invoking_user",
+                           return_value="ana"), \
+            mock.patch.object(setup_cmd.operators, "members",
+                              return_value=["ana", "cleo"]), \
+            mock.patch.object(setup_cmd.operators, "account_exists",
+                              side_effect=lambda n: n != "nobody"), \
+            mock.patch.object(setup_cmd.Prompt, "ask",
+                              side_effect=lambda *a, **k: next(answers)):
+        assert setup_cmd.ask_operators(console) == ["ben"]
+    out = console.file.getvalue()
+    assert "Already in the 'ros-fairy' group: cleo" in out
+    assert "no account named nobody" in out
+
+
+def test_run_rejects_unknown_operator_before_the_wizard(fairy_dirs):
+    console = _console()
+    args = SimpleNamespace(debug=False, operator=["nobody"])
+    with mock.patch.object(setup_cmd.os, "geteuid", return_value=1000), \
+            mock.patch.object(setup_cmd, "_check_ros_visible",
+                              return_value=True), \
+            mock.patch.object(setup_cmd, "_choose_service_python",
+                              return_value="/usr/bin/python3"), \
+            mock.patch.object(setup_cmd.operators, "account_exists",
+                              return_value=False), \
+            mock.patch.object(setup_cmd, "_collect") as collect:
+        assert setup_cmd.run(args, console=console) == 1
+    collect.assert_not_called()
+    assert "no account named nobody" in console.file.getvalue()
 
 
 def test_install_service_stops_polling_on_failed_unit(fairy_dirs):
@@ -938,6 +978,7 @@ def test_collect_returns_none_when_review_declined(fairy_dirs):
     with mock.patch.object(setup_cmd, "ask_robot", return_value=config), \
             mock.patch.object(setup_cmd, "ask_sensors",
                               return_value=([], [])), \
+            mock.patch.object(setup_cmd, "ask_operators", return_value=[]), \
             mock.patch.object(setup_cmd, "review", return_value=False):
         assert setup_cmd._collect(console) is None
     assert "Nothing was written" in console.file.getvalue()
@@ -951,7 +992,7 @@ def test_collect_returns_config_when_review_confirmed(fairy_dirs):
             mock.patch.object(setup_cmd, "ask_sensors",
                               return_value=([], [])), \
             mock.patch.object(setup_cmd, "review", return_value=True):
-        assert setup_cmd._collect(console) == config
+        assert setup_cmd._collect(console, ["ben"]) == (config, ["ben"])
 
 
 # --- setup: self-sourcing ROS (`ros-fairy-setup`, no pre-sourced shell) --------

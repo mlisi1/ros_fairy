@@ -37,11 +37,12 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
 | [`repair`](#repair) | Make unplayable (bad-clock) recordings playable |
 | [`adopt`](#adopt) | Attach a bag recorded outside `mission_record` |
 | [`reindex`](#reindex) | Rebuild the mission list from the archives on disk |
+| [`add_operator`](#add_operator) | Let more accounts record missions |
 
 ## setup
 
 ```
-ros2 fairy setup [--ros-setup PATH] [--debug]
+ros2 fairy setup [--operator USER]... [--ros-setup PATH] [--debug]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy setup` -->
@@ -54,6 +55,7 @@ on stdin.
 
 | Option | |
 | --- | --- |
+| `--operator USER` | Another account that will record missions; repeatable. Skips the question about other operators. An account that doesn't exist stops setup before any question. |
 | `--ros-setup PATH` | Only when running setup directly as root (`sudo ros-fairy-setup`): the ROS 2 `setup.bash` to source. Auto-detected when there is exactly one `/opt/ros/*/setup.bash`. |
 
 It refuses (exit 1) if ROS isn't sourced, no ROS nodes are visible, or the
@@ -364,3 +366,26 @@ recent save is listed and you are told about the other. Export history is
 kept.
 
 `--json` prints `{"missions": N, "archive_dir": ..., "skipped": [...], "duplicates": {...}}`.
+
+## add_operator
+
+```
+ros2 fairy add_operator USER [USER...] [--debug]
+```
+
+Lets more accounts record and save missions, by adding them to the
+`ros-fairy` group (which owns the spool, the archive and the index). It asks
+for your password through `sudo` when it isn't run as root. Accounts already in
+the group are left alone.
+
+Membership applies from each account's next login. In a terminal that's
+already open, `newgrp ros-fairy` starts a shell that has it.
+
+Exit 1 if the robot isn't set up yet, an account doesn't exist, or `usermod`
+failed for one of them; the others are still added.
+
+The verbs that record or save (`mission_start`, `mission_record`,
+`mission_close`, `mission_abort`, `adopt`) check this access before asking
+anything. An account outside the group is told to ask for
+`ros2 fairy add_operator <its name>`; one added after its terminal was opened
+is told to log in again or run `newgrp ros-fairy`.

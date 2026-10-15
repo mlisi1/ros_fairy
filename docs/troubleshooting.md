@@ -29,10 +29,14 @@ won't load it from: install it with `./install.sh` (see
 ros_fairy was updated but the service still runs the old code:
 `sudo systemctl restart ros-fairy-watchdog`.
 
-**Permission denied on the spool, archive or index.**
-Your account isn't in the `ros-fairy` group, or you haven't logged in again since
-being added: `sudo usermod -aG ros-fairy $USER`, then log out and back in. Check
-with `id -nG`.
+**"Your account can't record missions on this robot yet", or permission denied
+on the spool, archive or index.**
+Your account isn't in the `ros-fairy` group. Someone with `sudo` adds it with
+`ros2 fairy add_operator <your username>`; then log out and back in.
+
+**"You were added to the 'ros-fairy' group after this terminal was opened".**
+Group membership only applies to new logins. Log out and back in, or run
+`newgrp ros-fairy` in that terminal. Check with `id -nG`.
 
 ## Capture
 

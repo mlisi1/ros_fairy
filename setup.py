@@ -122,6 +122,8 @@ setup(
             "repair = ros_fairy.subcommands.repair:RepairVerb",
             "adopt = ros_fairy.subcommands.adopt:AdoptVerb",
             "reindex = ros_fairy.subcommands.reindex:ReindexVerb",
+            "add_operator = ros_fairy.subcommands.add_operator:"
+            "AddOperatorVerb",
         ],
         "console_scripts": [
             "ros-fairy-watchdog = ros_fairy.watchdog.watchdog:main",
