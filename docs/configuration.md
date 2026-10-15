@@ -9,6 +9,7 @@ both are written by `ros2 fairy setup`.
 | --- | --- |
 | `/etc/ros-fairy/robot_identity.yaml` | The robot, its owner and its sensors ([below](#robot_identityyaml)). |
 | `/etc/ros-fairy/watchdog.env` | The ROS environment the watchdog service runs with ([below](#watchdogenv)). |
+| `/etc/ros-fairy/paths.yaml` | Where the data folder is, when it isn't `/var/ros-fairy` ([below](#moving-the-data-folder)). |
 | `/var/ros-fairy/spool/` | The mission in progress. |
 | `/var/ros-fairy/spool/bags/` | Recordings made with `mission_record`. |
 | `/var/ros-fairy/spool/mission_context.json` | The briefing answers. |
@@ -21,22 +22,45 @@ both are written by `ros2 fairy setup`.
 | `/var/ros-fairy/watchdog.state` | The watchdog's live status. |
 | `/var/ros-fairy/log/` | ROS log directory for the watchdog, used when root has no writable `~/.ros/log`. |
 
-### Moving the directories
+The rows below `/etc` are in the **data folder**, `/var/ros-fairy` unless it
+was moved.
+
+### Moving the data folder
+
+To keep recordings and saved missions on another disk, choose the folder at
+setup (the wizard asks, or `ros2 fairy setup --var-dir /data/ros-fairy`), or
+move what is already there with
+[`ros2 fairy move_data`](commands.md#move_data). Either one writes the place
+into `/etc/ros-fairy/paths.yaml`:
+
+```yaml
+var_dir: /data/ros-fairy
+```
+
+Every process reads this file: operator shells, the watchdog service,
+`sudo`, cron jobs and launch files. A change applies at once, with no new
+login. Don't edit it to move missions that already exist (they would stay
+behind, unlisted): use `move_data`. A file that can't be used (no `var_dir`,
+a relative path, broken YAML) stops every command with a plain message rather
+than quietly using `/var/ros-fairy`.
+
+For tests and one-off experiments, two environment variables still override
+everything:
 
 | Variable | Default | Moves |
 | --- | --- | --- |
-| `ROS_FAIRY_CONFIG_DIR` | `/etc/ros-fairy` | the identity file and `watchdog.env` |
-| `ROS_FAIRY_VAR_DIR` | `/var/ros-fairy` | the spool, archive, index, state and log |
+| `ROS_FAIRY_VAR_DIR` | `paths.yaml`, else `/var/ros-fairy` | the data folder, for this shell only |
+| `ROS_FAIRY_CONFIG_DIR` | `/etc/ros-fairy` | the identity file, `watchdog.env` and `paths.yaml` |
 
-Set them for every operator shell **and** for the service. The unit file
-hard-codes `EnvironmentFile=-/etc/ros-fairy/watchdog.env`, so a relocated
-config directory also needs a systemd drop-in
-(`sudo systemctl edit ros-fairy-watchdog`). `setup` and `uninstall.sh` carry
-both variables through `sudo`.
+The service never sees a shell's variables, so a shell with
+`ROS_FAIRY_VAR_DIR` set works on different missions than the watchdog
+(`doctor` warns about it). A moved config folder also needs a systemd drop-in
+(`sudo systemctl edit ros-fairy-watchdog`), because the unit file hard-codes
+`EnvironmentFile=-/etc/ros-fairy/watchdog.env`.
 
 ### Permissions
 
-- The `ros-fairy` group owns `/var/ros-fairy` and everything below it.
+- The `ros-fairy` group owns the data folder and everything below it.
   Directories are `2775` (setgid, so new files inherit the group), the index is
   `0664`, and saved crates are made group-writable.
 - Every operator account must be in that group: `setup` adds the ones you

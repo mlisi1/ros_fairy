@@ -126,12 +126,23 @@ def ensure_talkers() -> None:
         time.sleep(4)  # discovery
 
 
+def data_dir() -> Path:
+    """Where the robot keeps its missions (/etc/ros-fairy/paths.yaml, as
+    ros_fairy reads it)."""
+    paths_file = Path("/etc/ros-fairy/paths.yaml")
+    if paths_file.is_file():
+        for line in paths_file.read_text().splitlines():
+            if line.startswith("var_dir:"):
+                return Path(line.split(":", 1)[1].strip().strip("'\""))
+    return Path("/var/ros-fairy")
+
+
 def wait_until_idle(timeout: float = 150) -> None:
     """Until the watchdog has finished with the last recording. The harvest
     can take a minute or more: the container sees the host's USB devices,
     and a sleeping one is slow to answer (lsusb -v alone may hit its 20 s
     limit)."""
-    state_file = Path("/var/ros-fairy/watchdog.state")
+    state_file = data_dir() / "watchdog.state"
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         try:
@@ -159,6 +170,7 @@ SETUP_ANSWERS = {
     r"TF frame id": ["gps_link", "lidar_link"],
     r"Calibration file path": "",
     r"Other accounts that will record missions": "",
+    r"Where should recordings and saved missions be kept\?": "",
     r"Write this configuration\?": "y",
 }
 
@@ -176,6 +188,22 @@ BRIEFING = {
     r"environment like\?": "indoor",
     r"Anything else worth noting\?": "",
 }
+
+
+def record_mission(user: str = "ana", goal: str = "Sandbox smoke test",
+                   seconds: float = 5) -> None:
+    """Briefing, a short recording, save: one mission, checked."""
+    status = interact(user, "ros2 fairy mission_start",
+                      {**BRIEFING, r"what is this mission trying to do\?": goal,
+                       r"replace it\?": "y",
+                       r"Include (them|it) in this new mission\?": "n"})
+    expect(status == 0, f"mission_start exited {status}")
+    status = interact(user, "ros2 fairy mission_record", {},
+                      interrupt_after=seconds)
+    expect(status == 0, f"mission_record exited {status}")
+    wait_until_idle()
+    status = interact(user, "ros2 fairy mission_close --yes", {}, timeout=180)
+    expect(status == 0, f"mission_close exited {status}")
 
 
 def group_members(group: str = "ros-fairy") -> set[str]:

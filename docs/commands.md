@@ -38,11 +38,13 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
 | [`adopt`](#adopt) | Attach a bag recorded outside `mission_record` |
 | [`reindex`](#reindex) | Rebuild the mission list from the archives on disk |
 | [`add_operator`](#add_operator) | Let more accounts record missions |
+| [`move_data`](#move_data) | Move the recordings and saved missions to another folder or disk |
 
 ## setup
 
 ```
-ros2 fairy setup [--operator USER]... [--ros-setup PATH] [--debug]
+ros2 fairy setup [--operator USER]... [--var-dir DIR] [--ros-setup PATH]
+                 [--debug]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy setup` -->
@@ -56,6 +58,7 @@ on stdin.
 | Option | |
 | --- | --- |
 | `--operator USER` | Another account that will record missions; repeatable. Skips the question about other operators. An account that doesn't exist stops setup before any question. |
+| `--var-dir DIR` | Where to keep recordings and saved missions (default `/var/ros-fairy`); skips that question. Only while there are no missions yet: to move existing ones, use [`move_data`](#move_data). |
 | `--ros-setup PATH` | Only when running setup directly as root (`sudo ros-fairy-setup`): the ROS 2 `setup.bash` to source. Auto-detected when there is exactly one `/opt/ros/*/setup.bash`. |
 
 It refuses (exit 1) if ROS isn't sourced, no ROS nodes are visible, or the
@@ -81,6 +84,7 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | Check | Fails / warns when |
 | --- | --- |
 | Robot identity | `robot_identity.yaml` is missing or invalid |
+| Data folder | says where missions are kept; fails if `paths.yaml` can't be used, warns if this shell's `ROS_FAIRY_VAR_DIR` points elsewhere than the service, or missions were left behind in `/var/ros-fairy` |
 | Recording assistant | the watchdog isn't running, or has been recording with no heartbeat for 5 minutes |
 | Service interpreter | the installed service's interpreter can't load ros_fairy (only installed in a home directory) |
 | Watchdog code | the running watchdog's code differs from the installed code (restart it) |
@@ -390,3 +394,31 @@ The verbs that record or save (`mission_start`, `mission_record`,
 anything. An account outside the group is told to ask for
 `ros2 fairy add_operator <its name>`; one added after its terminal was opened
 is told to log in again or run `newgrp ros-fairy`.
+
+## move_data
+
+```
+ros2 fairy move_data DIR [--yes] [--debug]
+```
+
+Moves the data folder (recordings, saved missions, the mission list, the
+watchdog's state and logs) to `DIR`, a new or empty folder, e.g. on a bigger
+disk. It asks first (`--yes` skips the question), then, through `sudo`:
+
+1. stops the watchdog;
+2. on the same disk, renames the folder (instant); on another disk, copies it
+   into a hidden folder next to `DIR`, compares every file's size with the
+   original, renames the copy into place, and only then removes the original;
+3. records `DIR` in `/etc/ros-fairy/paths.yaml` (removes the file when `DIR`
+   is `/var/ros-fairy`);
+4. rebuilds the mission list (`reindex`) and starts the watchdog again.
+
+Every shell, and the watchdog, uses the new place at once. If anything fails
+before step 3, the missions stay where they were and the watchdog is started
+again.
+
+It refuses (exit 1) while a mission is open (save it with `mission_close` or
+abandon it with `mission_abort` first), a save is unfinished, a recording is
+being processed, `ROS_FAIRY_VAR_DIR` is set in the shell, or `DIR` isn't
+empty, is inside the current folder (or the other way round), or is on a
+disk without room for the missions plus 1 GiB.

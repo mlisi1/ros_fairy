@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import sys
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -376,8 +377,8 @@ def test_setup_rerun_keeps_the_recording_section(fairy_dirs, monkeypatch):
         "robot": {"name": "Jo", "platform": "p", "serial_number": "s"},
         "owner": {"organization": "o", "contact_email": "a@b.c"}})
     monkeypatch.setattr(setup_cmd, "ask_sensors", lambda c, cur: ([], []))
-    monkeypatch.setattr(setup_cmd, "review", lambda c, cfg, ops: True)
-    config, _ = setup_cmd._collect(_console(), [])
+    monkeypatch.setattr(setup_cmd, "review", lambda c, cfg, ops, var: True)
+    config, _, _ = setup_cmd._collect(_console(), [], Path("/var/ros-fairy"))
     assert config["recording"] == current["recording"]
     assert config["custom_note"] == "kept"
 

@@ -89,6 +89,7 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `adopt` | Ingest a bag recorded outside `mission_record` |
 | `reindex` | Rebuild the mission list from the archives on disk |
 | `add_operator` | Let more accounts record missions (adds them to the `ros-fairy` group) |
+| `move_data` | Move the recordings and saved missions to another folder or disk |
 
 ## Where things live
 
@@ -96,9 +97,11 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | --- | --- |
 | `/etc/ros-fairy` | `robot_identity.yaml`, watchdog environment |
 | `/var/ros-fairy/spool` | live harvest, session env, in-progress bags |
-| `/var/ros-fairy/archive` | saved mission crates and the mission index |
+| `/var/ros-fairy/archive` | saved mission crates |
+| `/var/ros-fairy/index.db` | the mission list |
 
-Both roots are overridable with `ROS_FAIRY_CONFIG_DIR` and `ROS_FAIRY_VAR_DIR`.
+To keep missions on another disk, choose the folder at `setup` (`--var-dir`)
+or move them later with `ros2 fairy move_data DIR`.
 
 ## Development
 

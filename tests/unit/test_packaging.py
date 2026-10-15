@@ -40,7 +40,8 @@ def test_uninstall_script_matches_the_package():
     assert _shell_default(script, "SERVICE_NAME") == setup.SERVICE_NAME
     assert _shell_default(script, "GROUP_NAME") == setup.GROUP_NAME
     assert _shell_default(script, "CONFIG_DIR") == paths.DEFAULT_CONFIG_DIR
-    assert _shell_default(script, "VAR_DIR") == paths.DEFAULT_VAR_DIR
+    assert _shell_default(script, "DEFAULT_VAR_DIR") == paths.DEFAULT_VAR_DIR
+    assert f'"$CONFIG_DIR/{paths.paths_file().name}"' in script
 
 
 def test_unit_files_match_the_package():

@@ -665,7 +665,8 @@ def test_run_as_normal_user_needs_no_root_until_apply(fairy_dirs):
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
             mock.patch.object(setup_cmd, "_collect",
-                              return_value=(config, ["ben"])), \
+                              return_value=(config, ["ben"],
+                                            Path("/data/fairy"))), \
             mock.patch.object(setup_cmd.ros_env, "capture",
                               return_value={"ROS_DISTRO": "jazzy"}), \
             mock.patch.object(setup_cmd, "_apply_via_sudo",
@@ -676,7 +677,8 @@ def test_run_as_normal_user_needs_no_root_until_apply(fairy_dirs):
     apply_sudo.assert_called_once()
     payload = apply_sudo.call_args[0][1]
     assert payload == {"config": config, "env": {"ROS_DISTRO": "jazzy"},
-                       "python": "/usr/bin/python3", "operators": ["ben"]}
+                       "python": "/usr/bin/python3", "operators": ["ben"],
+                       "var_dir": "/data/fairy"}
     assert "password" in console.file.getvalue().lower()
 
 
@@ -693,7 +695,7 @@ def test_run_as_root_applies_directly_no_sudo_reexec(fairy_dirs):
             mock.patch.object(setup_cmd.shutil, "which",
                               return_value="/usr/bin/docker"), \
             mock.patch.object(setup_cmd, "_collect",
-                              return_value=(config, [])), \
+                              return_value=(config, [], Path("/x"))), \
             mock.patch.object(setup_cmd.ros_env, "capture",
                               return_value={"ROS_DISTRO": "jazzy"}), \
             mock.patch.object(setup_cmd, "_apply",
@@ -990,6 +992,8 @@ def test_collect_returns_none_when_review_declined(fairy_dirs):
             mock.patch.object(setup_cmd, "ask_sensors",
                               return_value=([], [])), \
             mock.patch.object(setup_cmd, "ask_operators", return_value=[]), \
+            mock.patch.object(setup_cmd, "ask_var_dir",
+                              return_value=Path("/x")), \
             mock.patch.object(setup_cmd, "review", return_value=False):
         assert setup_cmd._collect(console) is None
     assert "Nothing was written" in console.file.getvalue()
@@ -1003,7 +1007,8 @@ def test_collect_returns_config_when_review_confirmed(fairy_dirs):
             mock.patch.object(setup_cmd, "ask_sensors",
                               return_value=([], [])), \
             mock.patch.object(setup_cmd, "review", return_value=True):
-        assert setup_cmd._collect(console, ["ben"]) == (config, ["ben"])
+        assert setup_cmd._collect(console, ["ben"], Path("/x")) == \
+            (config, ["ben"], Path("/x"))
 
 
 # --- setup: self-sourcing ROS (`ros-fairy-setup`, no pre-sourced shell) --------

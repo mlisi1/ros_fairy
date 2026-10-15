@@ -1,10 +1,16 @@
 """Canonical filesystem paths for ros-fairy.
 
-Every other module must obtain paths from here. The roots are overridable via
-environment variables so tests (and unusual deployments) can relocate them:
+Every other module must obtain paths from here. Two roots:
 
-- ``ROS_FAIRY_VAR_DIR``    -> default ``/var/ros-fairy``
-- ``ROS_FAIRY_CONFIG_DIR`` -> default ``/etc/ros-fairy``
+- the data directory (spool, archive, index, state, log): the
+  ``ROS_FAIRY_VAR_DIR`` environment variable if set, else ``var_dir`` in
+  ``<config dir>/paths.yaml`` (written by ``setup --var-dir`` and
+  ``move_data``), else ``/var/ros-fairy``. The file is read by every process
+  (operator shells, the service, sudo, cron, launch files), so moving the
+  data needs no new login;
+- the config directory: ``ROS_FAIRY_CONFIG_DIR`` if set, else
+  ``/etc/ros-fairy``. It holds paths.yaml, so it can only move by the
+  environment variable (tests use both variables).
 
 Paths are resolved lazily (functions, not module constants) so an env change
 made by a test fixture takes effect immediately.
@@ -15,10 +21,73 @@ from pathlib import Path
 
 DEFAULT_VAR_DIR = "/var/ros-fairy"
 DEFAULT_CONFIG_DIR = "/etc/ros-fairy"
+VAR_DIR_ENV = "ROS_FAIRY_VAR_DIR"
+
+
+class PathsConfigError(Exception):
+    """paths.yaml exists but can't be used: in plain words, for the operator.
+
+    Raised rather than falling back to the default, which would quietly
+    record into (and list) a different archive."""
+
+
+_cache: dict[tuple, Path | None] = {}
+
+
+def paths_file() -> Path:
+    return config_dir() / "paths.yaml"
+
+
+def configured_var_dir() -> Path | None:
+    """``var_dir`` from paths.yaml, or None when there is no such file.
+    Cached until the file changes (the watchdog asks every second)."""
+    path = paths_file()
+    try:
+        st = path.stat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise PathsConfigError(f"I can't read {path}: {exc}") from exc
+    key = (str(path), st.st_mtime_ns, st.st_size)
+    if key not in _cache:
+        _cache.clear()
+        _cache[key] = _parse_paths_file(path)
+    return _cache[key]
+
+
+def _parse_paths_file(path: Path) -> Path:
+    import yaml
+    problem = None
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        problem = f"it can't be read ({str(exc).splitlines()[0]})"
+    else:
+        value = data.get("var_dir") if isinstance(data, dict) else None
+        if not isinstance(value, str) or not value.strip():
+            problem = "it has no `var_dir: /some/folder` line"
+        elif not os.path.isabs(value.strip()):
+            problem = f"var_dir ({value}) isn't an absolute path"
+        else:
+            return Path(value.strip())
+    raise PathsConfigError(
+        f"{path} says where the missions are kept, but {problem}. Fix it, or "
+        "set it again with `ros2 fairy setup --var-dir <folder>`.")
+
+
+def var_dir_source() -> str:
+    """Where :func:`var_dir` comes from: "environment", "paths.yaml" or
+    "default"."""
+    if os.environ.get(VAR_DIR_ENV):
+        return "environment"
+    return "paths.yaml" if configured_var_dir() is not None else "default"
 
 
 def var_dir() -> Path:
-    return Path(os.environ.get("ROS_FAIRY_VAR_DIR", DEFAULT_VAR_DIR))
+    env = os.environ.get(VAR_DIR_ENV)
+    if env:
+        return Path(env)
+    return configured_var_dir() or Path(DEFAULT_VAR_DIR)
 
 
 def config_dir() -> Path:

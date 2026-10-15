@@ -103,6 +103,9 @@ It then asks a few questions (existing answers are offered as defaults):
   `camera`, `imu`, `sonar`, `other`), make and model, the topic it publishes
   on, an optional TF frame and an optional calibration file. Live topics are
   listed to choose from.
+- **Where to keep missions:** `/var/ros-fairy` unless you choose another
+  folder, e.g. on a bigger disk (`--var-dir DIR` in a script). Missions that
+  already exist are moved with [`move_data`](commands.md#move_data) instead.
 - **Operators:** the other accounts that will record missions (names separated
   by spaces). You are added anyway. In a script, give them with
   `--operator USER` (repeatable) instead.
@@ -112,8 +115,9 @@ through `sudo`. It:
 
 1. writes `/etc/ros-fairy/robot_identity.yaml`
    ([format](configuration.md#robot_identityyaml));
-2. creates the `ros-fairy` system group and the directories under
-   `/var/ros-fairy`, owned by that group;
+2. records the data folder in `/etc/ros-fairy/paths.yaml` if it isn't
+   `/var/ros-fairy`, then creates the `ros-fairy` system group and the
+   directories in the data folder, owned by that group;
 3. adds **you** (the account that ran `sudo`) and the operators you named to
    the `ros-fairy` group;
 4. writes `/etc/ros-fairy/watchdog.env` from your shell's ROS environment;

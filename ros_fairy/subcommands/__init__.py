@@ -10,6 +10,8 @@ import logging
 import sys
 from typing import Any
 
+from ros_fairy.utils.paths import PathsConfigError
+
 try:
     from ros2cli.verb import VerbExtension
 except ImportError:  # pragma: no cover - exercised only outside ROS
@@ -96,6 +98,12 @@ def guarded_main(run, args) -> int:
             return json_error(NO_TERMINAL, 2)
         print(f"\n{NO_TERMINAL}", file=sys.stderr)
         return 2
+    except PathsConfigError as exc:
+        # A broken paths.yaml: say what's wrong instead of "unexpected".
+        if as_json:
+            return json_error(str(exc))
+        print(str(exc), file=sys.stderr)
+        return 1
     except Exception as exc:
         if getattr(args, "debug", False):
             raise

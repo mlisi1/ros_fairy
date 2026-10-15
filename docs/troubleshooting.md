@@ -29,6 +29,22 @@ won't load it from: install it with `./install.sh` (see
 ros_fairy was updated but the service still runs the old code:
 `sudo systemctl restart ros-fairy-watchdog`.
 
+**"... paths.yaml says where the missions are kept, but ...".**
+`/etc/ros-fairy/paths.yaml` was edited by hand and can't be used. Every command
+stops rather than use another folder. Put back a line such as
+`var_dir: /data/ros-fairy` (an absolute path), or set it again with
+`ros2 fairy setup --var-dir <folder>`.
+
+**`doctor`: "This shell uses a different data folder".**
+`ROS_FAIRY_VAR_DIR` is set in your shell, so its commands work on other
+missions than the watchdog records. `unset ROS_FAIRY_VAR_DIR`; to move the
+missions for everyone, use `ros2 fairy move_data`.
+
+**`doctor`: "Missions left behind in /var/ros-fairy".**
+`paths.yaml` was pointed elsewhere by hand, leaving missions in the old place,
+where they aren't listed. Move them into the new folder's `archive/` and run
+`ros2 fairy reindex`, or delete them.
+
 **"Your account can't record missions on this robot yet", or permission denied
 on the spool, archive or index.**
 Your account isn't in the `ros-fairy` group. Someone with `sudo` adds it with

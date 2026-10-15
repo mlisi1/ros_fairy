@@ -17,12 +17,21 @@ set -euo pipefail
 # "from ros_fairy.subcommands.setup import SERVICE_NAME"`): this script must
 # keep working to clean up a broken/partial install, which is exactly when
 # importing ros_fairy might not. tests/unit/test_packaging.py checks these
-# four against ros_fairy/subcommands/setup.py's SERVICE_NAME/GROUP_NAME and
-# ros_fairy/utils/paths.py's DEFAULT_CONFIG_DIR/DEFAULT_VAR_DIR.
+# against ros_fairy/subcommands/setup.py's SERVICE_NAME/GROUP_NAME and
+# ros_fairy/utils/paths.py's DEFAULT_CONFIG_DIR/DEFAULT_VAR_DIR and the
+# name of paths.yaml.
 SERVICE_NAME="ros-fairy-watchdog.service"
 GROUP_NAME="ros-fairy"
 CONFIG_DIR="${ROS_FAIRY_CONFIG_DIR:-/etc/ros-fairy}"
-VAR_DIR="${ROS_FAIRY_VAR_DIR:-/var/ros-fairy}"
+# The data folder: ROS_FAIRY_VAR_DIR, else what `setup --var-dir` or
+# `move_data` recorded in paths.yaml (read here without ros_fairy), else the
+# default — the same order as ros_fairy/utils/paths.py.
+DEFAULT_VAR_DIR="/var/ros-fairy"
+CONFIGURED_VAR_DIR=""
+if [ -f "$CONFIG_DIR/paths.yaml" ]; then
+    CONFIGURED_VAR_DIR="$(sed -n "s/^var_dir:[[:space:]]*['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}[[:space:]]*$/\1/p" "$CONFIG_DIR/paths.yaml" | head -1)"
+fi
+VAR_DIR="${ROS_FAIRY_VAR_DIR:-${CONFIGURED_VAR_DIR:-$DEFAULT_VAR_DIR}}"
 ARCHIVE_DIR="$VAR_DIR/archive"
 INDEX_DB="$VAR_DIR/index.db"
 PYTHON="${PYTHON:-python3}"

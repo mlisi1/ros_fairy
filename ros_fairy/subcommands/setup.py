@@ -217,8 +217,80 @@ def ask_operators(console: Console) -> list[str]:
     raise SetupAborted(f"Gave up on '{prompt}' after {MAX_ATTEMPTS} attempts.")
 
 
+# Entries ros_fairy keeps in its data directory: a folder holding only these
+# (or nothing) can be taken over.
+_DATA_ENTRIES = {"spool", "archive", "index.db", "index.db-wal",
+                 "index.db-shm", "watchdog.state", "log"}
+
+
+def has_missions(var_dir: Path) -> bool:
+    """Whether ``var_dir`` holds missions: saved ones, or one in progress."""
+    archive = var_dir / "archive"
+    if archive.is_dir() and any(not p.name.startswith(".")
+                                for p in archive.iterdir()):
+        return True
+    spool = var_dir / "spool"
+    bags = spool / "bags"
+    return (spool / "mission_context.json").exists() \
+        or (spool / "harvest.json").exists() \
+        or (bags.is_dir() and any(bags.iterdir()))
+
+
+def data_dir_problem(new: str, current: Path) -> str | None:
+    """Why ``new`` can't become the data directory, or None.
+
+    Moving existing missions is move_data's job; setup only chooses where
+    they go while there are none (or keeps the current place)."""
+    if not os.path.isabs(new):
+        return f"{new} isn't an absolute path (start it with /)"
+    target = Path(os.path.normpath(new))
+    if target == current:
+        return None
+    if target == paths.config_dir() or paths.config_dir() in target.parents:
+        return f"{target} is inside the configuration folder"
+    if has_missions(current):
+        return (f"missions are already kept in {current}. To move them, run "
+                f"`ros2 fairy move_data {target}`")
+    if target.is_dir():
+        others = [p.name for p in target.iterdir()
+                  if p.name not in _DATA_ENTRIES]
+        if others:
+            return (f"{target} already holds other things ({', '.join(others[:3])}"
+                    f"{', …' if len(others) > 3 else ''}); choose an empty or "
+                    f"new folder, e.g. {target / 'ros-fairy'}")
+    elif target.exists():
+        return f"{target} exists and isn't a folder"
+    return None
+
+
+def free_space(folder: Path) -> str:
+    """Free space on the disk ``folder`` is (or would be) on, for people."""
+    from ros_fairy.ui.review import human_size
+    probe = folder
+    while not probe.exists() and probe != probe.parent:
+        probe = probe.parent
+    try:
+        return f"{human_size(shutil.disk_usage(probe).free)} free"
+    except OSError:
+        return "free space unknown"
+
+
+def ask_var_dir(console: Console, current: Path) -> Path:
+    """Where recordings and saved missions are kept (Enter keeps it)."""
+    prompt = "Where should recordings and saved missions be kept?"
+    for _ in range(MAX_ATTEMPTS):
+        answer = Prompt.ask(prompt, default=str(current),
+                            console=console).strip()
+        problem = data_dir_problem(answer, current)
+        if problem is None:
+            return Path(os.path.normpath(answer))
+        console.print(f"[yellow]Sorry, {problem}.[/yellow]")
+    raise SetupAborted(f"Gave up on '{prompt}' after {MAX_ATTEMPTS} attempts.")
+
+
 def review(console: Console, config: dict,
-           operator_names: list[str] | None = None) -> bool:
+           operator_names: list[str] | None = None,
+           var_dir: Path | None = None) -> bool:
     table = Table.grid(padding=(0, 2))
     table.add_column(style="bold")
     table.add_column()
@@ -235,6 +307,8 @@ def review(console: Console, config: dict,
                       f"{sensor['topic']}{cal}")
     table.add_row("Operators", ", ".join(
         [f"{operators.invoking_user()} (you)", *(operator_names or [])]))
+    if var_dir is not None:
+        table.add_row("Missions kept in", f"{var_dir} ({free_space(var_dir)})")
     console.print(Panel(table, title="Configuration review",
                         border_style="cyan"))
     return Confirm.ask("Write this configuration?", default=True,
@@ -248,6 +322,24 @@ def write_identity(config: dict) -> None:
     path.write_text(yaml.safe_dump(config, sort_keys=False,
                                    allow_unicode=True))
     path.chmod(0o644)
+
+
+def write_paths_file(var_dir: Path) -> None:
+    """Record where the data directory is, for every process to read
+    (paths.var_dir); the default needs no file."""
+    path = paths.paths_file()
+    if var_dir == Path(paths.DEFAULT_VAR_DIR):
+        path.unlink(missing_ok=True)
+        return
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(
+        "# Where ROS F.A.I.R.y keeps recordings and saved missions. Written by\n"
+        "# `ros2 fairy setup --var-dir` and `ros2 fairy move_data`; to move\n"
+        "# missions that already exist, use move_data, not an edit here.\n"
+        + yaml.safe_dump({"var_dir": str(var_dir)}))
+    tmp.chmod(0o644)
+    tmp.replace(path)
 
 
 def create_dirs() -> None:
@@ -485,8 +577,10 @@ def install_service(console: Console, env: dict[str, str],
         f"ExecStart={SYSTEM_PYTHON} ", f"ExecStart={python} ")
     (UNIT_DIR / SERVICE_NAME).write_text(unit)
     subprocess.run(["systemctl", "daemon-reload"], check=True)
-    subprocess.run(["systemctl", "enable", "--now", SERVICE_NAME],
-                   check=True)
+    subprocess.run(["systemctl", "enable", SERVICE_NAME], check=True)
+    # restart, not start: a running watchdog must pick up the new
+    # environment, interpreter and data directory.
+    subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
     deadline = time.monotonic() + 10
     while time.monotonic() < deadline:
         active = subprocess.run(["systemctl", "is-active", SERVICE_NAME],
@@ -500,12 +594,14 @@ def install_service(console: Console, env: dict[str, str],
     return False
 
 
-def _collect(console: Console, operator_names: list[str] | None = None
-             ) -> tuple[dict, list[str]] | None:
+def _collect(console: Console, operator_names: list[str] | None = None,
+             var_dir: Path | None = None
+             ) -> tuple[dict, list[str], Path] | None:
     """The unprivileged half: the interactive wizard. No root needed.
 
-    Returns the robot configuration and the other operator accounts to add
-    (``operator_names`` when given: --operator skips that question).
+    Returns the robot configuration, the other operator accounts to add and
+    the data directory (``operator_names`` / ``var_dir`` when given:
+    --operator and --var-dir skip those questions).
 
     Reading /etc/ros-fairy/robot_identity.yaml to offer current values as
     defaults works without root too — :func:`write_identity` leaves it
@@ -530,13 +626,15 @@ def _collect(console: Console, operator_names: list[str] | None = None
                 config[key] = value
         if operator_names is None:
             operator_names = ask_operators(console)
-        if not review(console, config, operator_names):
+        if var_dir is None:
+            var_dir = ask_var_dir(console, paths.var_dir())
+        if not review(console, config, operator_names, var_dir):
             console.print("Nothing was written.")
             return None
     except SetupAborted as exc:
         console.print(f"[red]{exc}[/red]")
         return None
-    return config, operator_names
+    return config, operator_names, var_dir
 
 
 def _apply(console: Console, payload: dict) -> bool:
@@ -550,6 +648,8 @@ def _apply(console: Console, payload: dict) -> bool:
     so it needs nothing beyond filesystem/systemd privileges.
     """
     write_identity(payload["config"])
+    if payload.get("var_dir"):
+        write_paths_file(Path(payload["var_dir"]))
     create_dirs()
     add_operators(console, payload.get("operators", []))
     if install_service(console, payload["env"],
@@ -649,12 +749,26 @@ def run(args, console: Console | None = None) -> int:
                           " on this computer (--operator).[/red]")
             return 1
 
-    collected = _collect(console, wanted)
+    chosen = getattr(args, "var_dir", None)
+    if chosen is not None:
+        if os.environ.get(paths.VAR_DIR_ENV) and \
+                Path(os.path.normpath(chosen)) != paths.var_dir():
+            console.print(f"[red]{paths.VAR_DIR_ENV} is set in this shell "
+                          f"({paths.var_dir()}) and would override "
+                          "--var-dir here. Unset it and try again.[/red]")
+            return 1
+        problem = data_dir_problem(chosen, paths.var_dir())
+        if problem:
+            console.print(f"[red]Can't keep missions there: {problem}.[/red]")
+            return 1
+        chosen = Path(os.path.normpath(chosen))
+
+    collected = _collect(console, wanted, chosen)
     if collected is None:
         return 0
-    config, operator_names = collected
+    config, operator_names, var_dir = collected
     payload = {"config": config, "env": env, "python": python,
-               "operators": operator_names}
+               "operators": operator_names, "var_dir": str(var_dir)}
 
     if os.geteuid() == 0:
         return 0 if _apply(console, payload) else 1
@@ -674,6 +788,11 @@ def _add_setup_arguments(parser) -> None:
         help="only used when running setup directly as root: path to the "
              "ROS 2 setup.bash to source (auto-detected from "
              "/opt/ros/*/setup.bash when there's exactly one)")
+    parser.add_argument(
+        "--var-dir", metavar="DIR",
+        help="where to keep recordings and saved missions (default "
+             "/var/ros-fairy). Skips that question. To move missions that "
+             "already exist, use `ros2 fairy move_data`")
     parser.add_argument(
         "--operator", action="append", metavar="USER",
         help="another account that will record missions; repeatable. "

@@ -124,6 +124,7 @@ setup(
             "reindex = ros_fairy.subcommands.reindex:ReindexVerb",
             "add_operator = ros_fairy.subcommands.add_operator:"
             "AddOperatorVerb",
+            "move_data = ros_fairy.subcommands.move_data:MoveDataVerb",
         ],
         "console_scripts": [
             "ros-fairy-watchdog = ros_fairy.watchdog.watchdog:main",

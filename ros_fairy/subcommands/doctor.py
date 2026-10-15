@@ -13,6 +13,7 @@ FAILs (WARN/SKIP do not fail), so it is usable in scripts and `--json`.
 import os
 import shutil
 from datetime import datetime, timezone
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -252,6 +253,47 @@ def _check_mcap() -> dict:
                     "checks need it on Jazzy)"}
 
 
+def _check_data_dir() -> dict:
+    """Where missions are kept, and whether this shell agrees with the
+    service (which never sees a shell's environment variables)."""
+    try:
+        where = paths.var_dir()
+        source = paths.var_dir_source()
+    except paths.PathsConfigError as exc:
+        return {"status": FAIL, "title": "Data folder setting is broken",
+                "detail": str(exc), "hint": ""}
+    if source == "environment":
+        try:
+            configured = paths.configured_var_dir() or \
+                Path(paths.DEFAULT_VAR_DIR)
+        except paths.PathsConfigError as exc:
+            return {"status": FAIL, "title": "Data folder setting is broken",
+                    "detail": str(exc), "hint": ""}
+        if configured != where:
+            return {"status": WARN,
+                    "title": "This shell uses a different data folder",
+                    "detail": f"{paths.VAR_DIR_ENV}={where} here; the "
+                              f"recording assistant uses {configured}",
+                    "hint": f"unset {paths.VAR_DIR_ENV} (to move the "
+                            "missions, use `ros2 fairy move_data`)"}
+    default = Path(paths.DEFAULT_VAR_DIR)
+    if where != default and (default / "archive").is_dir() and any(
+            not p.name.startswith(".")
+            for p in (default / "archive").iterdir()):
+        return {"status": WARN,
+                "title": f"Missions left behind in {default}",
+                "detail": f"missions are kept in {where}, but "
+                          f"{default / 'archive'} still holds some; they "
+                          "aren't listed",
+                "hint": f"move them into {where / 'archive'} and run "
+                        "`ros2 fairy reindex`, or delete them"}
+    why = {"paths.yaml": f"set in {paths.paths_file()}",
+           "environment": f"from {paths.VAR_DIR_ENV}",
+           "default": "the default"}[source]
+    return {"status": OK, "title": f"Missions are kept in {where}",
+            "detail": why, "hint": ""}
+
+
 def _check_harvest_tools() -> dict:
     from ros_fairy.utils import harvest_tools
     tools = harvest_tools.missing_tools()
@@ -357,7 +399,8 @@ def _check_watchdog_code() -> dict:
                     "install (a checkout or ~/.local) than the service"}
 
 
-_CHECKS = (_check_identity, _check_watchdog, _check_service_python,
+_CHECKS = (_check_identity, _check_data_dir, _check_watchdog,
+           _check_service_python,
            _check_watchdog_code,
            _check_ros_reachable,
            _check_ros_environment, _check_service_env, _check_service_harvest,
