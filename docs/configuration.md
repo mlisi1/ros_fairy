@@ -137,8 +137,21 @@ writable by others is removed: both when the file is written and again when the
 watchdog starts. A ROS install under `/opt/ros` is unaffected. An overlay in
 someone's home directory is not visible to the service.
 
-Re-run `ros2 fairy setup` to regenerate the file. `doctor` warns when your
-shell's `ROS_DOMAIN_ID` or `RMW_IMPLEMENTATION` no longer matches it.
+When the robot's ROS environment changes, regenerate it from a shell that has
+the new one with `ros2 fairy setup --refresh-env` (no questions; it also
+restarts the watchdog). `doctor` warns when the file no longer matches your
+shell: the distro, any DDS discovery setting (`ROS_DOMAIN_ID`,
+`RMW_IMPLEMENTATION`, `ROS_AUTOMATIC_DISCOVERY_RANGE`, `ROS_LOCALHOST_ONLY`,
+`ROS_STATIC_PEERS`), a DDS profile file, or a root-owned overlay. An unset
+setting counts as its Jazzy default (domain `0`, `rmw_fastrtps_cpp`,
+`SUBNET`), so stating a default isn't a difference.
+
+For a robot whose ROS runs in Docker, `doctor` also compares the discovery
+settings of the running ROS containers, and
+`ros2 fairy setup --refresh-env --from-container NAME` takes them from a
+container instead of the shell. See [Robots whose ROS runs in
+Docker](getting-started.md#robots-whose-ros-runs-in-docker), including what
+it can't see.
 
 ## session.env
 

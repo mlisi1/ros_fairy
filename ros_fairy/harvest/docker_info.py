@@ -214,3 +214,57 @@ def _image_digests(image_ids: list[str | None]) -> dict[str, str | None]:
         digests[image_id] = found[0] if isinstance(found, list) and found \
             else None
     return digests
+
+
+class DockerUnavailable(Exception):
+    """Docker can't be asked, in plain words (not installed, not running,
+    or this account may not use it)."""
+
+
+def ros_containers(timeout: float = DOCKER_TIMEOUT_S) -> list[dict[str, Any]]:
+    """The running containers whose environment has ROS_DISTRO: their name,
+    environment (from ``docker inspect``: the image's ENV, ``-e`` and
+    compose ``environment:``) and network mode. Variables a container sets
+    in its own start-up scripts are not in it.
+
+    Raises DockerUnavailable.
+    """
+    def docker(*args: str) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(
+                ["docker", *args], capture_output=True, text=True,
+                timeout=timeout, encoding="utf-8", errors="replace")
+        except FileNotFoundError:
+            raise DockerUnavailable("Docker isn't installed") from None
+        except subprocess.TimeoutExpired:
+            raise DockerUnavailable(
+                f"Docker didn't answer within {timeout:.0f} s") from None
+
+    ps = docker("ps", "-q")
+    if ps.returncode != 0:
+        err = ps.stderr.strip()
+        if "permission denied" in err.lower():
+            raise DockerUnavailable("this account may not use Docker (it "
+                                    "isn't in the docker group)")
+        raise DockerUnavailable(err.splitlines()[0] if err
+                                else "Docker isn't running")
+    ids = [line.strip() for line in ps.stdout.splitlines() if line.strip()]
+    if not ids:
+        return []
+    out = docker("inspect", *ids)
+    try:
+        raw = json.loads(out.stdout or "[]")
+    except json.JSONDecodeError:
+        raise DockerUnavailable("Docker's answer couldn't be read") from None
+    found = []
+    for entry in raw:
+        env = dict(item.split("=", 1) for item in
+                   (entry.get("Config") or {}).get("Env") or [] if "=" in item)
+        if "ROS_DISTRO" not in env:
+            continue
+        found.append({
+            "name": (entry.get("Name") or "").lstrip("/"),
+            "env": env,
+            "network": (entry.get("HostConfig") or {}).get("NetworkMode", ""),
+        })
+    return sorted(found, key=lambda c: c["name"])

@@ -116,39 +116,119 @@ def _check_ros_environment() -> dict:
             "detail": ", ".join(bits), "hint": ""}
 
 
+REFRESH_HINT = ("run `ros2 fairy setup --refresh-env` in a shell with the "
+                "robot's ROS environment")
+
+
 def _check_service_env() -> dict:
-    """The *service's* effective ROS env — not just this shell's.
+    """The *service's* ROS environment, compared with this shell's.
 
     The watchdog starts from a frozen snapshot (``watchdog.env``) captured at
-    setup. That goes blind when the file is missing/stale or when the operator
-    later records under a different ROS_DOMAIN_ID / RMW than setup saw — a robot
-    that passes every shell-context check while the service is on the wrong DDS
-    partition and harvests an empty graph (issue #29).
+    setup. It goes blind when the file is missing, or when the robot's ROS
+    environment changes afterwards (another distro or overlay, ROS_DOMAIN_ID,
+    RMW, a DDS profile): the service then harvests the wrong graph, or none
+    (issue #29). ``setup --refresh-env`` re-captures it.
     """
     env = ros_env.read_file(paths.watchdog_env_path())
-    setup_hint = "re-run setup: `ros2 fairy setup`"
     if "ROS_DISTRO" not in env:
         missing = "missing" if not env else "has no ROS_DISTRO"
         return {"status": FAIL,
                 "title": "Background service has no ROS environment",
                 "detail": f"{paths.watchdog_env_path()} {missing}",
-                "hint": setup_hint}
-    drift = []
-    for key in ros_env.DISCOVERY_KEYS:
-        service_val = env.get(key, "")
-        shell_val = os.environ.get(key, "")
-        if key == "ROS_DOMAIN_ID":  # an unset domain means 0
-            service_val, shell_val = service_val or "0", shell_val or "0"
-        if shell_val and service_val != shell_val:
-            drift.append(f"{key} {service_val or 'unset'} ≠ {shell_val} here")
-    if drift:
+                "hint": REFRESH_HINT}
+    if not os.environ.get("ROS_DISTRO"):
+        return {"status": OK, "title": "Background service has a ROS "
+                "environment", "detail": f"distro: {env['ROS_DISTRO']} (source "
+                "ROS here to compare it with this shell's)", "hint": ""}
+    differences = ros_env.service_differences(env, os.environ)
+    shell_only = _shell_off_the_robot(env, differences)
+    if shell_only:
+        return shell_only
+    if differences:
         return {"status": WARN,
-                "title": "Background service is on a different ROS partition",
-                "detail": "; ".join(drift),
-                "hint": "a mission started with `ros2 fairy mission_start` "
-                        "reconciles this automatically; otherwise " + setup_hint}
+                "title": "Background service's ROS environment is out of date",
+                "detail": "service → this shell: " + "; ".join(differences),
+                "hint": REFRESH_HINT}
     return {"status": OK, "title": "Background service ROS environment matches",
             "detail": f"distro: {env['ROS_DISTRO']}", "hint": ""}
+
+
+def _shell_off_the_robot(service: dict[str, str],
+                         differences: list[str]) -> dict | None:
+    """With the robot's stack in containers, a difference may be this
+    shell's, not the service's: when only discovery settings differ and a
+    running ROS container matches the service, refreshing from this shell
+    would break it. Say so instead (None otherwise)."""
+    if not differences or differences != ros_env.discovery_differences(
+            service, os.environ):
+        return None
+    from ros_fairy.harvest import docker_info
+    try:
+        containers = docker_info.ros_containers()
+    except docker_info.DockerUnavailable:
+        return None
+    matching = [c["name"] for c in containers
+                if not ros_env.discovery_differences(service, c["env"])]
+    if not matching:
+        return None
+    fixes = [f"export {key}={service[key]}" if service.get(key)
+             else f"unset {key}"
+             for key in ros_env.differing_keys(service, os.environ)]
+    return {"status": WARN,
+            "title": "This shell is on a different ROS partition than the "
+                     "robot",
+            "detail": "recording assistant → this shell: "
+                      + "; ".join(differences) + "; the recording assistant "
+                      f"matches the robot's container(s) {', '.join(matching)}",
+            "hint": f"to work with the robot from this shell: "
+                    f"`{'; '.join(fixes)}` (nothing to refresh)"}
+
+
+def _check_container_env() -> dict:
+    """The robot's ROS containers, compared with the service.
+
+    A stack that runs in Docker changes its DDS settings inside the
+    container (compose ``environment:``, ``-e``, the image's ENV), where
+    _check_service_env, which only sees this shell, can't. Read with
+    ``docker inspect``: variables a container exports in its own start-up
+    scripts aren't visible.
+    """
+    from ros_fairy.harvest import docker_info
+    try:
+        containers = docker_info.ros_containers()
+    except docker_info.DockerUnavailable as exc:
+        return {"status": SKIP, "title": "ROS containers not checked",
+                "detail": str(exc), "hint": ""}
+    if not containers:
+        return {"status": SKIP, "title": "No ROS containers running",
+                "detail": "no running container has ROS_DISTRO in its "
+                          "environment", "hint": ""}
+    service = ros_env.read_file(paths.watchdog_env_path())
+    problems, fix = [], None
+    for container in containers:
+        name = container["name"]
+        differences = ros_env.discovery_differences(service, container["env"])
+        if differences:
+            problems.append(f"{name}: " + "; ".join(differences))
+            fix = fix or name
+        if container["network"] != "host":
+            problems.append(f"{name} is on its own Docker network "
+                            f"({container['network'] or 'default'}): the "
+                            "host can't discover its nodes by multicast")
+    names = ", ".join(c["name"] for c in containers)
+    if not problems:
+        return {"status": OK,
+                "title": "ROS containers match the background service",
+                "detail": names, "hint": ""}
+    hint = (f"if the container is right, run `ros2 fairy setup --refresh-env "
+            f"--from-container {fix}`" if fix else
+            "run the container with `--network host` (compose: "
+            "`network_mode: host`), or configure DDS to reach it")
+    return {"status": WARN,
+            "title": "A ROS container is on a different ROS partition"
+            if fix else "A ROS container can't be discovered from the host",
+            "detail": "service → container: " + "; ".join(problems),
+            "hint": hint}
 
 
 def _check_service_python() -> dict:
@@ -212,8 +292,8 @@ def _check_service_harvest() -> dict:
             "title": "Background service could not reach ROS",
             "detail": f"last capture{when}: {graph}",
             "hint": "if the robot software was running at that time, the "
-                    "service may lack a ROS environment — re-run "
-                    "`ros2 fairy setup`"}
+                    "service's ROS environment may be out of date: "
+                    + REFRESH_HINT}
 
 
 def _when(iso: str | None) -> str:
@@ -403,7 +483,8 @@ _CHECKS = (_check_identity, _check_data_dir, _check_watchdog,
            _check_service_python,
            _check_watchdog_code,
            _check_ros_reachable,
-           _check_ros_environment, _check_service_env, _check_service_harvest,
+           _check_ros_environment, _check_service_env, _check_container_env,
+           _check_service_harvest,
            _check_clock, _check_mcap, _check_harvest_tools, _check_disk,
            _check_docker, _check_archive)
 

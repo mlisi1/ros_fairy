@@ -99,28 +99,35 @@ def expect(condition: bool, message: str) -> bool:
     return condition
 
 
-def ensure_talkers() -> None:
+TALKERS = (("gps_driver", "/fix", "sensor_msgs/msg/NavSatFix"),
+           ("lidar_driver", "/scan", "sensor_msgs/msg/LaserScan"))
+
+
+def ensure_talkers(domain: str | None = None, restart: bool = False) -> None:
     """Publishers for the sensors the scripted setup declares, as systemd
     units (fairy-talker-*), so they outlive the scenario that started them.
+    ``domain`` puts them (the "robot") on another ROS_DOMAIN_ID than the
+    login shells, as a stack running in containers would be.
 
     Named nodes: `ros2 topic pub`'s default name starts with "_", which
     hides it, and setup refuses a robot with no visible nodes.
     """
     started = False
-    for node, topic, kind in (
-            ("gps_driver", "/fix", "sensor_msgs/msg/NavSatFix"),
-            ("lidar_driver", "/scan", "sensor_msgs/msg/LaserScan")):
+    for node, topic, kind in TALKERS:
         unit = f"fairy-talker-{node}"
-        if subprocess.run(["systemctl", "is-active", "--quiet", unit]
-                          ).returncode == 0:
+        active = subprocess.run(["systemctl", "is-active", "--quiet", unit]
+                                ).returncode == 0
+        if active and not restart:
             continue
+        subprocess.run(["systemctl", "stop", unit], capture_output=True)
         subprocess.run(["systemctl", "reset-failed", unit],
                        capture_output=True)
+        prefix = f"export ROS_DOMAIN_ID={domain}; " if domain else ""
         subprocess.run(
             ["systemd-run", f"--unit={unit}", "--uid=ben", "--quiet",
              "/bin/bash", "-lc",
-             f"exec ros2 topic pub --node-name {node} -r 10 {topic} {kind} "
-             "'{}'"], check=True)
+             f"{prefix}exec ros2 topic pub --node-name {node} -r 10 {topic} "
+             f"{kind} '{{}}'"], check=True)
         started = True
     if started:
         time.sleep(4)  # discovery
@@ -191,18 +198,20 @@ BRIEFING = {
 
 
 def record_mission(user: str = "ana", goal: str = "Sandbox smoke test",
-                   seconds: float = 5) -> None:
-    """Briefing, a short recording, save: one mission, checked."""
-    status = interact(user, "ros2 fairy mission_start",
+                   seconds: float = 5, shell: str = "") -> None:
+    """Briefing, a short recording, save: one mission, checked. ``shell``
+    goes before each command (e.g. ``export ROS_DOMAIN_ID=7;``)."""
+    status = interact(user, f"{shell} ros2 fairy mission_start",
                       {**BRIEFING, r"what is this mission trying to do\?": goal,
                        r"replace it\?": "y",
                        r"Include (them|it) in this new mission\?": "n"})
     expect(status == 0, f"mission_start exited {status}")
-    status = interact(user, "ros2 fairy mission_record", {},
+    status = interact(user, f"{shell} ros2 fairy mission_record", {},
                       interrupt_after=seconds)
     expect(status == 0, f"mission_record exited {status}")
     wait_until_idle()
-    status = interact(user, "ros2 fairy mission_close --yes", {}, timeout=180)
+    status = interact(user, f"{shell} ros2 fairy mission_close --yes", {},
+                      timeout=180)
     expect(status == 0, f"mission_close exited {status}")
 
 

@@ -58,11 +58,12 @@ Group membership only applies to new logins. Log out and back in, or run
 
 **Context captured shows ✗ for the ROS graph.**
 The watchdog can't see the robot's nodes. It retries every 60 s while recording.
-Usually its DDS settings differ from the robot's: `doctor` warns when your
-shell's `ROS_DOMAIN_ID`/`RMW_IMPLEMENTATION` differ from `watchdog.env`. Starting
-the mission with `mission_start` in the robot's shell passes the right
-settings on (see [session.env](configuration.md#sessionenv)). If the domain
-or RMW changed permanently, re-run `ros2 fairy setup`.
+Usually its DDS settings differ from the robot's: `doctor` says "Background
+service's ROS environment is out of date" and lists what differs from your
+shell. Starting the mission with `mission_start` in the robot's shell passes
+the discovery settings on for that mission (see
+[session.env](configuration.md#sessionenv)). If the robot's environment changed
+for good, run `ros2 fairy setup --refresh-env` from a shell that has it.
 
 A ROS overlay in a home directory isn't visible to the service (it runs as
 root, and drops paths root doesn't own). Package lists and the URDF may be
@@ -79,6 +80,27 @@ A tool it uses is missing (`ros2 fairy doctor` says which, and how to install
 it; or re-run `./install.sh --with-deps`), `lsusb -v` or `dmesg` were refused,
 or the time budget ran out. If `setpriv` isn't installed, the "which rules
 applied" trace is skipped (it is never run as root).
+
+**`doctor`: "A ROS container is on a different ROS partition".**
+The robot's container has another `ROS_DOMAIN_ID`, RMW or discovery setting
+than the watchdog. If the container is right, run
+`ros2 fairy setup --refresh-env --from-container <name>`. If the container
+sets more in its start-up script than in its configuration, `doctor` can't see
+it: see [Robots whose ROS runs in Docker](getting-started.md#robots-whose-ros-runs-in-docker).
+
+**`doctor`: "This shell is on a different ROS partition than the robot".**
+The watchdog matches the robot's container; this shell doesn't. Nothing needs
+refreshing: run the `export` in the hint to work with the robot from this
+shell (including `mission_record`).
+
+**`doctor`: "A ROS container can't be discovered from the host".**
+It runs on its own Docker network. Run it with `--network host` (compose:
+`network_mode: host`), or configure DDS (static peers, a discovery server) so
+the host can reach it.
+
+**`doctor`: "ROS containers not checked".**
+The account running `doctor` may not use Docker. Run it from an account in the
+`docker` group to include the check.
 
 **A `ros2 bag record` I didn't want ended up in the mission.**
 The watchdog attaches any recording it sees on the machine. Start throw-away

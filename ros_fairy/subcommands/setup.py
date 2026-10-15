@@ -495,8 +495,22 @@ def _check_ros_visible(console: Console) -> bool:
             "robot software and check ROS_DOMAIN_ID / RMW_IMPLEMENTATION match "
             "it, then re-run.\n"
             f"{SOURCE_RECIPE}[/red]")
+        containers = _ros_container_names()
+        if containers:
+            console.print(
+                f"[yellow]ROS is running in container(s) {', '.join(containers)}"
+                ": if that's the robot, take its DDS settings with "
+                f"`--from-container {containers[0]}`.[/yellow]")
         return False
     return True
+
+
+def _ros_container_names() -> list[str]:
+    from ros_fairy.harvest import docker_info
+    try:
+        return [c["name"] for c in docker_info.ros_containers()]
+    except docker_info.DockerUnavailable:
+        return []
 
 
 def interpreter_root_safe(python: str) -> bool:
@@ -637,6 +651,115 @@ def _collect(console: Console, operator_names: list[str] | None = None,
     return config, operator_names, var_dir
 
 
+def _unit_python() -> str | None:
+    """The interpreter the installed watchdog unit runs, or None."""
+    try:
+        text = (UNIT_DIR / SERVICE_NAME).read_text()
+    except OSError:
+        return None
+    return next((line.split("=", 1)[1].split()[0]
+                 for line in text.splitlines()
+                 if line.startswith("ExecStart=")), None)
+
+
+def _service_active() -> bool:
+    try:
+        return subprocess.run(["systemctl", "is-active", "--quiet",
+                               SERVICE_NAME]).returncode == 0
+    except OSError:
+        return False
+
+
+def _adopt_container_discovery(console: Console, name: str) -> bool:
+    """--from-container: take the container's DDS discovery settings into
+    this process, before ROS is checked and the environment captured (the
+    rest, ROS itself and the overlays, still comes from this shell)."""
+    from ros_fairy.harvest import docker_info
+    try:
+        containers = docker_info.ros_containers()
+    except docker_info.DockerUnavailable as exc:
+        console.print(f"[red]Can't read the container's settings: {exc}."
+                      "[/red]")
+        return False
+    container = next((c for c in containers if c["name"] == name), None)
+    if container is None:
+        running = ", ".join(c["name"] for c in containers) or "none"
+        console.print(f"[red]No running container named {name} has ROS in "
+                      f"its environment (running ROS containers: {running})."
+                      "[/red]")
+        return False
+    env = container["env"]
+    for key in ros_env.SESSION_ADOPT_KEYS:
+        if key in env:
+            os.environ[key] = env[key]
+        else:
+            os.environ.pop(key, None)  # the container uses the default
+    used = [f"{k}={env[k]}" for k in ros_env.SESSION_ADOPT_KEYS if k in env]
+    console.print(f"Using the DDS discovery settings of container {name}: "
+                  f"{', '.join(used) or 'all defaults'}.")
+    profiles = [k for k in ros_env.DDS_PROFILE_KEYS if k in env]
+    if profiles:
+        console.print(f"[yellow]{name} also uses a DDS profile "
+                      f"({', '.join(f'{k}={env[k]}' for k in profiles)}): "
+                      "that path is inside the container, so the recording "
+                      "assistant keeps this shell's profile settings. Make "
+                      "sure they match.[/yellow]")
+    if container["network"] != "host":
+        console.print(f"[yellow]{name} is on its own Docker network "
+                      f"({container['network'] or 'default'}): the "
+                      "recording assistant may not discover its nodes even "
+                      "with the same settings.[/yellow]")
+    return True
+
+
+def _refresh_env(console: Console, env: dict[str, str], python: str) -> int:
+    """setup --refresh-env, the unprivileged half: show what changes, update
+    an open mission's session.env, then re-install the service with the new
+    environment (through sudo) and report doctor's environment checks."""
+    old = ros_env.read_file(paths.watchdog_env_path())
+    new_safe, _ = ros_env.root_safe_env(env)
+    differences = ros_env.service_differences(old, env)
+    unit_python = _unit_python()
+    if new_safe == old and unit_python == python and _service_active():
+        console.print("[green]The recording assistant's ROS environment is "
+                      "already up to date.[/green]")
+        return 0
+    console.print("Updating the recording assistant's ROS environment "
+                  "(now → from this shell):")
+    for line in differences or ["search paths only"]:
+        console.print(f"  {line}")
+    if unit_python and unit_python != python:
+        console.print(f"  interpreter: {unit_python} → {python}")
+    session = paths.session_env_path()
+    if session.exists():
+        # The open mission's recording settings, adopted by the watchdog at
+        # harvest time (what mission_record would write).
+        try:
+            ros_env.write_file(session, env, mode=0o664)
+            console.print("[dim]The open mission's ROS settings were updated "
+                          "too.[/dim]")
+        except OSError as exc:
+            console.print(f"[yellow]Couldn't update the open mission's ROS "
+                          f"settings ({exc}); the next mission_record will."
+                          "[/yellow]")
+    payload = {"refresh_env": True, "env": env, "python": python}
+    if os.geteuid() == 0:
+        code = 0 if _apply(console, payload) else 1
+    else:
+        console.print("[dim]Restarting the recording assistant needs root: "
+                      "you may be asked for your password.[/dim]")
+        code = _apply_via_sudo(console, payload)
+    if code == 0:
+        from ros_fairy.subcommands import doctor
+        for check in (doctor._check_service_env, doctor._check_service_python,
+                      doctor._check_watchdog):
+            result = check()
+            detail = f" — {result['detail']}" if result["detail"] else ""
+            console.print(f" {doctor._GLYPH[result['status']]} "
+                          f"{result['title']}{detail}")
+    return code
+
+
 def _apply(console: Console, payload: dict) -> bool:
     """The privileged half: write /etc, create the group, install the service.
 
@@ -647,6 +770,16 @@ def _apply(console: Console, payload: dict) -> bool:
     function does no interactive prompting and no ROS 2 access of its own,
     so it needs nothing beyond filesystem/systemd privileges.
     """
+    if payload.get("refresh_env"):
+        # --refresh-env: only the environment, the interpreter and a restart.
+        if install_service(console, payload["env"],
+                           payload.get("python", SYSTEM_PYTHON)):
+            console.print(Panel("The recording assistant restarted with the "
+                                "new ROS environment.", border_style="green"))
+            return True
+        console.print("[red]The watchdog service didn't come up within 10 "
+                      "seconds. Check: journalctl -u ros-fairy-watchdog[/red]")
+        return False
     write_identity(payload["config"])
     if payload.get("var_dir"):
         write_paths_file(Path(payload["var_dir"]))
@@ -722,6 +855,26 @@ def run(args, console: Console | None = None) -> int:
             return 1
         return 0 if _apply(console, payload) else 1
 
+    from_container = getattr(args, "from_container", None)
+    refresh = getattr(args, "refresh_env", False)
+    if refresh:
+        clash = [flag for flag, attr in (("--operator", "operator"),
+                                         ("--var-dir", "var_dir"))
+                 if getattr(args, attr, None)]
+        if clash:
+            console.print(f"[red]--refresh-env only updates the ROS "
+                          f"environment; run {' and '.join(clash)} without "
+                          "it.[/red]")
+            return 1
+        if not paths.robot_identity_path().is_file() or \
+                not (UNIT_DIR / SERVICE_NAME).is_file():
+            console.print("[red]This robot isn't set up yet: run `ros2 fairy "
+                          "setup` (without --refresh-env).[/red]")
+            return 1
+    if from_container and not _adopt_container_discovery(console,
+                                                         from_container):
+        return 1
+
     if os.geteuid() == 0:
         # Running as root directly (old-style `sudo ros-fairy-setup` /
         # `sudo ros2 fairy setup`) — ROS may not be sourced in *this* root
@@ -730,6 +883,12 @@ def run(args, console: Console | None = None) -> int:
             return 1
     if not _check_ros_visible(console):
         return 1
+    if refresh:
+        env = ros_env.capture()
+        python = _choose_service_python(console, env)
+        if python is None:
+            return 1
+        return _refresh_env(console, env, python)
     if shutil.which("docker") is None:
         console.print("[yellow]Docker not found — container snapshots will "
                       "be skipped. That's fine if this robot doesn't use "
@@ -788,6 +947,17 @@ def _add_setup_arguments(parser) -> None:
         help="only used when running setup directly as root: path to the "
              "ROS 2 setup.bash to source (auto-detected from "
              "/opt/ros/*/setup.bash when there's exactly one)")
+    parser.add_argument(
+        "--refresh-env", action="store_true",
+        help="only re-capture the ROS environment from this shell (distro, "
+             "overlays, ROS_DOMAIN_ID, RMW, DDS profile) for the recording "
+             "assistant and restart it; no questions")
+    parser.add_argument(
+        "--from-container", metavar="NAME",
+        help="take the DDS discovery settings (ROS_DOMAIN_ID, RMW, discovery "
+             "range, static peers) from this running container instead of "
+             "this shell, for a robot whose ROS runs in Docker; with or "
+             "without --refresh-env")
     parser.add_argument(
         "--var-dir", metavar="DIR",
         help="where to keep recordings and saved missions (default "

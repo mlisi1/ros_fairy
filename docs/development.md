@@ -103,8 +103,11 @@ tools/sandbox/sandbox.sh reset         # a fresh robot
 ```
 
 The robot runs ROS 2 Jazzy on Ubuntu 24.04. The container has three
-accounts: `ana` (the engineer, with password-less `sudo`) and `ben` and `cleo`
-(operators, no `sudo`). Two publishers stand in for sensors: `/fix` and
+accounts: `ana` (the engineer, with password-less `sudo`, allowed to use
+Docker) and `ben` and `cleo` (operators, no `sudo`). Docker runs inside it
+too (the `vfs` storage driver), for robots whose stack is in containers: the
+`containers.py` scenario builds a tiny local image from busybox, so nothing is
+downloaded. Two publishers stand in for sensors: `/fix` and
 `/scan`, as the units `fairy-talker-*`. The harvest's optional tools
 (`lsusb`, `lspci`, `v4l2-ctl`) are left out, as on a fresh robot.
 

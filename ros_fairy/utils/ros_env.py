@@ -195,3 +195,71 @@ def root_safe_env(env: Mapping[str, str]) -> tuple[dict[str, str], list[str]]:
         dropped += [e for e in entries if e not in keep]
         out[key] = os.pathsep.join(keep)
     return out, dropped
+
+
+# What decides which robot the watchdog sees and which ROS it runs: the
+# distro, every DDS discovery setting, the DDS profile files. The overlays
+# (AMENT_PREFIX_PATH) are compared separately, root-owned entries only: the
+# service drops the others anyway.
+SERVICE_KEYS = ("ROS_DISTRO", *SESSION_ADOPT_KEYS, "CYCLONEDDS_URI",
+                "FASTRTPS_DEFAULT_PROFILES_FILE",
+                "FASTDDS_DEFAULT_PROFILES_FILE")
+
+
+def _overlays(env: Mapping[str, str]) -> list[str]:
+    return [e for e in env.get("AMENT_PREFIX_PATH", "").split(os.pathsep)
+            if e and root_safe_dir(e)]
+
+
+# What an unset discovery setting means on Jazzy, the supported distro: two
+# environments that differ only by stating a default agree.
+DISCOVERY_DEFAULTS = {
+    "ROS_DOMAIN_ID": "0",
+    "RMW_IMPLEMENTATION": "rmw_fastrtps_cpp",
+    "ROS_LOCALHOST_ONLY": "0",
+    "ROS_AUTOMATIC_DISCOVERY_RANGE": "SUBNET",
+}
+
+
+def _values(env: Mapping[str, str], key: str) -> str:
+    return env.get(key, "") or DISCOVERY_DEFAULTS.get(key, "")
+
+
+def differing_keys(old_env: Mapping[str, str], new_env: Mapping[str, str],
+                   keys: tuple[str, ...] = SESSION_ADOPT_KEYS) -> list[str]:
+    """The ``keys`` whose values differ between the two environments."""
+    return [k for k in keys if _values(old_env, k) != _values(new_env, k)]
+
+
+def _key_differences(old_env: Mapping[str, str], new_env: Mapping[str, str],
+                     keys: tuple[str, ...]) -> list[str]:
+    return [f"{k}: {_values(old_env, k) or 'unset'} → "
+            f"{_values(new_env, k) or 'unset'}"
+            for k in differing_keys(old_env, new_env, keys)]
+
+
+# DDS profile settings name files: a container's paths mean nothing on the
+# host, so they are never compared with or copied from a container.
+DDS_PROFILE_KEYS = ("CYCLONEDDS_URI", "FASTRTPS_DEFAULT_PROFILES_FILE",
+                    "FASTDDS_DEFAULT_PROFILES_FILE")
+
+
+def discovery_differences(service: Mapping[str, str],
+                          other: Mapping[str, str]) -> list[str]:
+    """Which DDS discovery settings (:data:`SESSION_ADOPT_KEYS`) differ,
+    "service → other"; what decides whether the two see each other."""
+    return _key_differences(service, other, SESSION_ADOPT_KEYS)
+
+
+def service_differences(service: Mapping[str, str],
+                        shell: Mapping[str, str]) -> list[str]:
+    """How the service's ROS environment differs from ``shell``'s, one line
+    per difference, "service → shell". Empty when they agree."""
+    lines = _key_differences(service, shell, SERVICE_KEYS)
+    old_overlays, new_overlays = _overlays(service), _overlays(shell)
+    added = [e for e in new_overlays if e not in old_overlays]
+    removed = [e for e in old_overlays if e not in new_overlays]
+    if added or removed:
+        change = [f"+{e}" for e in added] + [f"-{e}" for e in removed]
+        lines.append(f"ROS overlays: {', '.join(change)}")
+    return lines

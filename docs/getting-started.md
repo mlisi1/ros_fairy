@@ -95,6 +95,18 @@ Setup refuses to continue if `ROS_DISTRO` isn't set or no ROS nodes are
 visible. Installing a watchdog that can't see the robot would only produce
 empty missions.
 
+**If the robot's ROS runs in Docker**, the host shell may not have the robot's
+DDS settings (they are set in the container). Either export them in the shell
+first (`export ROS_DOMAIN_ID=7`), or take them from the running container:
+
+```bash
+ros2 fairy setup --from-container navstack
+```
+
+ROS itself (the distro and overlays the watchdog runs `ros2` with) still
+comes from the host shell; see [Robots whose ROS runs in
+Docker](#robots-whose-ros-runs-in-docker) for what is taken and what isn't.
+
 It then asks a few questions (existing answers are offered as defaults):
 
 - **Robot:** name, platform (make and model), serial number or asset tag.
@@ -136,9 +148,71 @@ through `sudo`. It:
 
 ### Changing the robot's configuration later
 
-Re-run `ros2 fairy setup` whenever the robot's sensors change, or after
-changing its ROS environment (distro, overlay, domain, RMW). It offers your
+Re-run `ros2 fairy setup` whenever the robot's sensors change. It offers your
 existing answers as defaults, so you only retype what changed.
+
+When only the robot's ROS environment changes (distro, overlay,
+`ROS_DOMAIN_ID`, RMW, DDS profile), run this from a shell that has the new one
+instead:
+
+```bash
+ros2 fairy setup --refresh-env
+```
+
+It asks nothing: it shows what changes, updates the open mission's settings if
+there is one, re-captures `watchdog.env`, restarts the watchdog, and ends with
+`doctor`'s checks of the service. `ros2 fairy doctor` tells you when it's
+needed ("Background service's ROS environment is out of date").
+
+#### Robots whose ROS runs in Docker
+
+When the stack runs in containers, its DDS settings usually change there (a
+compose `environment:` entry, a `-e`, the image's `ENV`), not in the host
+shell. `doctor` reads the running containers that have `ROS_DISTRO` in their
+environment and compares their discovery settings with the watchdog's:
+
+```
+! A ROS container is on a different ROS partition
+  service → container: navstack: ROS_DOMAIN_ID: 0 → 7
+  if the container is right, run `ros2 fairy setup --refresh-env --from-container navstack`
+```
+
+That command takes `ROS_DOMAIN_ID`, `RMW_IMPLEMENTATION`,
+`ROS_AUTOMATIC_DISCOVERY_RANGE`, `ROS_LOCALHOST_ONLY` and `ROS_STATIC_PEERS`
+from the container (a setting the container leaves unset is unset for the
+watchdog too), and everything else from the host shell, then does what
+`--refresh-env` does.
+
+Afterwards a host shell still on the old domain is the odd one out, and
+`doctor` says so instead of asking for another refresh ("This shell is on a
+different ROS partition than the robot", with the `export` that fixes it). To
+record from that shell, export the robot's settings in it first:
+`mission_record` records on the shell's domain, and `mission_start` and
+`mission_record` hand the shell's discovery settings to the watchdog for that
+mission.
+
+What it can't see:
+
+- **Variables set inside the container's own start-up**: an `export` in the
+  entrypoint script, a `.bashrc` or a sourced file. `docker inspect` only knows
+  the container's configuration. Put DDS settings in the compose file's
+  `environment:` (or `env_file:`) so both ROS F.A.I.R.y and other tools can
+  see them, or export them in the host shell and use plain `--refresh-env`.
+- **Containers without `ROS_DISTRO` in their configuration.** The official ROS
+  images set it; a hand-made image that only sources ROS in a script isn't
+  recognised as a ROS container.
+- **DDS profile files** (`CYCLONEDDS_URI`, `FASTRTPS_DEFAULT_PROFILES_FILE`,
+  `FASTDDS_DEFAULT_PROFILES_FILE`). They name paths inside the container, so
+  they are neither compared nor copied; `--from-container` warns when the
+  container uses one, and the watchdog keeps the host shell's.
+- **Containers on their own Docker network.** The host can't discover their
+  nodes by multicast, whatever the domain. `doctor` warns; run them with
+  `--network host` (compose: `network_mode: host`) or configure DDS to reach
+  them.
+- **Docker access.** The account running `doctor` must be allowed to use Docker
+  (the `docker` group); otherwise the check is skipped and says why.
+- **Defaults are Jazzy's.** An unset setting is compared as its Jazzy default:
+  domain `0`, `rmw_fastrtps_cpp`, `SUBNET`, localhost-only off.
 
 For small changes (a sensor's topic, a calibration file, the `recording:`
 section), you can also edit the file directly and check it:
@@ -158,7 +232,8 @@ ros2 fairy doctor
 ```
 
 `doctor` runs a dozen read-only checks: identity, watchdog alive and up to date,
-ROS reachable, service environment matching your shell, last harvest, clock
+ROS reachable, service environment matching your shell and the robot's ROS
+containers, last harvest, clock
 synchronisation, MCAP support, disk space, Docker and incomplete saves. It ends
 with **READY**, **READY (with warnings)** or **NOT READY**, with a hint for every
 problem. See [Troubleshooting](troubleshooting.md).

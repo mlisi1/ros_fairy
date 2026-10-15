@@ -14,7 +14,13 @@ RUN apt-get update \
         systemd systemd-sysv dbus sudo \
         python3-pip python3-pexpect \
         rsync git procps less nano \
+        docker.io busybox-static \
     && rm -rf /var/lib/apt/lists/*
+
+# Docker inside the sandbox, for robots whose stack runs in containers. vfs
+# works inside another container's filesystem (overlay on overlay doesn't).
+RUN mkdir -p /etc/docker \
+    && echo '{"storage-driver": "vfs"}' > /etc/docker/daemon.json
 
 # Units a container can't run, or that would only slow the boot.
 RUN systemctl mask \
@@ -26,9 +32,9 @@ RUN systemctl mask \
     && systemctl set-default multi-user.target
 
 # ana: the engineer who sets the robot up (sudo, no password, so scripts
-#      don't stall). ben, cleo: plain operators with no sudo.
+#      don't stall; may use Docker). ben, cleo: plain operators with no sudo.
 RUN for user in ana ben cleo; do useradd --create-home --shell /bin/bash "$user"; done \
-    && usermod -aG sudo ana \
+    && usermod -aG sudo,docker ana \
     && echo 'ana ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/ana \
     && chmod 0440 /etc/sudoers.d/ana
 

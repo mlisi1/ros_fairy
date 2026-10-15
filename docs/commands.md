@@ -45,6 +45,8 @@ Every verb is `ros2 fairy <verb>`. `ros2 fairy` on its own lists them.
 ```
 ros2 fairy setup [--operator USER]... [--var-dir DIR] [--ros-setup PATH]
                  [--debug]
+ros2 fairy setup --refresh-env [--from-container NAME] [--ros-setup PATH]
+                 [--debug]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy setup` -->
@@ -58,6 +60,8 @@ on stdin.
 | Option | |
 | --- | --- |
 | `--operator USER` | Another account that will record missions; repeatable. Skips the question about other operators. An account that doesn't exist stops setup before any question. |
+| `--refresh-env` | Only re-capture the ROS environment from this shell and restart the watchdog; no questions. See [Changing the robot's configuration later](getting-started.md#changing-the-robots-configuration-later). |
+| `--from-container NAME` | Take the DDS discovery settings from this running container instead of this shell, for a robot whose ROS runs in Docker; with or without `--refresh-env`. See [Robots whose ROS runs in Docker](getting-started.md#robots-whose-ros-runs-in-docker). |
 | `--var-dir DIR` | Where to keep recordings and saved missions (default `/var/ros-fairy`); skips that question. Only while there are no missions yet: to move existing ones, use [`move_data`](#move_data). |
 | `--ros-setup PATH` | Only when running setup directly as root (`sudo ros-fairy-setup`): the ROS 2 `setup.bash` to source. Auto-detected when there is exactly one `/opt/ros/*/setup.bash`. |
 
@@ -90,7 +94,8 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | Watchdog code | the running watchdog's code differs from the installed code (restart it) |
 | ROS graph | `ros2` isn't on `PATH`, ROS isn't reachable, or no nodes are running |
 | ROS environment | `ROS_DISTRO` isn't set in this shell |
-| Service environment | `watchdog.env` is missing, or its domain/RMW differs from this shell |
+| Service environment | `watchdog.env` is missing, or differs from this shell's ROS environment (distro, DDS discovery settings, DDS profile, root-owned overlays); the hint is `ros2 fairy setup --refresh-env`. When a running ROS container matches the service, it is this shell that's off, and the hint is the `export` that fixes it |
+| ROS containers | a running container with `ROS_DISTRO` in its environment has other DDS discovery settings than the service (hint: `--refresh-env --from-container NAME`), or is on its own Docker network; skipped when Docker can't be asked |
 | Last harvest | the last ROS capture failed |
 | Clock | the system clock isn't NTP-synchronised |
 | MCAP support | the `mcap` Python package is missing |

@@ -1547,7 +1547,8 @@ def test_doctor_service_harvest_partial_is_history_not_a_warning():
 def test_doctor_service_env_missing_file_fails(fairy_dirs):
     # watchdog.env doesn't exist → the service started blind.
     c = doctor._check_service_env()
-    assert c["status"] == doctor.FAIL and "ros2 fairy setup" in c["hint"]
+    assert c["status"] == doctor.FAIL
+    assert "ros2 fairy setup --refresh-env" in c["hint"]
 
 
 def test_doctor_service_env_no_distro_fails(fairy_dirs):
@@ -1556,23 +1557,49 @@ def test_doctor_service_env_no_distro_fails(fairy_dirs):
     assert doctor._check_service_env()["status"] == doctor.FAIL
 
 
-def test_doctor_service_env_domain_mismatch_warns(fairy_dirs):
+SERVICE_ENV = {"ROS_DISTRO": "jazzy", "ROS_DOMAIN_ID": "7",
+               "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp",
+               "AMENT_PREFIX_PATH": "/opt/ros/jazzy"}
+
+
+def _service_check(shell):
     from ros_fairy.utils import ros_env
-    ros_env.write_file(paths.watchdog_env_path(),
-                       {"ROS_DISTRO": "jazzy", "ROS_DOMAIN_ID": "7"})
-    with mock.patch.dict(doctor.os.environ, {"ROS_DOMAIN_ID": "42"}):
-        c = doctor._check_service_env()
-    assert c["status"] == doctor.WARN and "ROS_DOMAIN_ID" in c["detail"]
+    ros_env.write_file(paths.watchdog_env_path(), SERVICE_ENV)
+    fairy = {k: v for k, v in os.environ.items() if k.startswith("ROS_FAIRY_")}
+    with mock.patch.dict(doctor.os.environ, {**fairy, **shell}, clear=True):
+        return doctor._check_service_env()
 
 
 def test_doctor_service_env_matches_is_ok(fairy_dirs):
-    from ros_fairy.utils import ros_env
-    ros_env.write_file(paths.watchdog_env_path(),
-                       {"ROS_DISTRO": "jazzy", "ROS_DOMAIN_ID": "7",
-                        "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp"})
-    env = {"ROS_DOMAIN_ID": "7", "RMW_IMPLEMENTATION": "rmw_cyclonedds_cpp"}
-    with mock.patch.dict(doctor.os.environ, env):
-        assert doctor._check_service_env()["status"] == doctor.OK
+    assert _service_check(SERVICE_ENV)["status"] == doctor.OK
+
+
+def test_doctor_service_env_without_ros_here_is_ok(fairy_dirs):
+    c = _service_check({"PATH": "/usr/bin"})
+    assert c["status"] == doctor.OK and "source ROS" in c["detail"]
+
+
+@pytest.mark.parametrize("change, shows", [
+    ({"ROS_DOMAIN_ID": "42"}, "ROS_DOMAIN_ID: 7 → 42"),
+    ({"ROS_DISTRO": "kilted"}, "ROS_DISTRO: jazzy → kilted"),
+    ({"ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"},
+     "ROS_AUTOMATIC_DISCOVERY_RANGE: SUBNET → LOCALHOST"),
+    ({"CYCLONEDDS_URI": "file:///etc/dds.xml"}, "CYCLONEDDS_URI"),
+    ({"AMENT_PREFIX_PATH": "/usr:/opt/ros/jazzy"}, "ROS overlays: +/usr"),
+])
+def test_doctor_service_env_out_of_date_warns(fairy_dirs, change, shows):
+    c = _service_check({**SERVICE_ENV, **change})
+    assert c["status"] == doctor.WARN
+    assert shows in c["detail"]
+    assert "ros2 fairy setup --refresh-env" in c["hint"]
+
+
+def test_doctor_service_env_ignores_overlays_root_cant_trust(fairy_dirs,
+                                                             tmp_path):
+    # The service drops overlays any user could change; they aren't drift.
+    c = _service_check({**SERVICE_ENV, "AMENT_PREFIX_PATH":
+                        f"{tmp_path}:/opt/ros/jazzy"})
+    assert c["status"] == doctor.OK
 
 
 def test_doctor_check_that_raises_becomes_fail():
@@ -1949,3 +1976,98 @@ def test_mission_delete_never_leaves_the_archive(fairy_dirs, tmp_path):
     assert rc == 1 and "not inside the archive" in out
     assert outside.is_dir()
     assert not any(c[:2] == ["sudo", "rm"] for c in calls)
+
+
+# --- setup --refresh-env ---------------------------------------------------------
+
+def _refresh(fairy_dirs, tmp_path, shell, service, unit_python="/usr/bin/python3",
+             active=True, **extra):
+    from ros_fairy.utils import ros_env
+    unit_dir = tmp_path / "units"
+    unit_dir.mkdir(exist_ok=True)
+    (unit_dir / setup_cmd.SERVICE_NAME).write_text(
+        f"[Service]\nExecStart={unit_python} -m ros_fairy.watchdog.watchdog\n")
+    paths.robot_identity_path().write_text("robot: {}\n")
+    ros_env.write_file(paths.watchdog_env_path(), service)
+    console = _console()
+    args = SimpleNamespace(refresh_env=True, **extra)
+    fairy = {k: v for k, v in os.environ.items() if k.startswith("ROS_FAIRY_")}
+    with mock.patch.object(setup_cmd, "UNIT_DIR", unit_dir), \
+            mock.patch.object(setup_cmd.os, "geteuid", return_value=1000), \
+            mock.patch.object(setup_cmd, "_check_ros_visible",
+                              return_value=True), \
+            mock.patch.object(setup_cmd, "_choose_service_python",
+                              return_value="/usr/bin/python3"), \
+            mock.patch.object(setup_cmd, "_service_active",
+                              return_value=active), \
+            mock.patch.object(setup_cmd, "_apply_via_sudo",
+                              return_value=0) as sudo, \
+            mock.patch.object(setup_cmd, "_collect") as collect, \
+            mock.patch.dict(setup_cmd.os.environ, {**fairy, **shell},
+                            clear=True):
+        code = setup_cmd.run(args, console=console)
+    collect.assert_not_called()
+    return code, console.file.getvalue(), sudo
+
+
+ENV = {"ROS_DISTRO": "jazzy", "ROS_DOMAIN_ID": "7",
+       "AMENT_PREFIX_PATH": "/opt/ros/jazzy"}
+
+
+def test_refresh_env_up_to_date_does_nothing(fairy_dirs, tmp_path):
+    code, out, sudo = _refresh(fairy_dirs, tmp_path, ENV, ENV)
+    assert code == 0 and "already up to date" in out
+    sudo.assert_not_called()
+
+
+def test_refresh_env_restarts_an_inactive_service(fairy_dirs, tmp_path):
+    code, out, sudo = _refresh(fairy_dirs, tmp_path, ENV, ENV, active=False)
+    assert code == 0
+    sudo.assert_called_once()
+
+
+def test_refresh_env_shows_changes_and_applies(fairy_dirs, tmp_path):
+    from ros_fairy.utils import ros_env
+    ros_env.write_file(paths.session_env_path(), {"ROS_DOMAIN_ID": "7"})
+    shell = {**ENV, "ROS_DOMAIN_ID": "42"}
+    code, out, sudo = _refresh(fairy_dirs, tmp_path, shell, ENV,
+                               unit_python="/opt/py/bin/python3")
+    assert code == 0
+    assert "ROS_DOMAIN_ID: 7 → 42" in out
+    assert "interpreter: /opt/py/bin/python3 → /usr/bin/python3" in out
+    assert "open mission's ROS settings were updated" in out
+    assert ros_env.read_file(paths.session_env_path())["ROS_DOMAIN_ID"] == "42"
+    payload = sudo.call_args.args[1]
+    assert payload["refresh_env"] is True
+    assert payload["env"]["ROS_DOMAIN_ID"] == "42"
+    assert "Background service" in out  # doctor's checks at the end
+
+
+def test_refresh_env_without_open_mission_writes_no_session(fairy_dirs,
+                                                            tmp_path):
+    _refresh(fairy_dirs, tmp_path, {**ENV, "ROS_DOMAIN_ID": "3"}, ENV)
+    assert not paths.session_env_path().exists()
+
+
+def test_refresh_env_refuses_other_options_and_unset_robot(fairy_dirs,
+                                                          tmp_path):
+    code, out, sudo = _refresh(fairy_dirs, tmp_path, ENV, ENV,
+                               operator=["ben"])
+    assert code == 1 and "--operator" in out
+    paths.robot_identity_path().unlink()
+    console = _console()
+    assert setup_cmd.run(SimpleNamespace(refresh_env=True),
+                         console=console) == 1
+    assert "isn't set up yet" in console.file.getvalue()
+
+
+def test_apply_refresh_only_reinstalls_the_service(fairy_dirs):
+    payload = {"refresh_env": True, "env": ENV, "python": "/usr/bin/python3"}
+    with mock.patch.object(setup_cmd, "install_service",
+                           return_value=True) as install, \
+            mock.patch.object(setup_cmd, "write_identity") as identity, \
+            mock.patch.object(setup_cmd, "add_operators") as ops:
+        assert setup_cmd._apply(_console(), payload) is True
+    install.assert_called_once()
+    identity.assert_not_called()
+    ops.assert_not_called()

@@ -31,6 +31,18 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _no_host_containers(monkeypatch):
+    """Keep this machine's Docker containers out of the unit tests (doctor
+    and setup compare them with the service). tests/unit/test_containers.py
+    fakes the docker command instead."""
+    from ros_fairy.harvest import docker_info
+
+    def unavailable(*args, **kwargs):
+        raise docker_info.DockerUnavailable("no Docker in the unit tests")
+    monkeypatch.setattr(docker_info, "ros_containers", unavailable)
+
+
+@pytest.fixture(autouse=True)
 def _no_host_udev(request, monkeypatch):
     """Keep this machine's sysfs and udevadm out of the unit tests: the
     hardware probe would otherwise read the real USB tree. Tests of the probe
