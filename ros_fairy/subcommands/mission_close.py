@@ -258,11 +258,11 @@ def _run_locked(args, console: Console) -> int:
     note_arg = getattr(args, "note", None)
     if note_arg is not None:
         new_notes = note_arg.strip() or None
-    elif sys.stdin.isatty():
+    elif sys.stdin.isatty() and not getattr(args, "yes", False):
         new_notes = briefing.ask_notes(console, default=existing_notes)
     else:
-        # Non-interactive (piped/scripted): keep whatever notes exist rather
-        # than blocking on a prompt nobody can answer.
+        # --yes, or non-interactive (piped/scripted): keep whatever notes
+        # exist rather than asking.
         new_notes = existing_notes
     if new_notes != existing_notes:
         context.setdefault("intent", {})["notes"] = new_notes

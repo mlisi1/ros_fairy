@@ -412,6 +412,17 @@ def test_mission_close_save_flow(fairy_dirs):
     assert not paths.mission_context_path().exists()
 
 
+def test_mission_close_yes_keeps_notes_without_asking(fairy_dirs):
+    # On a terminal, --yes still mustn't stop at the notes question.
+    _spool(fairy_dirs)
+    with mock.patch.object(mission_close.sys.stdin, "isatty",
+                           return_value=True), \
+            mock.patch.object(mission_close.briefing, "ask_notes") as ask:
+        assert mission_close.run(SimpleNamespace(yes=True),
+                                 console=_console()) == 0
+    ask.assert_not_called()
+
+
 def test_mission_close_discard_flow(fairy_dirs):
     _spool(fairy_dirs)
     console = _console()

@@ -176,7 +176,7 @@ ros2 fairy mission_close [--note TEXT] [--yes] [--debug]
 | Option | |
 | --- | --- |
 | `--note TEXT` | Post-mission notes; skips the notes question. |
-| `--yes`, `-y` | Save without asking. Also finishes an interrupted save. The briefing must already exist. |
+| `--yes`, `-y` | Save without asking; the notes stay as they are (set them with `--note`). Also finishes an interrupted save. The briefing must already exist. |
 
 In order:
 
