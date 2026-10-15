@@ -231,10 +231,11 @@ Changes apply from the next recording; no restart is needed.
 ros2 fairy doctor
 ```
 
-`doctor` runs a dozen read-only checks: identity, watchdog alive and up to date,
-ROS reachable, service environment matching your shell and the robot's ROS
-containers, last harvest, clock
-synchronisation, MCAP support, disk space, Docker and incomplete saves. It ends
+`doctor` runs sixteen read-only checks: identity, where missions are kept,
+watchdog alive, up to date and able to load ros_fairy, ROS reachable, service
+environment matching your shell and the robot's ROS containers, last harvest,
+clock synchronisation, MCAP support, the harvest's optional tools, disk space,
+Docker and incomplete saves. It ends
 with **READY**, **READY (with warnings)** or **NOT READY**, with a hint for every
 problem. See [Troubleshooting](troubleshooting.md).
 

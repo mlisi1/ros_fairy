@@ -32,4 +32,5 @@ archive.
 
 - [Architecture](architecture.md): the watchdog's state machine, recorder
   detection, the harvest pipeline, recovery.
-- [Development](development.md): code layout, conventions, tests and tools.
+- [Development](development.md): code layout, conventions, tests, the sandbox
+  robot and tools.

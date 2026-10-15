@@ -27,11 +27,13 @@ ros_fairy/
 │                            usb_udev, ros_graph + ros_snapshot, docker)
 ├── manifest/                pydantic schema, record builder, validator, quality grading
 ├── archive/                 crash-safe assembler, RO-Crate writer, SQLite index,
-│                            identifier lookup, duplicate detection
+│                            identifier lookup, duplicate detection, briefing edits
 ├── ui/                      rich rendering: briefing, review, status, diff
-├── utils/                   paths, atomic file IO, ROS env handling, clock,
-│                            bag readers, topic health, bag repair
+├── utils/                   paths (and paths.yaml), atomic file IO, ROS env
+│                            handling, clock, bag readers, topic health, bag
+│                            repair, operator accounts, the harvest's tools
 └── build_info.py            which ros_fairy build is running
+tools/sandbox/               a throwaway robot in Docker, and scenarios to run on it
 ```
 
 Verbs are registered as entry points in `setup.py` (`fairy.verb` group). A new
