@@ -87,6 +87,34 @@ How things are faked:
 | Paths | the `fairy_dirs` fixture points `ROS_FAIRY_VAR_DIR`/`ROS_FAIRY_CONFIG_DIR` at `tmp_path` |
 | Bags | `make_bag()` (sqlite3) and `make_mcap_bag()` in `tests/conftest.py` |
 
+### The sandbox robot
+
+`tools/sandbox/` runs ROS F.A.I.R.y on a throwaway robot in Docker, the way an
+operator would: the real `install.sh`, `setup` with `sudo`, the watchdog as a
+systemd service, and missions recorded from a terminal. Use it to try a change
+end to end without touching your own machine's install.
+
+```bash
+tools/sandbox/sandbox.sh up            # build the image, boot the container
+tools/sandbox/sandbox.sh install       # copy this checkout in, ./install.sh
+tools/sandbox/sandbox.sh run smoke.py  # setup, then one mission end to end
+tools/sandbox/sandbox.sh shell         # look around as ana
+tools/sandbox/sandbox.sh reset         # a fresh robot
+```
+
+The robot runs ROS 2 Jazzy on Ubuntu 24.04. The container has three
+accounts: `ana` (the engineer, with password-less `sudo`) and `ben` and `cleo`
+(operators, no `sudo`). Two publishers stand in for sensors: `/fix` and
+`/scan`, as the units `fairy-talker-*`. The harvest's optional tools
+(`lsusb`, `lspci`, `v4l2-ctl`) are left out, as on a fresh robot.
+
+The checkout is mounted read-only at `/src`: re-run `install` after changing
+the code. Scenarios in `tools/sandbox/scenarios/` are Python scripts that run
+commands as these accounts and answer prompts on a real terminal
+(`fairy_sandbox.py` has the helpers); they print a check per step and exit 1
+if any failed. The container needs `--privileged` for systemd, so keep it to
+your own machine.
+
 ## Documentation
 
 The site is built with [MkDocs](https://www.mkdocs.org) and the Material theme
