@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 650" width="400" height="650" role="img" aria-labelledby="t d">
+  <title id="t">The watchdog's state machine</title>
+  <desc id="d">The watchdog starts in IDLE. It enters RECORDING when a storage file appears in a new spool folder (inotify) or the /proc scan finds a recorder writing elsewhere; the harvest then runs in the background and is retried every 60 s while ROS is unreachable. It enters FINALISING when metadata.yaml is written and the recorder has exited, or after 30 s without writes once the recorder is gone. It returns to IDLE when the harvest is done, or after at most 240 s, and appends the bag record to harvest.json. A bag that appears while busy is queued and starts as soon as the previous one is finalised.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5E6852"/>
+    </marker>
+    <clipPath id="c-idle"><rect x="24" y="88" width="240" height="60" rx="10"/></clipPath>
+    <clipPath id="c-rec"><rect x="24" y="250" width="240" height="100" rx="10"/></clipPath>
+    <clipPath id="c-fin"><rect x="24" y="450" width="240" height="70" rx="10"/></clipPath>
+    <style>
+      .card   { fill: #FBF6F0; stroke: #E2D6CA; }
+      .box    { fill: #FFFDF9; stroke: #5E6852; stroke-width: 1.5; }
+      .head   { font: 600 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; letter-spacing: 1.5px; fill: #5E6852; }
+      .note   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5F646C; }
+      .cmd    { font: 600 16px "JetBrains Mono", Menlo, Consolas, monospace; fill: #26303D; }
+      .sub    { font: 13px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5F646C; }
+      .lbl    { font: 600 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5E6852; }
+      .flow   { stroke: #5E6852; stroke-width: 1.8; fill: none; }
+      .dot    { fill: #5E6852; }
+      .band   { fill: #5E6852; }
+    </style>
+  </defs>
+
+  <rect class="card" x="0.5" y="0.5" width="399" height="649" rx="12"/>
+
+  <text class="head" x="24" y="34">WATCHDOG · STATE MACHINE</text>
+
+  <!-- start -->
+  <circle class="dot" cx="60" cy="58" r="7"/>
+  <path class="flow" d="M60,66 V84" marker-end="url(#arrow)"/>
+  <text class="lbl" x="76" y="63">start</text>
+
+  <!-- IDLE -->
+  <rect class="box" x="24" y="88" width="240" height="60" rx="10"/>
+  <rect class="band" x="24" y="88" width="7" height="60" clip-path="url(#c-idle)"/>
+  <text class="cmd" x="147" y="114" text-anchor="middle">IDLE</text>
+  <text class="sub" x="147" y="136" text-anchor="middle">nothing recorded</text>
+
+  <!-- IDLE → RECORDING -->
+  <path class="flow" d="M60,150 V246" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="76" y="178">a bag starts</text>
+  <text class="note" x="76" y="198">storage file in a new spool folder</text>
+  <text class="note" x="76" y="214">(inotify), or a recorder found by</text>
+  <text class="note" x="76" y="230">the /proc scan (every 1 s)</text>
+
+  <!-- RECORDING -->
+  <rect class="box" x="24" y="250" width="240" height="100" rx="10"/>
+  <rect class="band" x="24" y="250" width="7" height="100" clip-path="url(#c-rec)"/>
+  <text class="cmd" x="147" y="278" text-anchor="middle">RECORDING</text>
+  <text class="sub" x="147" y="302" text-anchor="middle">bag being written; harvest in</text>
+  <text class="sub" x="147" y="320" text-anchor="middle">the background, retried every</text>
+  <text class="sub" x="147" y="338" text-anchor="middle">60 s while ROS is unreachable</text>
+
+  <!-- RECORDING → FINALISING -->
+  <path class="flow" d="M60,352 V446" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="76" y="380">the bag stops</text>
+  <text class="note" x="76" y="400">metadata.yaml written and the</text>
+  <text class="note" x="76" y="416">recorder exited, or 30 s without</text>
+  <text class="note" x="76" y="432">writes and the recorder gone</text>
+
+  <!-- FINALISING -->
+  <rect class="box" x="24" y="450" width="240" height="70" rx="10"/>
+  <rect class="band" x="24" y="450" width="7" height="70" clip-path="url(#c-fin)"/>
+  <text class="cmd" x="147" y="478" text-anchor="middle">FINALISING</text>
+  <text class="sub" x="147" y="502" text-anchor="middle">waits for the harvest to end</text>
+
+  <!-- FINALISING → IDLE (and a queued bag straight back to RECORDING) -->
+  <path class="flow" d="M144,522 V560 H376 V118 H268" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="156" y="551">harvest done, or after 240 s</text>
+  <text class="note" x="156" y="580">bag record appended to harvest.json</text>
+
+  <circle class="dot" cx="376" cy="300" r="5"/>
+  <path class="flow" d="M376,300 H268" marker-end="url(#arrow)"/>
+  <text class="lbl"  x="322" y="290" text-anchor="middle">queued bag</text>
+  <text class="note" x="322" y="318" text-anchor="middle">starts at once</text>
+
+  <text class="note" x="24" y="614">A bag seen while RECORDING or FINALISING is</text>
+  <text class="note" x="24" y="630">queued; it starts once the current one is finalised.</text>
+</svg>

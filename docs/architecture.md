@@ -35,6 +35,15 @@ Source: `ros_fairy/watchdog/watchdog.py`, `ros_fairy/watchdog/recorder_scan.py`.
 
 ### State machine
 
+<picture>
+  <source media="(max-width: 59.9375em)" srcset="../assets/diagrams/watchdog-states-narrow.svg">
+  <img src="../assets/diagrams/watchdog-states.svg#only-light" alt="The watchdog's state machine: IDLE, then RECORDING when a bag appears in the spool or the /proc scan finds a recorder, then FINALISING when the bag stops, then back to IDLE once the harvest is done (at most 240 s); a bag queued meanwhile starts at once." style="width: auto; max-width: 100%">
+</picture>
+<picture>
+  <source media="(max-width: 59.9375em)" srcset="../assets/diagrams/watchdog-states-narrow-dark.svg">
+  <img src="../assets/diagrams/watchdog-states-dark.svg#only-dark" alt="The watchdog's state machine: IDLE, then RECORDING when a bag appears in the spool or the /proc scan finds a recorder, then FINALISING when the bag stops, then back to IDLE once the harvest is done (at most 240 s); a bag queued meanwhile starts at once." style="width: auto; max-width: 100%">
+</picture>
+
 | State | Meaning |
 | --- | --- |
 | `IDLE` | Nothing is being recorded. |
@@ -247,6 +256,23 @@ Hidden nodes (a name segment starting with `_`) and tf2's
   `nobody` through `setpriv`. Replaying rules as root could change the
   hardware. If `setpriv` is missing, that step is skipped.
 - `lsusb -v` and `dmesg` may be restricted; the module is then `partial`.
+
+## Saving a mission
+
+Saving is the CLI's job, never the watchdog's: `mission_close` turns the spool
+into a crate in three stages, in `ros_fairy/archive/assembler.py`. A plan file
+records which stage a save has reached, so one cut off by a crash is
+discarded or finished by the next `mission_close`. The details are in
+[How a save works](archive-format.md#how-a-save-works).
+
+<picture>
+  <source media="(max-width: 59.9375em)" srcset="../assets/diagrams/save-stages-narrow.svg">
+  <img src="../assets/diagrams/save-stages.svg#only-light" alt="Saving a mission in three stages: build in archive/.staging (plan: building; a failure throws the staging copy away), move the spool recordings into staging (plan: moving; a failure moves them back, a crash is finished later), commit with one atomic rename into the archive, then update the index and clear the spool (plan: committed)." style="width: auto; max-width: 100%">
+</picture>
+<picture>
+  <source media="(max-width: 59.9375em)" srcset="../assets/diagrams/save-stages-narrow-dark.svg">
+  <img src="../assets/diagrams/save-stages-dark.svg#only-dark" alt="Saving a mission in three stages: build in archive/.staging (plan: building; a failure throws the staging copy away), move the spool recordings into staging (plan: moving; a failure moves them back, a crash is finished later), commit with one atomic rename into the archive, then update the index and clear the spool (plan: committed)." style="width: auto; max-width: 100%">
+</picture>
 
 ## Provenance of ros_fairy itself
 

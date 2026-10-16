@@ -20,12 +20,12 @@ characters each. If the name is taken, `_2`, `_3`, … is appended.
 
 ```
 <crate>/
-├── ro-crate-metadata.json       RO-Crate JSON-LD                         always
-├── mission_record.json          the full mission record (schema below)   always
-├── README.md                    human-readable summary                   always
-├── checksums.sha256             sha256 of every file outside bags/       always
+├── ro-crate-metadata.json       RO-Crate JSON-LD                           always
+├── mission_record.json          the full mission record (schema below)     always
+├── README.md                    human-readable summary                     always
+├── checksums.sha256             sha256 of every file outside bags/         always
 ├── bags/
-│   └── <recording>/             rosbag2 folders, unchanged               one per recording
+│   └── <recording>/             rosbag2 folders, unchanged                 one per recording
 ├── harvest/
 │   ├── harvest.json             the raw capture, as the watchdog wrote it  always
 │   ├── watchdog.log             what the watchdog did during the mission

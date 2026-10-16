@@ -236,6 +236,11 @@
 }
 .md-typeset pre > code { border-radius: 8px; }
 .md-typeset pre .md-clipboard { color: #9AA6B0; }
+/* Inline commands and paths don't break at their hyphens (`ros-` | `fairy`),
+   except on phones, where a long one would overflow the column. */
+@media screen and (min-width: 45em) {
+  .md-typeset :not(pre) > code { white-space: nowrap; }
+}
 
 /* ---- Tables --------------------------------------------------------- */
 .md-typeset table:not([class]) {
@@ -253,9 +258,18 @@
   color: var(--md-default-fg-color);
   border-bottom: 2px solid var(--fairy-accent);
 }
+/* phones: tighter cells, so two-column tables fit without a sideways scroll */
+@media screen and (max-width: 44.9375em) {
+  .md-typeset table:not([class]) th,
+  .md-typeset table:not([class]) td {
+    padding-left: 0.8em;
+    padding-right: 0.8em;
+  }
+}
 
 /* ---- Blockquotes (used for warnings) -------------------------------- */
-.md-typeset blockquote {
+/* [dir=ltr]: Material sets the left border and padding with that prefix */
+[dir=ltr] .md-typeset blockquote {
   border-left: 3px solid var(--fairy-accent);
   background-color: var(--fairy-accent-wash);
   color: var(--md-typeset-color);

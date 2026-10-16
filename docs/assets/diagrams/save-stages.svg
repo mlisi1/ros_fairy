@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 430" width="960" height="430" role="img" aria-labelledby="t d">
+  <title id="t">How mission_close saves a mission</title>
+  <desc id="d">Three stages. Build: everything is assembled in archive/.staging/&lt;name&gt;/ (plan file: building); a failure or Ctrl-C throws the staging copy away, and after a crash the next mission_close discards it. Move: spool recordings are moved into staging (plan file: moving); a failure or Ctrl-C moves them back, and after a crash the next mission_close finishes the save. Commit: staging is flushed and renamed into archive/&lt;name&gt;/ in one atomic step, then the index is updated and the spool cleared (plan file: committed, after the rename); after a crash the next mission_close does the remaining bookkeeping.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#5E6852"/>
+    </marker>
+    <style>
+      .card   { fill: #FBF6F0; stroke: #E2D6CA; }
+      .box    { fill: #FFFDF9; stroke: #5E6852; stroke-width: 1.5; }
+      .file   { fill: #FFFDF9; stroke: #B9AEA2; stroke-width: 1.2; }
+      .after  { fill: #FFFDF9; stroke: #9AA39A; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .head, .step { font: 600 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; letter-spacing: 1.5px; fill: #5E6852; }
+      .step   { font-size: 11px; }
+      .note   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5F646C; }
+      .cmd    { font: 600 14px "JetBrains Mono", Menlo, Consolas, monospace; fill: #26303D; }
+      .cmd.big { font-size: 16px; }
+      .sub    { font: 13px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #5F646C; }
+      .flow   { stroke: #5E6852; stroke-width: 1.8; fill: none; }
+      .arr    { font: 600 15px "IBM Plex Sans", Helvetica, Arial, sans-serif; }
+      .pill   { fill: #5E6852; }
+      .pillT  { font: 600 13px "JetBrains Mono", Menlo, Consolas, monospace; fill: #FFFDF9; }
+      .pillN  { font: 13px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #FFFDF9; }
+    </style>
+  </defs>
+
+  <rect class="card" x="0.5" y="0.5" width="959" height="429" rx="12"/>
+
+  <!-- the three stages -->
+  <text class="step" x="24" y="34">1 · BUILD</text>
+  <rect class="box" x="24" y="44" width="280" height="104" rx="10"/>
+  <text class="cmd" x="164" y="76" text-anchor="middle">.staging/&lt;name&gt;/</text>
+  <text class="sub" x="164" y="102" text-anchor="middle">harvest files, calibrations, copies</text>
+  <text class="sub" x="164" y="120" text-anchor="middle">of outside recordings; space checked</text>
+
+  <path class="flow" d="M308,96 H336" marker-end="url(#arrow)"/>
+
+  <text class="step" x="340" y="34">2 · MOVE</text>
+  <rect class="box" x="340" y="44" width="280" height="104" rx="10"/>
+  <text class="cmd" x="480" y="76" text-anchor="middle">spool <tspan class="arr">→</tspan> staging</text>
+  <text class="sub" x="480" y="102" text-anchor="middle">a rename, or copy, flush, sha256</text>
+  <text class="sub" x="480" y="120" text-anchor="middle">check, then remove from the spool</text>
+
+  <path class="flow" d="M624,96 H652" marker-end="url(#arrow)"/>
+
+  <text class="step" x="656" y="34">3 · COMMIT</text>
+  <rect class="box" x="656" y="44" width="280" height="104" rx="10"/>
+  <text class="cmd" x="796" y="76" text-anchor="middle">staging <tspan class="arr">→</tspan> archive/&lt;name&gt;/</text>
+  <text class="sub" x="796" y="102" text-anchor="middle">flushed, one atomic rename;</text>
+  <text class="sub" x="796" y="120" text-anchor="middle">then the index and spool clean-up</text>
+
+  <!-- plan file state -->
+  <rect class="pill" x="24"  y="160" width="280" height="32" rx="16"/>
+  <text x="164" y="181" text-anchor="middle"><tspan class="pillN">plan: </tspan><tspan class="pillT">building</tspan></text>
+  <rect class="pill" x="340" y="160" width="280" height="32" rx="16"/>
+  <text x="480" y="181" text-anchor="middle"><tspan class="pillN">plan: </tspan><tspan class="pillT">moving</tspan></text>
+  <rect class="pill" x="656" y="160" width="280" height="32" rx="16"/>
+  <text x="796" y="181" text-anchor="middle"><tspan class="pillN">plan: </tspan><tspan class="pillT">committed</tspan><tspan class="pillN"> (after the rename)</tspan></text>
+
+  <!-- failure or Ctrl-C during the save -->
+  <text class="step" x="24" y="230">IF IT FAILS OR CTRL-C IS PRESSED</text>
+  <rect class="file" x="24"  y="240" width="280" height="60" rx="8"/>
+  <text class="sub" x="164" y="265" text-anchor="middle">the staging copy is thrown away;</text>
+  <text class="sub" x="164" y="284" text-anchor="middle">nothing else was touched</text>
+  <rect class="file" x="340" y="240" width="280" height="60" rx="8"/>
+  <text class="sub" x="480" y="265" text-anchor="middle">the recordings are moved back;</text>
+  <text class="sub" x="480" y="284" text-anchor="middle">the spool is as it was</text>
+  <rect class="file" x="656" y="240" width="280" height="60" rx="8"/>
+  <text class="sub" x="796" y="265" text-anchor="middle">before the rename: still in staging;</text>
+  <text class="sub" x="796" y="284" text-anchor="middle">after it: the mission is saved</text>
+
+  <!-- crash or power cut -->
+  <text x="24" y="336"><tspan class="step">AFTER A CRASH OR POWER CUT</tspan><tspan class="note" dx="10">· the next mission_close reads the plan file and:</tspan></text>
+  <rect class="after" x="24"  y="346" width="280" height="60" rx="8"/>
+  <text class="sub" x="164" y="371" text-anchor="middle">discards the attempt</text>
+  <text class="sub" x="164" y="390" text-anchor="middle">(only copies were there)</text>
+  <rect class="after" x="340" y="346" width="280" height="60" rx="8"/>
+  <text class="sub" x="480" y="371" text-anchor="middle">finishes the save, checking each</text>
+  <text class="sub" x="480" y="390" text-anchor="middle">staged recording's sha256</text>
+  <rect class="after" x="656" y="346" width="280" height="60" rx="8"/>
+  <text class="sub" x="796" y="371" text-anchor="middle">does the remaining bookkeeping:</text>
+  <text class="sub" x="796" y="390" text-anchor="middle">the index entry, the spool clean-up</text>
+</svg>

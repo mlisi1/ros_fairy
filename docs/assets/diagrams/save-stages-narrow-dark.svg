@@ -1,0 +1,76 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 874" width="400" height="874" role="img" aria-labelledby="t d">
+  <title id="t">How mission_close saves a mission</title>
+  <desc id="d">Three stages. Build: everything is assembled in archive/.staging/&lt;name&gt;/ (plan file: building); a failure or Ctrl-C throws the staging copy away, and after a crash the next mission_close discards it. Move: spool recordings are moved into staging (plan file: moving); a failure or Ctrl-C moves them back, and after a crash the next mission_close finishes the save. Commit: staging is flushed and renamed into archive/&lt;name&gt;/ in one atomic step, then the index is updated and the spool cleared (plan file: committed, after the rename); after a crash the next mission_close does the remaining bookkeeping.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#C3CCAF"/>
+    </marker>
+    <style>
+      .card   { fill: #222B36; stroke: #34404D; }
+      .box    { fill: #1E2732; stroke: #C3CCAF; stroke-width: 1.5; }
+      .file   { fill: #1E2732; stroke: #5F6B78; stroke-width: 1.2; }
+      .after  { fill: #1E2732; stroke: #6E7A86; stroke-width: 1.5; stroke-dasharray: 6 5; }
+      .head, .step { font: 600 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; letter-spacing: 1.5px; fill: #C3CCAF; }
+      .step   { font-size: 11px; }
+      .note   { font: 12px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #AAB4BC; }
+      .cmd    { font: 600 14px "JetBrains Mono", Menlo, Consolas, monospace; fill: #F3EEE8; }
+      .sub    { font: 13px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #AAB4BC; }
+      .flow   { stroke: #C3CCAF; stroke-width: 1.8; fill: none; }
+      .arr    { font: 600 15px "IBM Plex Sans", Helvetica, Arial, sans-serif; }
+      .pill   { fill: #C3CCAF; }
+      .pillT  { font: 600 13px "JetBrains Mono", Menlo, Consolas, monospace; fill: #1E2732; }
+      .pillN  { font: 13px "IBM Plex Sans", Helvetica, Arial, sans-serif; fill: #1E2732; }
+    </style>
+  </defs>
+
+  <rect class="card" x="0.5" y="0.5" width="399" height="873" rx="12"/>
+
+  <!-- stage to stage, down the left margin -->
+  <path class="flow" d="M44,102 H24 V376 H40" marker-end="url(#arrow)"/>
+  <path class="flow" d="M44,376 H24 V650 H40" marker-end="url(#arrow)"/>
+
+  <!-- 1 · BUILD (y0 = 50) -->
+  <text class="step" x="44" y="50">1 · BUILD</text>
+  <rect class="box" x="44" y="60" width="332" height="84" rx="10"/>
+  <text class="cmd" x="210" y="90" text-anchor="middle">.staging/&lt;name&gt;/</text>
+  <text class="sub" x="210" y="113" text-anchor="middle">harvest files, calibrations, copies of</text>
+  <text class="sub" x="210" y="131" text-anchor="middle">outside recordings; space checked</text>
+  <rect class="pill" x="44" y="154" width="332" height="30" rx="15"/>
+  <text x="210" y="174" text-anchor="middle"><tspan class="pillN">plan: </tspan><tspan class="pillT">building</tspan></text>
+  <rect class="file" x="44" y="194" width="332" height="50" rx="8"/>
+  <text class="step" x="58" y="213">IF IT FAILS OR CTRL-C</text>
+  <text class="note" x="58" y="233">staging copy thrown away; nothing else touched</text>
+  <rect class="after" x="44" y="252" width="332" height="50" rx="8"/>
+  <text class="step" x="58" y="271">AFTER A CRASH</text>
+  <text class="note" x="58" y="291">the next mission_close discards the attempt</text>
+
+  <!-- 2 · MOVE (y0 = 324) -->
+  <text class="step" x="44" y="324">2 · MOVE</text>
+  <rect class="box" x="44" y="334" width="332" height="84" rx="10"/>
+  <text class="cmd" x="210" y="364" text-anchor="middle">spool <tspan class="arr">→</tspan> staging</text>
+  <text class="sub" x="210" y="387" text-anchor="middle">a rename, or copy, flush, sha256 check,</text>
+  <text class="sub" x="210" y="405" text-anchor="middle">then remove from the spool</text>
+  <rect class="pill" x="44" y="428" width="332" height="30" rx="15"/>
+  <text x="210" y="448" text-anchor="middle"><tspan class="pillN">plan: </tspan><tspan class="pillT">moving</tspan></text>
+  <rect class="file" x="44" y="468" width="332" height="50" rx="8"/>
+  <text class="step" x="58" y="487">IF IT FAILS OR CTRL-C</text>
+  <text class="note" x="58" y="507">the recordings are moved back to the spool</text>
+  <rect class="after" x="44" y="526" width="332" height="50" rx="8"/>
+  <text class="step" x="58" y="545">AFTER A CRASH</text>
+  <text class="note" x="58" y="565">the next mission_close finishes it (sha256 checked)</text>
+
+  <!-- 3 · COMMIT (y0 = 598) -->
+  <text class="step" x="44" y="598">3 · COMMIT</text>
+  <rect class="box" x="44" y="608" width="332" height="84" rx="10"/>
+  <text class="cmd" x="210" y="638" text-anchor="middle">staging <tspan class="arr">→</tspan> archive/&lt;name&gt;/</text>
+  <text class="sub" x="210" y="661" text-anchor="middle">flushed, one atomic rename; then the</text>
+  <text class="sub" x="210" y="679" text-anchor="middle">index and the spool clean-up</text>
+  <rect class="pill" x="44" y="702" width="332" height="30" rx="15"/>
+  <text x="210" y="722" text-anchor="middle"><tspan class="pillN">plan: </tspan><tspan class="pillT">committed</tspan><tspan class="pillN"> (after the rename)</tspan></text>
+  <rect class="file" x="44" y="742" width="332" height="50" rx="8"/>
+  <text class="step" x="58" y="761">IF IT FAILS OR CTRL-C</text>
+  <text class="note" x="58" y="781">before the rename: in staging; after it: saved</text>
+  <rect class="after" x="44" y="800" width="332" height="50" rx="8"/>
+  <text class="step" x="58" y="819">AFTER A CRASH</text>
+  <text class="note" x="58" y="839">the next mission_close does the index and clean-up</text>
+</svg>
