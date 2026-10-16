@@ -65,7 +65,8 @@ _USBCORE = ("autosuspend", "usbfs_memory_mb", "quirks", "authorized_default",
             "old_scheme_first", "use_both_schemes", "initial_descriptor_timeout")
 # Line of `udevadm test` output naming the rule that acted:
 #   "ttyUSB0: /etc/udev/rules.d/99-jo-usb.rules:7 ATTR '...' writing '1'"
-_TRACE_LINE = re.compile(r"^(?P<dev>[^:\s]+): (?P<file>/\S+\.rules):(?P<line>\d+)"
+# The device name may hold colons itself ("3-1:1.0", "0003:046D:C52B.0001").
+_TRACE_LINE = re.compile(r"^(?P<dev>\S+): (?P<file>/\S+\.rules):(?P<line>\d+)"
                          r" (?P<action>.*)$")
 _ATTR_WRITE = re.compile(r"^ATTR '(?P<path>[^']+)' writing '(?P<value>[^']*)'")
 _USB_NAME = re.compile(r"^(usb\d+|\d+-[\d.]+)$")

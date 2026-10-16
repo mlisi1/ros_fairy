@@ -58,6 +58,17 @@ def run(args, console: Console | None = None) -> int:
         return 1
 
     out_root = Path(getattr(args, "output", None) or f"{label}_repaired")
+    # The originals are never modified: refuse an output that would put a
+    # repaired copy on top of (or inside) the recording it comes from.
+    clash = next((b for b in bag_dirs
+                  if bag_repair.overlaps(b, out_root / b.name)), None)
+    if clash is not None:
+        message = (f"Writing into {out_root} would overwrite the original "
+                   f"recording {clash.name}. Choose another --output.")
+        if as_json:
+            return json_error(message)
+        console.print(f"[red]{message}[/red]")
+        return 1
     if out_root.exists() and any(out_root.iterdir()) \
             and not getattr(args, "force", False):
         message = (f"{out_root} already exists and isn't empty. Choose "

@@ -234,6 +234,7 @@ def _scan(path: Path, ts: Timestamps) -> None:
     """Walk the file's records, reading message headers only."""
     topics: dict[int, str] = {}
     schemas: dict[int, str] = {}
+    size = path.stat().st_size
     with open(path, "rb") as f:
         if f.read(8) != _MCAP_MAGIC:
             log.warning("%s is not an MCAP file", path.name)
@@ -241,12 +242,16 @@ def _scan(path: Path, ts: Timestamps) -> None:
             return
         while True:
             head = f.read(9)
-            if not head:
-                return
+            # A complete file ends with DataEnd and Footer: running out
+            # before them, a record longer than what is left, or opcode 0
+            # (a zero-filled tail never written) means it was cut off.
             if len(head) < 9:
                 ts.truncated = True
                 return
             op, length = head[0], struct.unpack_from("<Q", head, 1)[0]
+            if op == 0 or length > size - f.tell():
+                ts.truncated = True
+                return
             if op == _OP_MESSAGE:
                 h = f.read(22)
                 if len(h) < 22:
@@ -280,9 +285,6 @@ def _scan(path: Path, ts: Timestamps) -> None:
                 return
             else:
                 f.seek(length, 1)
-                if f.tell() > path.stat().st_size:
-                    ts.truncated = True
-                    return
 
 
 def _chunk(record: bytes, topics: dict[int, str], schemas: dict[int, str],

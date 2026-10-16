@@ -171,6 +171,15 @@ def test_applied_rules_are_read_back(fake_sysfs, monkeypatch):
                for entries in applied.values() for e in entries)
 
 
+@pytest.mark.parametrize("dev", ["ttyUSB0", "3-1:1.0", "0003:046D:C52B.0001"])
+def test_trace_line_names_devices_with_colons(dev):
+    m = usb_udev._TRACE_LINE.match(
+        f"{dev}: /usr/lib/udev/rules.d/80-drivers.rules:5 RUN 'kmod load'")
+    assert m and m["dev"] == dev and m["line"] == "5"
+    assert m["file"] == "/usr/lib/udev/rules.d/80-drivers.rules"
+    assert m["action"] == "RUN 'kmod load'"
+
+
 def test_replay_never_runs_as_root(monkeypatch):
     monkeypatch.setattr(usb_udev.os, "geteuid", lambda: 0)
     cmd = usb_udev._trace_cmd("/sys/devices/x")

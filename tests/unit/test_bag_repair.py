@@ -1,8 +1,12 @@
 import importlib.util
+import io
+from types import SimpleNamespace
 
 import pytest
 import yaml
+from rich.console import Console
 
+from ros_fairy.subcommands import repair
 from ros_fairy.utils import bag_repair, topic_health
 from tests.conftest import make_mcap_bag
 
@@ -61,3 +65,44 @@ def test_restamp_keeps_per_message_compression(tmp_path):
         "rosbag2_bagfile_information"]
     assert (info["compression_format"], info["compression_mode"]) == \
         ("zstd", "message")
+
+
+def _snapshot(bag_dir):
+    return {p.name: p.read_bytes() for p in bag_dir.iterdir()}
+
+
+@pytest.mark.parametrize("where", ["same", "inside", "parent"])
+def test_restamp_never_writes_over_the_source(tmp_path, where):
+    src = make_mcap_bag(tmp_path / "run1", _bad_clock_topics())
+    before = _snapshot(src)
+    dest = {"same": tmp_path / "." / "run1", "inside": src / "fixed",
+            "parent": tmp_path}[where]
+    with pytest.raises(bag_repair.BagRepairError, match="over the original"):
+        bag_repair.restamp_bag(src, dest)
+    assert _snapshot(src) == before
+
+
+def test_repair_command_refuses_output_over_the_original(tmp_path):
+    # `ros2 fairy repair ./run1 -o . --force` aims the copy at run1 itself.
+    src = make_mcap_bag(tmp_path / "run1", _bad_clock_topics())
+    before = _snapshot(src)
+    console = Console(file=io.StringIO(), width=200, force_terminal=False)
+    args = SimpleNamespace(mission=str(src), output=str(tmp_path), all=True,
+                           duration=None, force=True, json=False)
+    assert repair.run(args, console=console) == 1
+    assert "would overwrite the original" in console.file.getvalue()
+    assert _snapshot(src) == before
+
+
+@pytest.mark.parametrize("keep", [1 / 3, 1 / 2, 5 / 6])
+def test_restamp_cut_off_mcap_is_a_plain_error(tmp_path, keep):
+    src = make_mcap_bag(tmp_path / "bad", _bad_clock_topics())
+    f = next(src.glob("*.mcap"))
+    data = f.read_bytes()
+    f.write_bytes(data[:int(len(data) * keep)])
+    before = _snapshot(src)
+    dest = tmp_path / "fixed"
+    with pytest.raises(bag_repair.BagRepairError, match="damaged"):
+        bag_repair.restamp_bag(src, dest)
+    assert not dest.exists()
+    assert _snapshot(src) == before

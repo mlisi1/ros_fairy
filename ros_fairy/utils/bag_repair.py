@@ -17,6 +17,7 @@ Shared by ``ros2 fairy repair`` and ``tools/restamp_bag.py``.
 
 import copy
 import sqlite3
+import struct
 import time
 from pathlib import Path
 from typing import Any
@@ -66,19 +67,51 @@ def restamp_bag(src_bag_dir: Path, dest_bag_dir: Path,
 
     Returns a summary dict. Raises BagRepairError for a storage format that
     can't be repaired (anything but MCAP and sqlite3, or a file-compressed
-    bag) or when the ``mcap`` package is needed but unavailable.
+    bag), a bag too damaged to read, a destination that is (or holds, or is
+    inside) the source, or when the ``mcap`` package is needed but
+    unavailable.
     """
+    if overlaps(src_bag_dir, dest_bag_dir):
+        raise BagRepairError(
+            f"the repaired copy of {src_bag_dir.name} would be written over "
+            "the original; choose a destination outside it")
     meta = topic_health.parse_bag_metadata(src_bag_dir)
     if meta is None:
         raise BagRepairError(f"{src_bag_dir.name} has no readable metadata")
     storage = meta["storage_identifier"]
-    if storage == "sqlite3":
-        return _restamp_sqlite(src_bag_dir, dest_bag_dir, meta, duration_s)
-    if storage != "mcap":
+    damaged: tuple[type[BaseException], ...] = (
+        sqlite3.Error, struct.error, *_mcap_errors())
+    # A bag cut off mid-write or corrupted can't be read to the end; any
+    # partial output is removed before the error gets here.
+    try:
+        if storage == "sqlite3":
+            return _restamp_sqlite(src_bag_dir, dest_bag_dir, meta,
+                                   duration_s)
+        if storage != "mcap":
+            raise BagRepairError(
+                f"only MCAP and sqlite3 bags can be repaired "
+                f"({src_bag_dir.name} is {storage})")
+        return _restamp_mcap(src_bag_dir, dest_bag_dir, meta, duration_s)
+    except damaged as exc:
+        detail = f" ({exc})" if str(exc) else ""
         raise BagRepairError(
-            f"only MCAP and sqlite3 bags can be repaired "
-            f"({src_bag_dir.name} is {storage})")
-    return _restamp_mcap(src_bag_dir, dest_bag_dir, meta, duration_s)
+            f"{src_bag_dir.name} is damaged (cut off or corrupt) and can't "
+            f"be repaired{detail}") from exc
+
+
+def overlaps(src_bag_dir: Path, dest_bag_dir: Path) -> bool:
+    """True if writing into ``dest_bag_dir`` would touch the source bag:
+    the same folder, or one inside the other."""
+    src, dest = src_bag_dir.resolve(), dest_bag_dir.resolve()
+    return src == dest or src in dest.parents or dest in src.parents
+
+
+def _mcap_errors() -> tuple[type[BaseException], ...]:
+    try:
+        from mcap.exceptions import McapError
+    except ImportError:  # pragma: no cover - exercised without mcap
+        return ()
+    return (McapError,)
 
 
 def _no_files_error(src_bag_dir: Path, suffix: str) -> BagRepairError:

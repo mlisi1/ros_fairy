@@ -272,6 +272,27 @@ def test_udevadm_enrichment(monkeypatch):
     assert tty["serial_number"] == "3C1234567890"
 
 
+def test_udev_driver_prefers_id_usb_driver(monkeypatch):
+    """A USB serial adapter's node only names its driver in ID_USB_DRIVER."""
+    monkeypatch.setattr(hd.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(hd, "glob", lambda p: ["/dev/ttyUSB0"]
+                        if "ttyUSB" in p else [])
+    monkeypatch.setattr("pathlib.Path.is_dir", lambda self: False)
+    props = "DEVNAME=/dev/ttyUSB0\nSUBSYSTEM=tty\nDRIVER=usb\n" \
+            "ID_USB_DRIVER=ftdi_sio\n"
+
+    def fake_run(cmd, **kw):
+        if cmd[0] == "udevadm":
+            return _completed(props)
+        return _completed(returncode=1)
+
+    monkeypatch.setattr(hd.subprocess, "run", fake_run)
+    tty = next(d for d in hd.harvest()["devices"]
+               if d.get("device_path") == "/dev/ttyUSB0")
+    assert tty["driver"] == "ftdi_sio"
+    assert tty["udev_properties"]["ID_USB_DRIVER"] == "ftdi_sio"
+
+
 def test_udev_whitelist_enforced(monkeypatch):
     monkeypatch.setattr(hd.shutil, "which", lambda n: "/usr/bin/" + n)
 

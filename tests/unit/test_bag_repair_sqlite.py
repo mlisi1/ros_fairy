@@ -128,3 +128,17 @@ def test_failed_sqlite_repair_leaves_nothing(tmp_path, monkeypatch):
     with pytest.raises(OSError):
         bag_repair.restamp_bag(src, dest)
     assert not dest.exists()
+
+
+def test_sqlite_error_while_copying_is_a_plain_error(tmp_path, monkeypatch):
+    src = make_bag(tmp_path / "bad", _bad_clock_topics())
+    before = {p.name: p.read_bytes() for p in src.iterdir()}
+
+    def corrupt(*a, **k):
+        raise sqlite3.DatabaseError("database disk image is malformed")
+    monkeypatch.setattr(bag_repair, "_update_stored_metadata", corrupt)
+    dest = tmp_path / "fixed"
+    with pytest.raises(bag_repair.BagRepairError, match="damaged"):
+        bag_repair.restamp_bag(src, dest)
+    assert not dest.exists()
+    assert {p.name: p.read_bytes() for p in src.iterdir()} == before

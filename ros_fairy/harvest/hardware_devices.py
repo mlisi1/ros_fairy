@@ -24,7 +24,7 @@ _UDEV_WHITELIST = frozenset({
     "ID_VENDOR", "ID_VENDOR_ID", "ID_MODEL", "ID_MODEL_ID",
     "ID_VENDOR_FROM_DATABASE", "ID_MODEL_FROM_DATABASE",
     "ID_SERIAL_SHORT", "ID_USB_CLASS", "ID_USB_SUBCLASS",
-    "ID_DRIVER", "DRIVER", "ID_PATH", "MAJOR", "MINOR",
+    "ID_USB_DRIVER", "ID_DRIVER", "DRIVER", "ID_PATH", "MAJOR", "MINOR",
 })
 
 # Which devices udev details matter most for: the sensors (serial ports,
@@ -232,8 +232,10 @@ def _enrich_udev(devices: list[dict], deadline: float | None = None) -> bool:
         if not props:
             continue
         dev["udev_properties"] = props
-        dev["driver"] = dev["driver"] or props.get("ID_DRIVER") \
-            or props.get("DRIVER")
+        # A /dev/video* or /dev/ttyUSB* node names its driver (uvcvideo,
+        # ftdi_sio) only in ID_USB_DRIVER; DRIVER on a USB device is "usb".
+        dev["driver"] = dev["driver"] or props.get("ID_USB_DRIVER") \
+            or props.get("ID_DRIVER") or props.get("DRIVER")
         dev["serial_number"] = dev["serial_number"] or props.get("ID_SERIAL_SHORT")
         dev["vendor_name"] = dev["vendor_name"] or props.get("ID_VENDOR") \
             or props.get("ID_VENDOR_FROM_DATABASE")
