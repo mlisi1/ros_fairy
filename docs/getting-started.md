@@ -287,7 +287,8 @@ The [operator guide](operator-guide.md) walks through each step.
 
 It stops and removes the service, then deletes `/etc/ros-fairy`, the spool,
 `watchdog.state`, the ROS log directory and the `ros-fairy` group, and
-uninstalls the Python package. It re-runs itself under `sudo` when needed.
+uninstalls the Python package (from the interpreter the service ran with). It
+re-runs itself under `sudo` when needed.
 
 It **keeps your saved missions**: `/var/ros-fairy/archive` and
 `/var/ros-fairy/index.db` are left in place, and their location is printed at

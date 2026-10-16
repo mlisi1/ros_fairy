@@ -31,8 +31,8 @@ Five questions, under two minutes:
 
 | # | Question | |
 | --- | --- | --- |
-| 1 | What's your name? | required; defaults to the last operator |
-| 2 | In one sentence, what is this mission trying to do? | required |
+| 1 | What's your name? | required; defaults to the last operator; 80 characters at most |
+| 2 | In one sentence, what is this mission trying to do? | required; 280 characters at most |
 | 3 | Where are you? (place name) | required |
 | 4 | What's the environment like? | optional |
 | 5 | Anything else worth noting? | optional; you can edit it at the end |

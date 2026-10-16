@@ -43,7 +43,8 @@ Every process reads this file: operator shells, the watchdog service,
 login. Don't edit it to move missions that already exist (they would stay
 behind, unlisted): use `move_data`. A file that can't be used (no `var_dir`,
 a relative path, broken YAML) stops every command with a plain message rather
-than quietly using `/var/ros-fairy`.
+than quietly using `/var/ros-fairy`; `ros2 fairy setup --var-dir <folder>`
+writes it again.
 
 For tests and one-off experiments, two environment variables still override
 everything:
@@ -55,7 +56,9 @@ everything:
 
 The service never sees a shell's variables, so a shell with
 `ROS_FAIRY_VAR_DIR` set works on different missions than the watchdog
-(`doctor` warns about it). A moved config folder also needs a systemd drop-in
+(`doctor` warns about it). For the same reason the setup wizard refuses to
+run while `ROS_FAIRY_VAR_DIR` is set: unset it, or give the folder as
+`--var-dir`. A moved config folder also needs a systemd drop-in
 (`sudo systemctl edit ros-fairy-watchdog`), because the unit file hard-codes
 `EnvironmentFile=-/etc/ros-fairy/watchdog.env`.
 
@@ -108,7 +111,7 @@ recording:                        # optional, used by mission_record
 | `robot` | `name`, `platform`, `serial_number` | |
 | `owner` | `organization`, `contact_email` | `default_license` becomes the RO-Crate's `license`; without it the crate has none. |
 | `sensors[]` | `sensor_id`, `type`, `make_model`, `topic` | `sensor_id` must be unique. Topics are made absolute. |
-| `calibrations[]` | `name`, `source_path` | The file is copied into each saved mission with its sha256. |
+| `calibrations[]` | `name`, `source_path` | The file is copied into each saved mission with its sha256. `setup` names an entry `<sensor_id>_cal` (`_cal_2`, … when that name is taken), and renames it along with its sensor. |
 | `recording` | none | `topics` may be a list or a single string. A topic selection or `--storage` given to `mission_record` replaces these for that recording. |
 
 All required fields must be non-empty strings. A broken file is reported in

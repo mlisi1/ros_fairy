@@ -73,9 +73,11 @@ missed.
 
 If ROS couldn't be reached (`ros_graph` is `failed`), the full
 harvest is retried every **60 s** (`ROS_RETRY_INTERVAL_S`) for as long as the
-recording runs. If only the robot description (URDF, `/tf_static`) was
+recording runs, even when a graph from an earlier recording of the mission is
+kept meanwhile. If only the robot description (URDF, `/tf_static`) was
 missing, it is retried at most **twice** per recording
-(`MAX_DESCRIPTION_RETRIES`), keeping the graph already captured.
+(`MAX_DESCRIPTION_RETRIES`), keeping the graph already captured; a description
+retry whose own graph capture fails stays a description retry.
 
 When captures are merged, a failed ROS capture never overwrites an earlier
 successful one.
@@ -134,8 +136,10 @@ ROS_AUTOMATIC_DISCOVERY_RANGE  ROS_STATIC_PEERS
 
 Loader paths (`PATH`, `LD_LIBRARY_PATH`, `PYTHONPATH`, `AMENT_PREFIX_PATH`) are
 never taken from it. For a recording found by the `/proc` scan, the same keys
-are read from the recorder process's own environment instead. A key the source
-doesn't set falls back to the `watchdog.env` value.
+are read from the recorder process's own environment instead. Both are whole
+environments, so a key the source doesn't set is unset for the harvest too (the
+ROS default applies). The `watchdog.env` values are used only when there is no
+source: no `session.env`, or a recorder whose environment can't be read.
 
 ### The containers' ROS processes: `ros_processes.json`
 
@@ -157,7 +161,7 @@ watchdog scans `/proc`:
   from their environment.
 
 The file is world-readable, and written only when the findings change (no
-SD-card wear every 10 s). A process's environment can't change once it has
+SD-card wear every 10 s); a change in the process count alone doesn't count. A process's environment can't change once it has
 started, so the file can go stale only by missing new processes. A restarted
 container has a new pid and no longer matches. `docker_info.ros_containers()`
 uses the processes' settings over the configuration when it has them, and

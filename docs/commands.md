@@ -70,15 +70,15 @@ on stdin.
 | `--operator USER` | Another account that will record missions; repeatable. Skips the question about other operators. An account that doesn't exist stops setup before any question. |
 | `--refresh-env` | Only re-capture the ROS environment from this shell and restart the watchdog; no questions. See [Changing the robot's configuration later](getting-started.md#changing-the-robots-configuration-later). |
 | `--from-container NAME` | Take the DDS discovery settings from this running container instead of this shell, for a robot whose ROS runs in Docker; with or without `--refresh-env`. See [Robots whose ROS runs in Docker](getting-started.md#robots-whose-ros-runs-in-docker). |
-| `--var-dir DIR` | Where to keep recordings and saved missions (default `/var/ros-fairy`); skips that question. Only while there are no missions yet: to move existing ones, use [`move_data`](#move_data). |
+| `--var-dir DIR` | Where to keep recordings and saved missions (default `/var/ros-fairy`); skips that question. Only while there are no missions yet: to move existing ones, use [`move_data`](#move_data). It also replaces a `paths.yaml` that can't be used. The wizard refuses to run while `ROS_FAIRY_VAR_DIR` is set in the shell, unless this is given. |
 | `--ros-setup PATH` | Only when running setup directly as root (`sudo ros-fairy-setup`): the ROS 2 `setup.bash` to source. Auto-detected when there is exactly one `/opt/ros/*/setup.bash`. |
 
 It refuses (exit 1) if ROS isn't sourced, no ROS nodes are visible, or the
 service (which runs as root) couldn't load ros_fairy, e.g. when it is only
 installed in a home directory. It also fails if `sudo` isn't available, or the
-service doesn't come up within 10 s (then check
+service fails or keeps restarting in its first 10 s (then check
 `journalctl -u ros-fairy-watchdog`). Declining the review writes nothing and
-exits 0.
+exits 0; three wrong answers to one question also write nothing, but exit 1.
 
 `ros-fairy-setup` is the same command as a standalone script.
 
@@ -103,7 +103,7 @@ and they combine in one call: one diff, one write.
 | `--organization`, `--contact-email` | The owner. |
 | `--license URL_OR_SPDX` | The missions' default license: a URL, or an SPDX identifier such as `CC-BY-4.0` (saved as its `https://spdx.org/licenses/` URL). `""` removes it. |
 | `--add-sensor SPEC` | `id=ID,type=TYPE,model=MAKE_MODEL,topic=TOPIC`, optionally `,frame=FRAME` and `,calibration=FILE`. `TYPE` is `gps`, `lidar`, `camera`, `imu`, `sonar` or `other`. Quote a value that has a comma: `model="Foo, Inc. X1"`. |
-| `--set-sensor ID SPEC` | Change a sensor with the same `KEY=VALUE` pairs: `id=` renames it, an empty `frame=` or `calibration=` removes that. |
+| `--set-sensor ID SPEC` | Change a sensor with the same `KEY=VALUE` pairs: `id=` renames it (and its calibration entry, unless another sensor shares it), an empty `frame=` or `calibration=` removes that. |
 | `--remove-sensor ID` | Remove a sensor, and its calibration entry if no other sensor uses it. |
 | `--record-topics TOPICS` | What [`mission_record`](#mission_record) records: `/fix,/scan`, or `all`. |
 | `--storage NAME` | `mission_record`'s storage (`mcap`, `sqlite3`), or `default` for rosbag2's. |
@@ -125,7 +125,9 @@ and one from after shows the change.
 
 The edit flags can't be combined with the wizard's flags (`--operator`,
 `--var-dir`) or `--refresh-env`. A configuration with a mistake (edited by
-hand) can be fixed with them: `doctor` names the mistake.
+hand) can be fixed with them: `doctor` names the mistake. A section left empty
+(`sensors:` with nothing after it) counts as empty; one of the wrong kind
+(`robot: Jo`) is refused, to be fixed by hand or with the wizard.
 
 ## doctor
 
@@ -185,7 +187,9 @@ watchdog (`session.env`).
 With no answer options it asks all five questions. With some, it asks only the
 required ones still missing, on a terminal. With no terminal to ask on (a
 script, a launch file) it exits 2 and names the missing options. An empty
-`--goal ""` counts as missing.
+`--goal ""` counts as missing. The goal can be at most 280 characters and the
+operator's name 80: a longer one given as an option exits 2, and a longer
+answer is asked again.
 
 It refuses (exit 1) while a recording is running, or while the spool holds
 recordings that haven't been saved or discarded (`--yes` doesn't change that).
@@ -288,7 +292,9 @@ In order:
    shows the review.
 6. **Save** (default yes, or no when the quality is poor). If you don't save, it
    asks whether to **discard** (delete the spool recordings and capture) or
-   **keep** (change nothing).
+   **keep** (change nothing). If a recording was started in another terminal
+   while it asked, nothing is discarded (exit 1): run it again once that
+   recording has finished.
 
 Exit 1 when there is nothing recorded, the briefing is missing and there is no
 terminal to ask in, or the save fails. When a save fails before completing,
@@ -305,9 +311,11 @@ ros2 fairy mission_abort [--yes] [--debug]
 
 Abandons the open mission. It asks to confirm, and again before deleting
 spool recordings. Recordings made outside ros_fairy are never deleted.
-`--yes` skips both questions. It refuses while a recording is in progress. To
-take out only one recording and keep the mission, use
-[`drop`](#drop).
+`--yes` skips both questions. It refuses (exit 1) while a recording is in
+progress, while `mission_close` runs, or while an interrupted save is
+unfinished (run `mission_close` to finish it first). If a recording was
+started in another terminal while it asked, nothing is deleted (exit 1). To
+take out only one recording and keep the mission, use [`drop`](#drop).
 
 ## drop
 
@@ -339,8 +347,9 @@ the watchdog, or attached with `adopt`) is **detached**: it stays on disk, and
 `ros2 fairy adopt <path>` attaches it again (with a new number).
 
 It refuses (exit 1) while a recording is in progress or still being processed,
-or while `mission_close` runs. Exit 1 also for a number or path that isn't in
-the mission.
+while `mission_close` runs, or while an interrupted save is unfinished (run
+`mission_close` to finish it first). Exit 1 also for a number or path that
+isn't in the mission.
 
 ## mission_edit
 
@@ -356,7 +365,7 @@ a mission ID.
 
 | Option | |
 | --- | --- |
-| `--operator`, `--goal`, `--location` | New values (they can't be empty). |
+| `--operator`, `--goal`, `--location` | New values (they can't be empty; the goal is 280 characters at most, the operator's name 80). |
 | `--environment`, `--notes` | New values; `""` clears them. |
 | `--redact` | Also remove the old values (see below). Needs `--by` and your sudo password. |
 | `--by NAME` | With `--redact`: your full name, recorded with it (asked on a terminal if missing). |
@@ -427,7 +436,8 @@ ros2 fairy mission_delete (MISSION_ID | --today | --all) [--debug]
 Needs an interactive terminal. It shows what will and won't be deleted,
 asks to confirm, then prompts you to type a confirmation phrase exactly. It only ever deletes folders directly inside the archive directory.
 A mission saved by another account can be deleted with `sudo` after asking.
-There is no `--yes`.
+That question comes before anything is deleted, so declining leaves the
+mission whole. There is no `--yes`.
 
 ## list
 
@@ -475,8 +485,10 @@ ros2 fairy diff [OLDER NEWER] [--json] [--debug]
 With no arguments, compares the two most recent missions (`2` and `1`). Give
 both or neither.
 
-It only shows sections that differ: mission context, software (packages, Python,
-containers), sensors, ROS graph, parameters, robot description (URDF),
+It only shows sections that differ: mission context, software (packages, the
+Python packages of ros_fairy's interpreter and of each container, containers),
+sensors (added, removed, or with another model, type, topic, frame or
+calibration), ROS graph, parameters, robot description (URDF),
 `/tf_static`, USB and udev, and recordings. tf2's randomly-named internal nodes
 are ignored. If a mission was saved by a newer ros_fairy, it says what it
 couldn't compare.
@@ -584,7 +596,7 @@ ros2 fairy repair [MISSION | BAG_DIR] [-o DIR] [--all] [--duration SECONDS]
 | Option | |
 | --- | --- |
 | `MISSION` / `BAG_DIR` | A mission (default: newest) or a single bag folder. |
-| `--output`, `-o` | Where to write. Default: `./<name>_repaired`. Must be empty unless `--force`. |
+| `--output`, `-o` | Where to write. Default: `./<name>_repaired`. Must be empty unless `--force`. A folder where a repaired copy would land on (or inside) its original is refused, even with `--force`. |
 | `--all` | Re-stamp every recording, not only those with a broken clock. |
 | `--duration` | Playback length in seconds for each repaired recording. |
 
@@ -593,7 +605,9 @@ Writes new bags with evenly spaced synthetic timestamps and a regenerated
 and bytes are unchanged. Originals are never modified. MCAP recordings come out
 as one `.mcap` file; sqlite3 recordings keep their `.db3` files, splits
 included. Bags in another storage format, or compressed as whole files
-(`.mcap.zstd`, `.db3.zstd`), are reported as unsupported.
+(`.mcap.zstd`, `.db3.zstd`), are reported as unsupported. A recording too
+damaged to read to the end (cut off by a power cut, a corrupt `.db3`) is
+skipped with a message, and the others are still repaired.
 
 `tools/restamp_bag.py <in> <out> [--duration S]` does the same for one bag
 without needing the CLI.
@@ -662,15 +676,17 @@ disk. It asks first (`--yes` skips the question), then, through `sudo`:
 
 1. stops the watchdog;
 2. on the same disk, renames the folder (instant); on another disk, copies it
-   into a hidden folder next to `DIR`, compares every file's size with the
-   original, renames the copy into place, and only then removes the original;
+   into a hidden folder next to `DIR` (inside it, when `DIR` already exists,
+   e.g. an empty mount point), compares every file's size with the original,
+   moves the copy into place, and only then removes the original;
 3. records `DIR` in `/etc/ros-fairy/paths.yaml` (removes the file when `DIR`
    is `/var/ros-fairy`);
 4. rebuilds the mission list (`reindex`) and starts the watchdog again.
 
 Every shell, and the watchdog, uses the new place at once. If anything fails
-before step 3, the missions stay where they were and the watchdog is started
-again.
+before step 3, the missions stay where they were (a same-disk rename is
+undone). The watchdog is started again whatever happens; an original that
+can't be removed after a copy is only a warning, to remove by hand.
 
 It refuses (exit 1) while a mission is open (save it with `mission_close` or
 abandon it with `mission_abort` first), a save is unfinished, a recording is

@@ -73,6 +73,9 @@ Captured through a single DDS participant (see
   its Compose project with the Compose files (archived under `docker/compose/`).
   If the container has ROS, its `ros2 pkg list` and Python packages are captured
   too. The raw `docker inspect` output is archived as `docker/containers.json`.
+  It includes each container's environment variables, so a password or token
+  passed to a container that way ends up in the archive too: keep secrets in
+  files or Docker secrets, not in `-e`/`environment:`.
 - **ros_fairy itself:** version, git commit, `git describe`, branch, dirty flag,
   build time and a hash of its code, both for the watchdog that harvested and
   for the CLI that saved (see
@@ -82,7 +85,8 @@ Captured through a single DDS participant (see
 
 - **Devices** from `lsusb`, `lspci`, `/dev/video*` with `v4l2-ctl`, and serial
   ports (`/dev/ttyUSB*`, `/dev/ttyACM*`, `/dev/serial/by-id`), with vendor,
-  product, serial number, driver and selected udev properties. Full
+  product, serial number, driver (the USB driver, such as `uvcvideo` or
+  `ftdi_sio`, when udev knows it) and selected udev properties. Full
   `lsusb -v` and the USB-related `dmesg` lines are archived as text files.
 - **USB management**, read from sysfs, for every USB device: speed, USB
   version, power draw, power management (autosuspend, runtime status, wakeup),

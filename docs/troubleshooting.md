@@ -40,6 +40,11 @@ stops rather than use another folder. Put back a line such as
 missions than the watchdog records. `unset ROS_FAIRY_VAR_DIR`; to move the
 missions for everyone, use `ros2 fairy move_data`.
 
+**`setup` refuses: "ROS_FAIRY_VAR_DIR is set in this shell".**
+The wizard would set the data folder up where the variable points, not where
+you answer. `unset ROS_FAIRY_VAR_DIR` and run it again, or give the folder
+explicitly with `--var-dir <folder>`.
+
 **`doctor`: "Missions left behind in /var/ros-fairy".**
 `paths.yaml` was pointed elsewhere by hand, leaving missions in the old place,
 where they aren't listed. Move them into the new folder's `archive/` and run
@@ -155,9 +160,23 @@ the checks, record without file compression; per-message compression
 Another `mission_close` is running on this robot. Only one save runs at a time.
 
 **A save was interrupted (crash, power cut, Ctrl-C).**
-Run `ros2 fairy mission_close` again: it offers to finish the save. Never delete
-anything in `archive/.staging/` by hand. If it reports a save as *stuck*, the
-staging folder still holds the data; look at it before removing anything.
+Run `ros2 fairy mission_close` again: it offers to finish the save. Until then,
+`drop` and `mission_abort` refuse ("An earlier save was interrupted"), since
+the save still needs the spool's recordings. Never delete anything in
+`archive/.staging/` by hand. If it reports a save as *stuck*, the staging
+folder still holds the data; look at it before removing anything.
+
+**"Neither copy of the recording … is complete".**
+Finishing an interrupted save found both the spool's copy and the staged copy
+of a recording damaged (for example after two power cuts in a row). Nothing
+was changed: look at both in the spool and in `archive/.staging/` before
+removing anything.
+
+**"A new recording started meanwhile, so nothing was discarded".**
+While `mission_close` or `mission_abort` was asking, a recording was started
+in another terminal. Its record is kept with the mission's, so nothing was
+deleted. Once it has finished, run the command again: the review then
+includes it.
 
 ## After saving
 

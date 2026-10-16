@@ -135,7 +135,7 @@ load it.
 | `https://github.com/mlisi1/ros_fairy` | `SoftwareApplication` | The ros_fairy build that saved the crate (version, commit). |
 | `#ros2`, `#python-runtime`, `#container-<name>` | `SoftwareApplication` | The ROS distro, the Python runtime and each container. |
 | `bags/<name>/` | `Dataset` | Each recording: size, format, time span, one `variableMeasured` per topic (message count and type), health warnings as `comment`, and its files with their `sha256`. |
-| other files | `File` | Every other file in the crate. |
+| other files | `File` | Every other file in the crate, `checksums.sha256` included (without a `sha256` of its own), each listed once even when several sensors share a calibration file. |
 
 Values typed in by the operator (operator, place, the mission action) carry an
 `additionalProperty` `ros-fairy:confidence = user`, which separates them from
@@ -162,7 +162,10 @@ A small plan file, `archive/.staging/<name>.plan.json`, records which stage the
 save has reached (`building`, `moving` or `committed`) and every move made.
 After a crash or power cut, the next `mission_close` (or `--yes`) reads it and
 either discards the attempt (`building`), finishes it (`moving`), or just does
-the remaining bookkeeping (`committed`). `doctor` and `list` warn while such a save
+the remaining bookkeeping (`committed`). Before finishing a move it checks the
+staged copy against the recording's sha256; one that no longer matches is
+replaced from the spool's copy, if that one is whole, and if neither is, the
+save stops with nothing changed. `doctor` and `list` warn while such a save
 is pending.
 
 > Never delete anything in `archive/.staging/` by hand: during the `moving`
