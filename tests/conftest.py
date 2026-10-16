@@ -31,6 +31,15 @@ def pytest_collection_modifyitems(config, items):
 
 
 @pytest.fixture(autouse=True)
+def _no_host_processes(monkeypatch, tmp_path_factory):
+    """Keep this machine's processes out of the watchdog's ROS-process scan
+    (tests/unit/test_ros_processes.py fabricates a /proc of its own)."""
+    from ros_fairy.watchdog import ros_processes
+    monkeypatch.setattr(ros_processes, "PROC",
+                        tmp_path_factory.mktemp("empty-proc"))
+
+
+@pytest.fixture(autouse=True)
 def _no_host_containers(monkeypatch):
     """Keep this machine's Docker containers out of the unit tests (doctor
     and setup compare them with the service). tests/unit/test_containers.py

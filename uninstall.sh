@@ -49,7 +49,7 @@ echo "This will remove:"
 echo "  - the $SERVICE_NAME systemd service"
 echo "  - $CONFIG_DIR (robot identity, watchdog environment)"
 echo "  - the '$GROUP_NAME' system group"
-echo "  - $VAR_DIR/spool, $VAR_DIR/watchdog.state, $VAR_DIR/log"
+echo "  - $VAR_DIR/spool, $VAR_DIR/watchdog.state, $VAR_DIR/ros_processes.json, $VAR_DIR/log"
 echo "  - the ros_fairy Python package"
 echo
 echo "It will NOT remove your saved missions:"
@@ -94,7 +94,7 @@ if [ -d "$CONFIG_DIR" ]; then
     rm -rf "$CONFIG_DIR"
 fi
 
-for sub in spool watchdog.state log; do
+for sub in spool watchdog.state ros_processes.json log; do
     target="$VAR_DIR/$sub"
     if [ -e "$target" ]; then
         echo "Removing $target..."

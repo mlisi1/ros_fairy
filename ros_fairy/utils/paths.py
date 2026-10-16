@@ -177,3 +177,9 @@ def ros_log_dir() -> Path:
 
 def watchdog_state_path() -> Path:
     return var_dir() / "watchdog.state"
+
+
+def ros_processes_path() -> Path:
+    """The DDS settings of the containers' ROS processes, as the watchdog
+    last saw them (watchdog/ros_processes.py)."""
+    return var_dir() / "ros_processes.json"

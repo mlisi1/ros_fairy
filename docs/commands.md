@@ -148,7 +148,7 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | ROS graph | `ros2` isn't on `PATH`, ROS isn't reachable, or no nodes are running |
 | ROS environment | `ROS_DISTRO` isn't set in this shell |
 | Service environment | `watchdog.env` is missing, or differs from this shell's ROS environment (distro, DDS discovery settings, DDS profile, root-owned overlays); the hint is `ros2 fairy setup --refresh-env`. When a running ROS container matches the service, it is this shell that's off, and the hint is the `export` that fixes it |
-| ROS containers | a running container with `ROS_DISTRO` in its environment has other DDS discovery settings than the service (hint: `--refresh-env --from-container NAME`), or is on its own Docker network; skipped when Docker can't be asked |
+| ROS containers | a running ROS container has other DDS discovery settings than the service (hint: `--refresh-env --from-container NAME`), its nodes disagree with each other, or it is on its own Docker network. The settings are what its ROS processes run with when the watchdog has seen them (start-up scripts included), otherwise its configuration ([details](getting-started.md#robots-whose-ros-runs-in-docker)). Without Docker access, the watchdog's findings are compared without names; skipped when there are none either |
 | Last harvest | the last ROS capture failed |
 | Clock | the system clock isn't NTP-synchronised |
 | MCAP support | the `mcap` Python package is missing |

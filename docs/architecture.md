@@ -137,6 +137,33 @@ never taken from it. For a recording found by the `/proc` scan, the same keys
 are read from the recorder process's own environment instead. A key the source
 doesn't set falls back to the `watchdog.env` value.
 
+### The containers' ROS processes: `ros_processes.json`
+
+`docker inspect` knows a container's configuration, not what its start-up
+scripts export. The processes' own environment has it, but only root may read
+another account's, and `doctor` and `setup` run as an operator. So every
+**10 s** (`ros_processes.SCAN_INTERVAL_S`; about 9 ms over 650 processes) the
+watchdog scans `/proc`:
+
+- **Which processes:** those in another pid namespace than its own (the
+  host's) with `ROS_DISTRO` in their environment. The `ros2` CLI's daemon is
+  left out, since any shell may start it.
+- **Which container:** a process's pid namespace, named by the host pid of
+  its first process (pid 1 inside, from `NSpid` in `/proc/<pid>/status`).
+  That is `State.Pid` in `docker inspect`, so it works for any container
+  runtime, without parsing cgroup paths.
+- **What is kept:** per container, the distinct sets of discovery keys (the
+  list above, plus `ROS_DISTRO`) and how many processes had them. Nothing else
+  from their environment.
+
+The file is world-readable, and written only when the findings change (no
+SD-card wear every 10 s). A process's environment can't change once it has
+started, so the file can go stale only by missing new processes. A restarted
+container has a new pid and no longer matches. `docker_info.ros_containers()`
+uses the processes' settings over the configuration when it has them, and
+counts a container as a ROS one when its processes have ROS even if its
+configuration doesn't.
+
 ### The status file
 
 `/var/ros-fairy/watchdog.state` (JSON) is rewritten on every state change,

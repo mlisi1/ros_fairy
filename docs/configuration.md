@@ -20,6 +20,7 @@ both are written by `ros2 fairy setup`.
 | `/var/ros-fairy/archive/.staging/` | Saves in progress. **Never delete anything here by hand**: run `mission_close`. |
 | `/var/ros-fairy/index.db` | The mission list (SQLite). A cache: `ros2 fairy reindex` rebuilds it from the archive. |
 | `/var/ros-fairy/watchdog.state` | The watchdog's live status. |
+| `/var/ros-fairy/ros_processes.json` | The DDS discovery settings of the containers' running ROS processes, as the watchdog last saw them (every 10 s, rewritten only when they change). Read by `doctor` and `setup --from-container`; holds nothing else from their environment. |
 | `/var/ros-fairy/log/` | ROS log directory for the watchdog, used when root has no writable `~/.ros/log`. |
 
 The rows below `/etc` are in the **data folder**, `/var/ros-fairy` unless it

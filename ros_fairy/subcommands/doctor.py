@@ -192,32 +192,57 @@ def _shell_off_the_robot(service: dict[str, str],
                     f"`{'; '.join(fixes)}` (nothing to refresh)"}
 
 
+def _discovery_summary(settings: dict[str, str]) -> str:
+    keys = [k for k in ros_env.SESSION_ADOPT_KEYS if k in settings]
+    return ", ".join(f"{k}={settings[k]}" for k in keys) or "all defaults"
+
+
 def _check_container_env() -> dict:
     """The robot's ROS containers, compared with the service.
 
     A stack that runs in Docker changes its DDS settings inside the
-    container (compose ``environment:``, ``-e``, the image's ENV), where
-    _check_service_env, which only sees this shell, can't. Read with
-    ``docker inspect``: variables a container exports in its own start-up
-    scripts aren't visible.
+    container, where _check_service_env, which only sees this shell, can't.
+    Read with ``docker inspect``, with the settings the container's ROS
+    processes really run with when the watchdog has seen them (start-up
+    scripts included).
     """
     from ros_fairy.harvest import docker_info
+    named = True
     try:
         containers = docker_info.ros_containers()
     except docker_info.DockerUnavailable as exc:
-        return {"status": SKIP, "title": "ROS containers not checked",
-                "detail": str(exc), "hint": ""}
+        # The watchdog's findings still say what the containers run with,
+        # only not their names (that needs Docker).
+        from ros_fairy.watchdog import ros_processes
+        containers = [
+            {"name": f"the container whose first process is {pid}",
+             "env": settings[0], "network": "host", "pid": pid,
+             "source": "processes",
+             **({"disagreeing": settings} if len(settings) > 1 else {})}
+            for pid, settings in sorted(ros_processes.read().items())]
+        if not containers:
+            return {"status": SKIP, "title": "ROS containers not checked",
+                    "detail": str(exc), "hint": ""}
+        named = False
     if not containers:
         return {"status": SKIP, "title": "No ROS containers running",
                 "detail": "no running container has ROS_DISTRO in its "
-                          "environment", "hint": ""}
+                          "configuration, or ROS processes the recording "
+                          "assistant has seen", "hint": ""}
     service = ros_env.read_file(paths.watchdog_env_path())
     problems, fix = [], None
     for container in containers:
         name = container["name"]
+        if container.get("disagreeing"):
+            problems.append(
+                f"{name}'s ROS processes don't agree: " + " / ".join(
+                    _discovery_summary(s) for s in container["disagreeing"]))
+            continue
         differences = ros_env.discovery_differences(service, container["env"])
         if differences:
-            problems.append(f"{name}: " + "; ".join(differences))
+            seen = " (as its ROS processes run)" \
+                if container.get("source") == "processes" else ""
+            problems.append(f"{name}{seen}: " + "; ".join(differences))
             fix = fix or name
         if container["network"] != "host":
             problems.append(f"{name} is on its own Docker network "
@@ -228,13 +253,25 @@ def _check_container_env() -> dict:
         return {"status": OK,
                 "title": "ROS containers match the background service",
                 "detail": names, "hint": ""}
-    hint = (f"if the container is right, run `ros2 fairy setup --refresh-env "
-            f"--from-container {fix}`" if fix else
-            "run the container with `--network host` (compose: "
-            "`network_mode: host`), or configure DDS to reach it")
-    return {"status": WARN,
-            "title": "A ROS container is on a different ROS partition"
-            if fix else "A ROS container can't be discovered from the host",
+    disagree = any(c.get("disagreeing") for c in containers)
+    if fix and not named:
+        hint = ("if the container is right, an account that may use Docker "
+                "can run `ros2 fairy setup --refresh-env --from-container "
+                "<name>` (`docker ps` names it)")
+        title = "A ROS container is on a different ROS partition"
+    elif fix:
+        hint = (f"if the container is right, run `ros2 fairy setup "
+                f"--refresh-env --from-container {fix}`")
+        title = "A ROS container is on a different ROS partition"
+    elif disagree:
+        hint = ("give all of the container's nodes the same DDS settings "
+                "(an `export` in one start-up script but not another?)")
+        title = "A ROS container's nodes are on different ROS partitions"
+    else:
+        hint = ("run the container with `--network host` (compose: "
+                "`network_mode: host`), or configure DDS to reach it")
+        title = "A ROS container can't be discovered from the host"
+    return {"status": WARN, "title": title,
             "detail": "service → container: " + "; ".join(problems),
             "hint": hint}
 

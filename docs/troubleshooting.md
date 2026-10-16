@@ -84,9 +84,15 @@ applied" trace is skipped (it is never run as root).
 **`doctor`: "A ROS container is on a different ROS partition".**
 The robot's container has another `ROS_DOMAIN_ID`, RMW or discovery setting
 than the watchdog. If the container is right, run
-`ros2 fairy setup --refresh-env --from-container <name>`. If the container
-sets more in its start-up script than in its configuration, `doctor` can't see
-it: see [Robots whose ROS runs in Docker](getting-started.md#robots-whose-ros-runs-in-docker).
+`ros2 fairy setup --refresh-env --from-container <name>`. "(as its ROS
+processes run)" means the settings come from the container's running nodes,
+start-up scripts included. See
+[Robots whose ROS runs in Docker](getting-started.md#robots-whose-ros-runs-in-docker).
+
+**`doctor`: "A ROS container's nodes are on different ROS partitions".**
+Not all of the container's ROS processes have the same discovery settings,
+typically an `export` in one start-up script but not in another. Give them the
+same settings; until then `--from-container` won't choose between them.
 
 **`doctor`: "This shell is on a different ROS partition than the robot".**
 The watchdog matches the robot's container; this shell doesn't. Nothing needs

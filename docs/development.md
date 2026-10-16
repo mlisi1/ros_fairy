@@ -22,7 +22,8 @@ the watchdog runs different code.
 ros_fairy/
 ├── command/fairy.py         the `ros2 fairy` command (ros2cli extension)
 ├── subcommands/             one module per verb; shared helpers in __init__.py
-├── watchdog/                the service: state machine, /proc recorder scan, unit file
+├── watchdog/                the service: state machine, /proc recorder scan, the
+│                            containers' ROS processes, unit file
 ├── harvest/                 capture modules (identity, system, python, hardware,
 │                            usb_udev, ros_graph + ros_snapshot, docker)
 ├── manifest/                pydantic schema, record builder, validator, quality grading

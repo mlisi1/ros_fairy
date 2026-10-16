@@ -694,6 +694,14 @@ def _adopt_container_discovery(console: Console, name: str) -> bool:
                       f"its environment (running ROS containers: {running})."
                       "[/red]")
         return False
+    if container.get("disagreeing"):
+        from ros_fairy.subcommands.doctor import _discovery_summary
+        console.print(f"[red]{name}'s ROS processes don't all use the same "
+                      "DDS settings: " + " / ".join(
+                          _discovery_summary(s)
+                          for s in container["disagreeing"])
+                      + ". Give them the same settings first.[/red]")
+        return False
     env = container["env"]
     for key in ros_env.SESSION_ADOPT_KEYS:
         if key in env:
@@ -701,8 +709,10 @@ def _adopt_container_discovery(console: Console, name: str) -> bool:
         else:
             os.environ.pop(key, None)  # the container uses the default
     used = [f"{k}={env[k]}" for k in ros_env.SESSION_ADOPT_KEYS if k in env]
-    console.print(f"Using the DDS discovery settings of container {name}: "
-                  f"{', '.join(used) or 'all defaults'}.")
+    seen = (" (as its ROS processes run)"
+            if container.get("source") == "processes" else "")
+    console.print(f"Using the DDS discovery settings of container {name}"
+                  f"{seen}: {', '.join(used) or 'all defaults'}.")
     profiles = [k for k in ros_env.DDS_PROFILE_KEYS if k in env]
     if profiles:
         console.print(f"[yellow]{name} also uses a DDS profile "

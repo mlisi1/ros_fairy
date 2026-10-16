@@ -181,15 +181,32 @@ needed ("Background service's ROS environment is out of date").
 #### Robots whose ROS runs in Docker
 
 When the stack runs in containers, its DDS settings usually change there (a
-compose `environment:` entry, a `-e`, the image's `ENV`), not in the host
-shell. `doctor` reads the running containers that have `ROS_DISTRO` in their
-environment and compares their discovery settings with the watchdog's:
+compose `environment:` entry, a `-e`, the image's `ENV`, an `export` in the
+entrypoint script), not in the host shell. `doctor` compares the running ROS
+containers' discovery settings with the watchdog's:
 
 ```
 ! A ROS container is on a different ROS partition
-  service → container: navstack: ROS_DOMAIN_ID: 0 → 7
+  service → container: navstack (as its ROS processes run): ROS_DOMAIN_ID: 0 → 7
   if the container is right, run `ros2 fairy setup --refresh-env --from-container navstack`
 ```
+
+Where the settings come from:
+
+- **What the container's ROS processes really run with.** Every 10 seconds
+  the watchdog (which runs as root) reads the environment of the processes
+  that have ROS in it. It writes their discovery settings, and nothing else
+  from their environment, to `ros_processes.json` in the data folder. That
+  includes what start-up scripts export, and containers with no `ROS_DISTRO`
+  in their configuration (ROS sourced by a script). "(as its ROS processes
+  run)" marks these.
+- **Otherwise, the container's configuration**, from `docker inspect`: right
+  after the container starts, before the watchdog's next look, or while the
+  watchdog isn't running.
+
+When a container's nodes don't all agree (one script exports a domain,
+another doesn't), `doctor` says so ("A ROS container's nodes are on different
+ROS partitions") and `--from-container` refuses to pick one.
 
 That command takes `ROS_DOMAIN_ID`, `RMW_IMPLEMENTATION`,
 `ROS_AUTOMATIC_DISCOVERY_RANGE`, `ROS_LOCALHOST_ONLY` and `ROS_STATIC_PEERS`
@@ -207,14 +224,9 @@ mission.
 
 What it can't see:
 
-- **Variables set inside the container's own start-up**: an `export` in the
-  entrypoint script, a `.bashrc` or a sourced file. `docker inspect` only knows
-  the container's configuration. Put DDS settings in the compose file's
-  `environment:` (or `env_file:`) so both ROS F.A.I.R.y and other tools can
-  see them, or export them in the host shell and use plain `--refresh-env`.
-- **Containers without `ROS_DISTRO` in their configuration.** The official ROS
-  images set it; a hand-made image that only sources ROS in a script isn't
-  recognised as a ROS container.
+- **Containers whose nodes haven't started yet.** Until a process with ROS in
+  its environment runs, a container without `ROS_DISTRO` in its configuration
+  isn't recognised as a ROS container.
 - **DDS profile files** (`CYCLONEDDS_URI`, `FASTRTPS_DEFAULT_PROFILES_FILE`,
   `FASTDDS_DEFAULT_PROFILES_FILE`). They name paths inside the container, so
   they are neither compared nor copied; `--from-container` warns when the
@@ -223,8 +235,11 @@ What it can't see:
   nodes by multicast, whatever the domain. `doctor` warns; run them with
   `--network host` (compose: `network_mode: host`) or configure DDS to reach
   them.
-- **Docker access.** The account running `doctor` must be allowed to use Docker
-  (the `docker` group); otherwise the check is skipped and says why.
+- **Docker access.** An account that may not use Docker (not in the `docker`
+  group) still gets the comparison from the watchdog's findings, without the
+  containers' names: "the container whose first process is 4242". With no
+  findings either, the check is skipped and says why. `--from-container`
+  needs Docker.
 - **Defaults are Jazzy's.** An unset setting is compared as its Jazzy default:
   domain `0`, `rmw_fastrtps_cpp`, `SUBNET`, localhost-only off.
 

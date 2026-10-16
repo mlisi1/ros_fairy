@@ -23,7 +23,7 @@ from typing import Any
 from ros_fairy import build_info
 from ros_fairy.manifest import builder
 from ros_fairy.utils import code_id, fsio, paths, ros_env, topic_health
-from ros_fairy.watchdog import recorder_scan
+from ros_fairy.watchdog import recorder_scan, ros_processes
 
 log = logging.getLogger("ros_fairy.watchdog")
 
@@ -245,7 +245,8 @@ class Watchdog:
     def __init__(self, inotify=None, clock: Callable[[], float] = time.monotonic,
                  pipeline: Callable[[], dict] = run_pipeline,
                  harvest_in_thread: bool = True,
-                 scan_recorders: Callable[[], list] = recorder_scan.scan):
+                 scan_recorders: Callable[[], list] = recorder_scan.scan,
+                 scan_ros_processes: Callable[[], list] = ros_processes.scan):
         if inotify is None:
             from inotify_simple import INotify
             inotify = INotify()
@@ -255,6 +256,7 @@ class Watchdog:
         self.harvest_in_thread = harvest_in_thread
         # Injected so tests drive foreign-bag detection without real processes.
         self.scan_recorders = scan_recorders
+        self.scan_ros_processes = scan_ros_processes
 
         self.state = IDLE
         self.since = _now_iso()
@@ -282,6 +284,8 @@ class Watchdog:
         self._description_retries = 0
         self._next_heartbeat: float = self.clock() + HEARTBEAT_S
         self._next_foreign_scan: float = self.clock() + FOREIGN_SCAN_INTERVAL_S
+        # At once on start, so doctor has it from the first seconds.
+        self._next_process_scan: float = self.clock()
         self._harvest_lock = threading.Lock()
         self._harvest_thread: threading.Thread | None = None
         # Bumped on every new recording and when finalise stops waiting for a
@@ -464,6 +468,11 @@ class Watchdog:
         if now >= self._next_foreign_scan:
             self._next_foreign_scan = now + FOREIGN_SCAN_INTERVAL_S
             self._poll_foreign()
+        if now >= self._next_process_scan:
+            self._next_process_scan = now + ros_processes.SCAN_INTERVAL_S
+            # For doctor and setup --from-container: what the containers'
+            # start-up scripts set, which docker inspect can't see.
+            ros_processes.write_if_changed(self.scan_ros_processes())
         if self.state == FINALISING:
             self._try_complete_finalise()
         elif self.state == RECORDING:

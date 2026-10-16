@@ -221,14 +221,27 @@ class DockerUnavailable(Exception):
     or this account may not use it)."""
 
 
-def ros_containers(timeout: float = DOCKER_TIMEOUT_S) -> list[dict[str, Any]]:
-    """The running containers whose environment has ROS_DISTRO: their name,
-    environment (from ``docker inspect``: the image's ENV, ``-e`` and
-    compose ``environment:``) and network mode. Variables a container sets
-    in its own start-up scripts are not in it.
+def ros_containers(timeout: float = DOCKER_TIMEOUT_S,
+                   running: dict[int, list[dict]] | None = None
+                   ) -> list[dict[str, Any]]:
+    """The running ROS containers: their name, environment, network mode
+    and first process's pid.
+
+    The environment comes from ``docker inspect`` (the image's ENV, ``-e``,
+    compose ``environment:``), but its DDS discovery settings are replaced
+    by what the container's ROS processes really run with, when the
+    watchdog has seen them (``running``, default its ros_processes.json):
+    that includes what start-up scripts export. ``source`` says which it is
+    ("processes" or "configuration"); ``disagreeing`` lists the settings
+    when the container's processes don't all agree. A container is a ROS one
+    when its configuration has ROS_DISTRO or the watchdog saw ROS processes
+    in it.
 
     Raises DockerUnavailable.
     """
+    if running is None:
+        from ros_fairy.watchdog import ros_processes
+        running = ros_processes.read()
     def docker(*args: str) -> subprocess.CompletedProcess:
         try:
             return subprocess.run(
@@ -256,15 +269,31 @@ def ros_containers(timeout: float = DOCKER_TIMEOUT_S) -> list[dict[str, Any]]:
         raw = json.loads(out.stdout or "[]")
     except json.JSONDecodeError:
         raise DockerUnavailable("Docker's answer couldn't be read") from None
+    from ros_fairy.utils import ros_env
     found = []
     for entry in raw:
         env = dict(item.split("=", 1) for item in
                    (entry.get("Config") or {}).get("Env") or [] if "=" in item)
-        if "ROS_DISTRO" not in env:
+        pid = (entry.get("State") or {}).get("Pid") or 0
+        seen = running.get(pid) if pid else None
+        if "ROS_DISTRO" not in env and not seen:
             continue
-        found.append({
+        container = {
             "name": (entry.get("Name") or "").lstrip("/"),
             "env": env,
             "network": (entry.get("HostConfig") or {}).get("NetworkMode", ""),
-        })
+            "pid": pid,
+            "source": "configuration",
+        }
+        if seen:
+            # The processes' own settings win; a key they don't have is
+            # unset for them, whatever the configuration says.
+            container["env"] = {
+                **{k: v for k, v in env.items()
+                   if k not in ros_env.SESSION_ADOPT_KEYS},
+                **seen[0]}
+            container["source"] = "processes"
+            if len(seen) > 1:
+                container["disagreeing"] = seen
+        found.append(container)
     return sorted(found, key=lambda c: c["name"])

@@ -81,13 +81,15 @@ expect(find(checks, "Background service", "ROS environment")["status"] == "ok",
        "shell vs service: no difference (this shell is still on 0)")
 check = find(checks, "ROS container")
 expect(check["status"] == "warn", f"container check warns ({check['title']})")
-expect("navstack: ROS_DOMAIN_ID: 0 → 7" in check["detail"], check["detail"])
+expect("navstack (as its ROS processes run): ROS_DOMAIN_ID: 0 → 7"
+       in check["detail"], check["detail"])
 expect("--refresh-env --from-container navstack" in check["hint"],
        "names the command")
 
-step("ben may not use Docker: skipped, saying why")
+step("ben may not use Docker: the watchdog's findings, without names")
 check = find(doctor("ben"), "container")
-expect(check["status"] == "skip" and "docker group" in check["detail"],
+expect(check["status"] == "warn" and "the container whose first process is"
+       in check["detail"] and "ROS_DOMAIN_ID: 0 → 7" in check["detail"],
        f"{check['title']}: {check['detail']}")
 
 step("--refresh-env from the host shell sees no robot, and says where it is")
@@ -99,8 +101,8 @@ step("--refresh-env --from-container navstack")
 result = sh("ana", "ros2 fairy setup --refresh-env --from-container navstack",
             check=False)
 expect(result.returncode == 0, f"exit 0 (got {result.returncode})")
-expect("container navstack: ROS_DOMAIN_ID=7" in result.stdout,
-       "uses the container's settings")
+expect("container navstack (as its ROS processes run): ROS_DOMAIN_ID=7"
+       in result.stdout, "uses the container's settings")
 expect("ROS_DOMAIN_ID: 0 → 7" in result.stdout, "shows the change")
 expect("ROS_DOMAIN_ID=7" in Path("/etc/ros-fairy/watchdog.env").read_text(),
        "watchdog.env re-captured")
