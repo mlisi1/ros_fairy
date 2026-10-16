@@ -16,6 +16,14 @@ re-run `./install.sh` and restart the watchdog**
 (`sudo systemctl restart ros-fairy-watchdog`); otherwise `doctor` reports that
 the watchdog runs different code.
 
+**Continuous integration** (`.github/workflows/ci.yml`) runs the same checks
+on every push to `main` and `devel` and on every pull request: `pytest`,
+`ruff check .`, `mypy ros_fairy` and `mkdocs build --strict`, on Python 3.12
+(as on Jazzy / Ubuntu 24.04), with no ROS installed. All four must pass, so
+run them before pushing. A test that needs something of this machine (a
+sourced ROS, the `ros-fairy` group, a real tool) fails there: fake it as
+in [Tests](#tests).
+
 ## Layout
 
 ```
