@@ -1,5 +1,6 @@
 """mission_edit: change a saved mission's briefing, crate kept consistent."""
 
+import argparse
 import io
 import json
 from types import SimpleNamespace
@@ -114,6 +115,13 @@ def test_clearing_an_optional_field(crate):
 def test_required_fields_cant_be_emptied(crate):
     with pytest.raises(edit.EditError, match="goal can't be empty"):
         edit.apply(crate, {"goal": "  "})
+
+
+def test_too_long_values_are_refused(crate):
+    """An edit the record can't hold would leave it unreadable."""
+    with pytest.raises(edit.EditError, match="at most 80 characters"):
+        edit.apply(crate, {"operator_name": "x" * 81})
+    edit.load(crate)  # still readable
 
 
 def test_no_change_touches_nothing(crate):
@@ -298,11 +306,33 @@ def test_verb_redact_goes_through_sudo(crate):
         assert mission_edit.run(args, console=console) == 0
     command = run.call_args.args[0]
     assert command[0] == "/usr/bin/sudo"
-    assert command[command.index("--by") + 1] == "Ana Admin"
+    assert "--by=Ana Admin" in command
     assert "--confirmed" in command and "--redact" in command
-    assert command[command.index("--notes") + 1] == "x"
+    assert "--notes=x" in command
     assert "Copies made before" in " ".join(console.file.getvalue().split())
     assert edit.load(crate).intent.notes == "calm"  # the child does it
+
+
+def test_verb_redact_passes_values_that_look_like_options(crate):
+    """The root re-exec must parse a value starting with "-" as a value."""
+    console = Console(file=io.StringIO(), width=200)
+    args = SimpleNamespace(mission=str(crate), notes="-20C at dawn",
+                           environment="", redact=True, by="-Ana", yes=True)
+    with mock.patch.object(mission_edit.os, "geteuid", return_value=1000), \
+            mock.patch.object(mission_edit.shutil, "which",
+                              return_value="/usr/bin/sudo"), \
+            mock.patch.object(mission_edit.subprocess, "run",
+                              return_value=SimpleNamespace(returncode=0)
+                              ) as run:
+        assert mission_edit.run(args, console=console) == 0
+    command = run.call_args.args[0]
+    child = command[command.index("ros_fairy.subcommands.mission_edit") + 1:]
+    parser = argparse.ArgumentParser()
+    mission_edit._add_arguments(parser)
+    parsed = parser.parse_args(child)
+    assert parsed.notes == "-20C at dawn"
+    assert parsed.by == "-Ana"
+    assert parsed.redact and parsed.confirmed
 
 
 def test_verb_redact_asks_for_the_name(crate):
@@ -316,7 +346,7 @@ def test_verb_redact_asks_for_the_name(crate):
                          notes="x", redact=True)
     assert code == 0  # an empty name is asked again
     command = run.call_args.args[0]
-    assert command[command.index("--by") + 1] == "Ana Admin"
+    assert "--by=Ana Admin" in command
 
 
 def test_verb_redact_without_name_or_terminal(crate):

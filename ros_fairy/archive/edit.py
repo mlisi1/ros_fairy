@@ -37,6 +37,7 @@ from typing import Any
 from ros_fairy import SCHEMA_VERSION
 from ros_fairy.archive import assembler, index, ro_crate
 from ros_fairy.archive.assembler import CHECKSUMS_FILE
+from ros_fairy.manifest import validator
 from ros_fairy.manifest.schema import (
     EditedValue,
     MissionRecord,
@@ -207,6 +208,9 @@ def apply(crate: Path, wanted: dict[str, str | None], redact: bool = False,
         value = (value or "").strip() or None
         if value is None and field in REQUIRED:
             raise EditError(f"{field.replace('_', ' ')} can't be empty")
+        error = validator.length_error(field, value)
+        if error:
+            raise EditError(error)
         if value != current[field]:
             changes[field] = EditedValue(before=current[field], after=value)
     if not changes:

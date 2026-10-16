@@ -22,6 +22,7 @@ from ros_fairy.subcommands import (
     _configure_logging,
     guarded_main,
     json_error,
+    mission_close,
     print_json,
     refuse_without_access,
 )
@@ -63,8 +64,7 @@ def run(args, console: Console | None = None) -> int:
                      "(no metadata.yaml and storage file).")
 
     # Busy guard — one bag, one mission: don't race the watchdog mid-recording.
-    state = watchdog.read_state()
-    if state and state.get("state") == "RECORDING":
+    if mission_close._recording_in_progress():
         return _fail(console, want_json,
                      "The assistant is busy with another recording. Try again "
                      "once it has finished.")
@@ -86,7 +86,11 @@ def run(args, console: Console | None = None) -> int:
         if not want_json:
             console.print("Capturing what I can about the robot and "
                           "software…")
-        fsio.atomic_write_json(paths.harvest_json_path(), watchdog.run_pipeline())
+        harvest_doc = watchdog.run_pipeline()
+        # The watchdog may have written one during the long capture: keep it.
+        with fsio.locked(paths.harvest_lock_path()):
+            if not paths.harvest_json_path().exists():
+                fsio.atomic_write_json(paths.harvest_json_path(), harvest_doc)
 
     watchdog.append_bag_record(bag_dir, source="adopted")
 

@@ -301,3 +301,18 @@ def test_show_status_renders(fairy_dirs):
     out = console.file.getvalue()
     assert "not started yet" in out
     assert "ros-fairy status" in out
+
+
+def test_briefing_asks_again_for_a_too_long_answer():
+    import io
+    from unittest import mock
+
+    from rich.console import Console
+
+    from ros_fairy.ui import briefing
+    console = Console(file=io.StringIO(), width=200)
+    with mock.patch.object(briefing.Prompt, "ask",
+                           side_effect=["x" * 281, "Map the pier"]):
+        assert briefing._ask_one(console, "goal", "Goal?", True, None) == \
+            "Map the pier"
+    assert "at most 280 characters" in console.file.getvalue()

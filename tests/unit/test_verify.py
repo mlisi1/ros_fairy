@@ -100,6 +100,15 @@ def test_pre_1_0_archive_without_checksums_warns(fairy_dirs):
         bag["file_sha256"] = {}
     record_file.write_text(json.dumps(data))
     (crate / "checksums.sha256").unlink()  # old archives don't have it
+    meta = crate / "ro-crate-metadata.json"  # nor list it in the crate
+    doc = json.loads(meta.read_text())
+    doc["@graph"] = [e for e in doc["@graph"]
+                     if e["@id"] != "checksums.sha256"]
+    for entity in doc["@graph"]:
+        if entity["@id"] == "./":
+            entity["hasPart"] = [p for p in entity["hasPart"]
+                                 if p["@id"] != "checksums.sha256"]
+    meta.write_text(json.dumps(doc))
     checks = verify.verify_archive(crate)
     assert FAIL not in _statuses(checks)
     assert any(c["status"] == WARN and "no checksums recorded" in c["title"]

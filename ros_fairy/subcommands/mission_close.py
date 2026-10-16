@@ -3,6 +3,7 @@
 import shutil
 import sys
 import time
+from pathlib import Path
 
 from rich.console import Console
 from rich.panel import Panel
@@ -102,13 +103,38 @@ def _salvage_bags(harvest: dict | None) -> dict | None:
     return builder.load_spool()[0]
 
 
-def _discard_spool() -> None:
-    if paths.bags_dir().is_dir():
-        for bag in paths.bags_dir().glob("*"):
-            shutil.rmtree(bag, ignore_errors=True)
+def _unfinished_save() -> str | None:
+    """Why the spool can't be changed while an earlier save is unfinished,
+    or None. A resumed save needs the spool recordings its plan names."""
+    if any(p.kind in (assembler.RESUME, assembler.TIDY)
+           for p in assembler.pending_saves()):
+        return "An earlier save was interrupted and isn't finished yet. " \
+            "Finish it first with ros2 fairy mission_close, then run this " \
+            "again."
+    return None
+
+
+def _spool_bags() -> list[Path]:
+    """The folders in the spool right now (a snapshot to show, then
+    discard)."""
+    bags = paths.bags_dir()
+    return sorted(bags.iterdir()) if bags.is_dir() else []
+
+
+def _discard_spool(bags: list[Path]) -> bool:
+    """Delete the spool recordings ``bags`` (those the operator was shown)
+    and the mission's files. A recording made meanwhile (in another
+    terminal, while the question was open) is never touched: returns False,
+    with nothing changed, when one is in progress or finished since (its
+    record is in the mission's files)."""
+    if _recording_in_progress() or set(_spool_bags()) - set(bags):
+        return False
+    for bag in bags:
+        shutil.rmtree(bag, ignore_errors=True)
     for f in (paths.harvest_json_path(), paths.mission_context_path(),
               paths.session_env_path(), paths.watchdog_log_path()):
         f.unlink(missing_ok=True)
+    return True
 
 
 def _recover_pending(console: Console, yes: bool = False) -> int | None:
@@ -226,6 +252,7 @@ def _run_locked(args, console: Console) -> int:
 
     # Now that the bags are known, correct sensor liveness against what was
     # actually recorded (the live-graph sample at mission start can be blind).
+    shown_bags = _spool_bags()  # only these are deleted on a discard
     builder.reconcile_sensor_detection(harvest)
     fsio.atomic_write_json(paths.harvest_json_path(), harvest)
 
@@ -312,7 +339,11 @@ def _run_locked(args, console: Console) -> int:
         return 0
 
     if decision == "discard":
-        _discard_spool()
+        if not _discard_spool(shown_bags):
+            console.print("[yellow]A new recording started meanwhile, so "
+                          "nothing was discarded. Once it has finished, run "
+                          "this again.[/yellow]")
+            return 1
         console.print("Recording discarded.")
         return 0
 

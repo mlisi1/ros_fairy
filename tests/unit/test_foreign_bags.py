@@ -442,9 +442,21 @@ def test_adopt_rejects_non_bag(fairy_dirs, tmp_path):
 
 def test_adopt_refuses_while_recording(fairy_dirs, tmp_path):
     fsio.atomic_write_json(paths.watchdog_state_path(),
-                           {"version": 1, "state": "RECORDING"})
+                           {"version": 1, "state": "RECORDING",
+                            "pid": os.getpid()})
     bag = make_bag(tmp_path / "busy", {"/fix": [T0, T0 + 1]})
     assert adopt.run(_args(bag)) == 1
+
+
+def test_adopt_ignores_a_dead_watchdogs_recording_state(fairy_dirs, tmp_path):
+    """A watchdog that died mid-recording leaves RECORDING behind forever;
+    it must not block adopt."""
+    _seed_harvest()
+    fsio.atomic_write_json(paths.watchdog_state_path(),
+                           {"version": 1, "state": "RECORDING",
+                            "pid": 0x7FFFFFFF})
+    bag = make_bag(tmp_path / "stale", {"/fix": [T0, T0 + 1]})
+    assert adopt.run(_args(bag)) == 0
 
 
 def test_adopt_is_idempotent(fairy_dirs, tmp_path):
@@ -464,6 +476,26 @@ def test_adopt_harvests_when_no_context(fairy_dirs, tmp_path, monkeypatch):
     harvest, _ = builder.load_spool()
     assert harvest is not None
     assert harvest["bags"][-1]["source"] == "adopted"
+
+
+def test_adopt_keeps_a_harvest_the_watchdog_wrote_meanwhile(fairy_dirs,
+                                                            tmp_path,
+                                                            monkeypatch):
+    """The capture takes about a minute; a harvest.json the watchdog wrote
+    in that time (with its bags) is kept, not overwritten."""
+    bag = make_bag(tmp_path / "late", {"/fix": [T0, T0 + 1]})
+    theirs = make_bag(tmp_path / "theirs", {"/fix": [T0, T0 + 1]})
+
+    def slow_pipeline():
+        fsio.atomic_write_json(paths.harvest_json_path(), good_pipeline())
+        wd_mod.append_bag_record(theirs, source="detected")
+        return good_pipeline()
+
+    monkeypatch.setattr(adopt.watchdog, "run_pipeline", slow_pipeline)
+    assert adopt.run(_args(bag)) == 0
+    harvest, _ = builder.load_spool()
+    assert [b["path"] for b in harvest["bags"]] == [str(theirs),
+                                                    str(bag.resolve())]
 
 
 # -- assembler: copy foreign, drop vanished ------------------------------------

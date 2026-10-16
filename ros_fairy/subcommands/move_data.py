@@ -9,9 +9,10 @@ Checks and the confirmation run as the operator; the move itself re-runs
 this module as root through sudo, like ``setup``'s apply step.
 
 Same disk: a rename, instant. Another disk: a copy into a hidden folder next
-to the target, compared file by file (sizes) with the original, then renamed
-into place; only then is the original removed. If anything fails before
-that, the original is untouched and the watchdog is restarted on it.
+to the target (inside it, if it already exists), compared file by file
+(sizes) with the original, then renamed into place; only then is the
+original removed. If anything fails before that, the original is untouched
+and the watchdog is restarted on it.
 """
 
 import argparse
@@ -66,9 +67,13 @@ def _same_disk(a: Path, b: Path) -> bool:
 
 def _watchdog_busy() -> bool:
     from ros_fairy.subcommands import mission_close
+    from ros_fairy.ui.status import watchdog_alive
     from ros_fairy.watchdog import watchdog as wd
-    state = (wd.read_state() or {}).get("state")
-    return mission_close._recording_in_progress() or state == "FINALISING"
+    state = wd.read_state()
+    # A watchdog that died mid-finalise left FINALISING behind: not busy.
+    finalising = (state or {}).get("state") == "FINALISING" \
+        and watchdog_alive(state)
+    return mission_close._recording_in_progress() or finalising
 
 
 def check(target_arg: str) -> tuple[Path, Path, dict[str, int], bool]:
@@ -114,7 +119,9 @@ def check(target_arg: str) -> tuple[Path, Path, dict[str, int], bool]:
         raise MoveRefused("The recording assistant is busy with a "
                           "recording. Wait until it's done.")
     tree = _tree(current)
-    parent = target.parent
+    # An existing (empty) target may be the mount point of another disk: its
+    # own filesystem is the one that counts, not its parent's.
+    parent = target if target.exists() else target.parent
     while not parent.exists() and parent != parent.parent:
         parent = parent.parent
     same_disk = _same_disk(parent, current)
@@ -153,8 +160,13 @@ def _start_watchdog(console: Console) -> None:
 
 def _copy(console: Console, current: Path, target: Path) -> None:
     """Copy ``current`` to ``target`` through a hidden folder, checking it
-    against the original as it is now (the watchdog is stopped)."""
-    work = target.parent / f".{target.name}.moving"
+    against the original as it is now (the watchdog is stopped).
+
+    The hidden folder sits next to a new target, or inside an existing
+    (empty) one, so it is always on the target's disk — an empty target
+    may be the mount point of that disk."""
+    existing = target.exists()
+    work = (target if existing else target.parent) / f".{target.name}.moving"
     if work.exists():
         shutil.rmtree(work)
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -177,11 +189,26 @@ def _copy(console: Console, current: Path, target: Path) -> None:
             raise MoveRefused(
                 "The copy doesn't match the original (first difference: "
                 f"{different[0][0]}); nothing was changed.")
-        if target.exists():
-            target.rmdir()  # checked empty beforehand
-        work.rename(target)
+        if existing:
+            # Checked empty beforehand; keep the folder (it may be a mount
+            # point), give it the original's owner and mode, and move the
+            # copy's contents into it.
+            info = current.stat()
+            os.chown(target, info.st_uid, info.st_gid)
+            shutil.copystat(current, target)
+            for entry in work.iterdir():
+                entry.rename(target / entry.name)
+            work.rmdir()
+        else:
+            work.rename(target)
     except BaseException:
         shutil.rmtree(work, ignore_errors=True)
+        if existing:  # it was empty: undo a half-done move into it
+            for entry in list(target.iterdir()):
+                if entry.is_dir() and not entry.is_symlink():
+                    shutil.rmtree(entry, ignore_errors=True)
+                else:
+                    entry.unlink(missing_ok=True)
         raise
 
 
@@ -217,23 +244,35 @@ def move(console: Console, current: Path, target: Path,
             if target.exists():
                 target.rmdir()
             current.rename(target)
+            try:
+                setup.write_paths_file(target)
+            except BaseException:
+                target.rename(current)  # paths.yaml still names current
+                raise
         else:
             console.print(f"Copying to {target}…")
             _copy(console, current, target)
-        setup.write_paths_file(target)
+            setup.write_paths_file(target)
     except BaseException:
         _start_watchdog(console)
         raise
-    if not same_disk:
-        shutil.rmtree(current)
     try:
-        count = index.reindex()
-    except Exception as exc:  # the data has moved; the list can be rebuilt
-        console.print(f"[yellow]The missions moved, but rebuilding the "
-                      f"mission list failed ({exc}). Run `ros2 fairy "
-                      "reindex`.[/yellow]")
-        count = None
-    _start_watchdog(console)
+        if not same_disk:
+            try:
+                shutil.rmtree(current)
+            except OSError as exc:
+                console.print(f"[yellow]The missions moved, but the old "
+                              f"folder {current} couldn't be removed "
+                              f"({exc}). Remove it by hand.[/yellow]")
+        try:
+            count = index.reindex()
+        except Exception as exc:  # the data has moved; the list can be rebuilt
+            console.print(f"[yellow]The missions moved, but rebuilding the "
+                          f"mission list failed ({exc}). Run `ros2 fairy "
+                          "reindex`.[/yellow]")
+            count = None
+    finally:
+        _start_watchdog(console)
     listed = f" ({count} saved mission{'s' if count != 1 else ''})" \
         if count is not None else ""
     console.print(f"[green]Done: missions are now kept in {target}{listed}."

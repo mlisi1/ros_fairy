@@ -208,9 +208,10 @@ def _redact_via_sudo(console: Console, crate, wanted: dict[str, str | None],
     command = [sudo, "--preserve-env=ROS_FAIRY_CONFIG_DIR,ROS_FAIRY_VAR_DIR,"
                "PYTHONPATH", sys.executable, "-m",
                "ros_fairy.subcommands.mission_edit", str(crate), "--redact",
-               "--by", by, "--confirmed"]
+               f"--by={by}", "--confirmed"]
+    # --opt=value, so a value starting with "-" isn't taken for an option.
     for field, value in wanted.items():
-        command += [f"--{OPTIONS[field]}", value or ""]
+        command.append(f"--{OPTIONS[field]}={value or ''}")
     pkg_root = str(Path(__file__).resolve().parents[2])
     return subprocess.run(command,
                           env={**os.environ, "PYTHONPATH": pkg_root}).returncode

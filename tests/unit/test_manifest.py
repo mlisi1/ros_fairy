@@ -165,6 +165,15 @@ def test_build_fails_without_bags():
         builder.build(_harvest(with_bag=False), _context())
 
 
+def test_build_fails_plainly_on_a_too_long_goal():
+    """The schema caps the goal: a longer one is a plain error, not a
+    pydantic traceback."""
+    ctx = _context()
+    ctx["intent"]["goal"] = "x" * 281
+    with pytest.raises(ManifestError, match="at most 280 characters"):
+        builder.build(_harvest(), ctx)
+
+
 def test_harvest_level_warnings():
     h = _harvest()
     warnings = builder.harvest_level_warnings(h)

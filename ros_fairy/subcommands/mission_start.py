@@ -14,7 +14,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Confirm
 
-from ros_fairy.manifest import builder
+from ros_fairy.manifest import builder, validator
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
@@ -119,6 +119,14 @@ def _answers(console: Console, args, as_json: bool
     otherwise only the missing required questions (refused, exit 2, when
     there's no terminal to ask them on)."""
     given = _given_answers(args)
+    for field, value in given.items():
+        error = validator.length_error(field, value)
+        if error:
+            message = f"{error} Shorten {OPTIONS[field]}."
+            if as_json:
+                return json_error(message, 2)
+            console.print(f"[red]{message}[/red]")
+            return 2
     if all(getattr(args, a, None) is None for a in _ARGS.values()):
         if as_json:
             message = ("--json starts a mission without questions: give "
@@ -214,6 +222,12 @@ def run(args, console: Console | None = None) -> int:
                                                 console=console)
         else:
             drop_previous = True  # context of no recording: stale
+    else:
+        # Nothing captured yet (an unbriefed recording's first minute, or
+        # the watchdog is down): a recording or spool bags still block.
+        reason = _blocks_replacing(has_mission=False)
+        if reason:
+            return blocked(reason)
 
     answers = _answers(console, args, as_json)
     if isinstance(answers, int):

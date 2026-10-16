@@ -67,6 +67,13 @@ def test_missing_required_answers_without_a_terminal(fairy_dirs):
     assert not paths.mission_context_path().exists()
 
 
+def test_too_long_answers_are_refused(fairy_dirs):
+    code, out, _, _ = _run(operator="Ana", goal="x" * 281, location="Lab")
+    assert code == 2
+    assert "at most 280 characters" in out and "--goal" in out
+    assert not paths.mission_context_path().exists()
+
+
 def test_missing_required_answers_are_asked_on_a_terminal(fairy_dirs):
     with mock.patch.object(mission_start.briefing, "ask_missing",
                            return_value={"location_name": "Lab"}) as ask:

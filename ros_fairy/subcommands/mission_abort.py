@@ -12,6 +12,7 @@ from pathlib import Path
 from rich.console import Console
 from rich.prompt import Confirm  # noqa: F401 (tests patch Confirm.ask)
 
+from ros_fairy.archive import assembler
 from ros_fairy.manifest import builder
 from ros_fairy.subcommands import (
     VerbExtension,
@@ -28,8 +29,7 @@ from ros_fairy.utils import fsio, paths
 def _recordings(harvest: dict | None) -> tuple[list[Path], list[Path]]:
     """(spool recordings, recordings made outside ros-fairy)."""
     bags = paths.bags_dir()
-    spool = sorted(p for p in bags.iterdir() if p.is_dir()) \
-        if bags.is_dir() else []
+    spool = [p for p in mission_close._spool_bags() if p.is_dir()]
     foreign = [Path(b["path"]) for b in (harvest or {}).get("bags", [])
                if Path(b["path"]).parent != bags]
     return spool, foreign
@@ -62,7 +62,22 @@ def run(args, console: Console | None = None) -> int:
     refused = refuse_without_access(console)
     if refused is not None:
         return refused
+    try:
+        with assembler.save_lock():  # no mission_close meanwhile
+            return _run_locked(args, console)
+    except assembler.SaveInProgressError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        return 1
+    except assembler.AssemblyError as exc:  # e.g. no access to the archive
+        console.print(f"[red]{exc}[/red]")
+        return 1
 
+
+def _run_locked(args, console: Console) -> int:
+    unfinished = mission_close._unfinished_save()
+    if unfinished:
+        console.print(f"[yellow]{unfinished}[/yellow]")
+        return 1
     if mission_close._recording_in_progress():
         console.print("[yellow]A recording is still in progress. Stop it "
                       "first (Ctrl-C in the recording window), then run this "
@@ -104,7 +119,11 @@ def run(args, console: Console | None = None) -> int:
             console.print("Nothing was changed.")
             return 0
 
-    mission_close._discard_spool()
+    if not mission_close._discard_spool(spool):
+        console.print("[yellow]A new recording started meanwhile, so nothing "
+                      "was deleted. Once it has finished, run this again."
+                      "[/yellow]")
+        return 1
     try:  # make the discard durable: a surviving spool leaks into the next
         fsio.fsync_dir(paths.spool_dir())  # mission (see assembler step 7)
     except OSError:

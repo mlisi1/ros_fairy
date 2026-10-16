@@ -10,6 +10,8 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.prompt import Prompt
 
+from ros_fairy.manifest import validator
+
 # (field, prompt text, required) — order and wording are fixed
 QUESTIONS = [
     ("operator_name", "What's your name?", True),
@@ -29,6 +31,10 @@ def _ask_one(console: Console, field: str, prompt: str, required: bool,
         kwargs: dict[str, Any] = {"default": default} if default else {}
         answer = Prompt.ask(prompt, console=console, **kwargs)
         answer = (answer or "").strip()
+        error = validator.length_error(field, answer)
+        if error:
+            console.print(f"[yellow]{error} Please shorten it.[/yellow]")
+            continue
         if answer:
             return answer
         if not required:

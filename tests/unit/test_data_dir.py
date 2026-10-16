@@ -228,6 +228,89 @@ def test_failed_copy_leaves_everything_as_it_was(configured, tmp_path,
     assert paths.var_dir() == configured["var"]
 
 
+def test_move_into_an_existing_empty_folder_stages_inside_it(
+        configured, tmp_path, monkeypatch):
+    """An empty target may be another disk's mount point: the disk check and
+    the copy use the target itself, and the folder is kept, not replaced."""
+    _saved_mission(configured)
+    before = _files(configured["var"])
+    target = tmp_path / "mnt"
+    target.mkdir()
+    compared = []
+    monkeypatch.setattr(move_data, "_same_disk",
+                        lambda a, b: compared.append(a) or False)
+    real_run = move_data.subprocess.run
+    copies = []
+
+    def run(command, *args, **kwargs):
+        if command[0] == "cp":
+            copies.append(Path(command[-1]))
+        return real_run(command, *args, **kwargs)
+
+    monkeypatch.setattr(move_data.subprocess, "run", run)
+    inode = target.stat().st_ino
+    code, out, _ = _move(target)
+    assert code == 0, out
+    assert compared == [target]
+    assert [c.parent for c in copies] == [target]
+    assert target.stat().st_ino == inode  # the same folder, filled
+    assert _files(target) == before
+    assert not list(target.glob(".*.moving"))
+    assert not list(tmp_path.glob(".*.moving"))
+    assert paths.var_dir() == target
+
+
+def test_move_restarts_the_watchdog_when_the_old_folder_stays(
+        configured, tmp_path, monkeypatch):
+    _saved_mission(configured)
+    monkeypatch.setattr(move_data, "_same_disk", lambda a, b: False)
+    real_rmtree = move_data.shutil.rmtree
+
+    def rmtree(path, *args, **kwargs):
+        if Path(path) == configured["var"]:
+            raise PermissionError(13, "Permission denied", str(path))
+        return real_rmtree(path, *args, **kwargs)
+
+    monkeypatch.setattr(move_data.shutil, "rmtree", rmtree)
+    target = tmp_path / "disk" / "ros-fairy"
+    with mock.patch.object(move_data, "_start_watchdog") as start:
+        code, out, _ = _move(target)
+    assert code == 0, out
+    start.assert_called_once()
+    assert "couldn't be removed" in out
+    assert index.query()[1] == 1  # reindexed in the new place
+    assert paths.var_dir() == target
+
+
+def test_same_disk_move_is_undone_when_paths_file_fails(
+        configured, tmp_path, monkeypatch):
+    _saved_mission(configured)
+    before = _files(configured["var"])
+    target = tmp_path / "disk" / "ros-fairy"
+    monkeypatch.setattr(setup_cmd, "write_paths_file",
+                        mock.Mock(side_effect=OSError("read-only")))
+    with mock.patch.object(move_data, "_start_watchdog") as start, \
+            pytest.raises(OSError):
+        _move(target)
+    start.assert_called_once()
+    assert _files(configured["var"]) == before
+    assert not target.exists()
+
+
+@pytest.mark.parametrize("alive, busy", [(True, True), (False, False)])
+def test_finalising_counts_only_while_the_watchdog_lives(
+        monkeypatch, alive, busy):
+    from ros_fairy.subcommands import mission_close
+    from ros_fairy.ui import status
+    from ros_fairy.watchdog import watchdog as wd
+    monkeypatch.setattr(mission_close, "_recording_in_progress",
+                        lambda: False)
+    monkeypatch.setattr(wd, "read_state",
+                        lambda: {"state": "FINALISING", "pid": 4242})
+    monkeypatch.setattr(status, "watchdog_alive", lambda state: alive)
+    assert move_data._watchdog_busy() is busy
+
+
 @pytest.mark.parametrize("setup_state, target, says", [
     ("env", "/data/x", "ROS_FAIRY_VAR_DIR is set"),
     (None, "data/x", "absolute"),

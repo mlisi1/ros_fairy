@@ -11,6 +11,7 @@ only ever touches folders that are direct children of the archive directory.
 
 import os
 import shutil
+import stat
 import subprocess
 import sys
 from datetime import datetime
@@ -120,6 +121,38 @@ def _safe_target(row: dict) -> Path | None:
     return resolved
 
 
+def _can_remove(target: Path) -> bool:
+    """Whether this account can delete the whole of ``target``.
+
+    Checked before deleting anything: ``shutil.rmtree`` removes what it can
+    and only then fails, which would leave half a mission behind."""
+    if os.geteuid() == 0:
+        return True
+    uid = os.geteuid()
+
+    def removable(folder: str, entries) -> bool:
+        if not os.access(folder, os.R_OK | os.W_OK | os.X_OK):
+            return False
+        info = os.stat(folder)
+        # In a sticky folder only an entry's owner (or the folder's) may
+        # remove it.
+        return not info.st_mode & stat.S_ISVTX or info.st_uid == uid or \
+            all(os.lstat(os.path.join(folder, e)).st_uid == uid
+                for e in entries)
+
+    try:
+        if not removable(str(target.parent), [target.name]):
+            return False
+        unreadable: list[OSError] = []
+        for dirpath, dirnames, filenames in os.walk(
+                target, onerror=unreadable.append):
+            if not removable(dirpath, dirnames + filenames):
+                return False
+        return not unreadable
+    except OSError:
+        return False
+
+
 def _remove(target: Path, sudo: bool) -> None:
     if not target.exists():
         return  # already gone: just forget it in the index
@@ -178,6 +211,9 @@ def run(args, console: Console | None = None) -> int:
                            "archive, so it was left alone"))
             continue
         try:
+            if not batch and target.exists() and not _can_remove(target):
+                # Decide on sudo before deleting anything.
+                raise PermissionError(target)
             _remove(target, sudo=batch)
         except PermissionError:
             if batch or not Confirm.ask(

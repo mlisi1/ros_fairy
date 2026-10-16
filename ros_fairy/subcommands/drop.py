@@ -25,7 +25,11 @@ from ros_fairy.subcommands import (
     mission_close,
     refuse_without_access,
 )
-from ros_fairy.ui.status import recording_line, recording_list
+from ros_fairy.ui.status import (
+    recording_line,
+    recording_list,
+    watchdog_alive,
+)
 from ros_fairy.watchdog import watchdog as wd
 
 
@@ -45,11 +49,12 @@ def _find(recs: list[dict], which: str) -> dict | None:
 
 
 def _busy() -> str | None:
-    state = (wd.read_state() or {}).get("state")
+    state = wd.read_state() or {}
     if mission_close._recording_in_progress():
         return "A recording is in progress. Stop it first, then run this " \
             "again."
-    if state == "FINALISING":
+    # A dead watchdog's state file says FINALISING forever.
+    if state.get("state") == "FINALISING" and watchdog_alive(state):
         return "The recording assistant is still processing the last " \
             "recording. Wait a moment, then run this again."
     return None
@@ -74,6 +79,10 @@ def run(args, console: Console | None = None) -> int:
 
 
 def _run_locked(args, console: Console) -> int:
+    unfinished = mission_close._unfinished_save()
+    if unfinished:
+        console.print(f"[yellow]{unfinished}[/yellow]")
+        return 1
     recs = recording_list()
     if not recs:
         console.print("The open mission has no recordings.")

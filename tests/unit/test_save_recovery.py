@@ -45,7 +45,7 @@ def _interrupt_mid_move(record, harvest):
             raise OSError(errno.EIO, "Input/output error")
         real_move(src, dest, *rest)
 
-    def no_rollback(src, dest):
+    def no_rollback(src, dest, *rest):
         raise OSError(errno.EIO, "power cut")
 
     with mock.patch.object(assembler, "_move_bag", move), \
@@ -418,7 +418,7 @@ def test_cross_device_move_verifies_and_resumes(fairy_dirs, cross_device,
                 raise OSError(errno.EIO, "power cut")
         return real_rmtree(path, *a, **k)
 
-    def no_rollback(src, dest):
+    def no_rollback(src, dest, *rest):
         raise OSError(errno.EIO, "power cut")
     monkeypatch.setattr(assembler.shutil, "rmtree", crash_deleting_original)
     monkeypatch.setattr(assembler, "_move_back", no_rollback)
@@ -433,6 +433,100 @@ def test_cross_device_move_verifies_and_resumes(fairy_dirs, cross_device,
     assert not (paths.bags_dir() / "rosbag2_0").exists()
     assert (final / "bags" / "rosbag2_0" / "metadata.yaml").is_file()
     assert (final / "bags" / "rosbag2_1" / "metadata.yaml").is_file()
+
+
+def _bag_hashes(bag):
+    return assembler._bag_file_hashes(bag)
+
+
+def _rollback_cut_off_while_deleting_the_copy(record, harvest, monkeypatch):
+    """Across filesystems: the first bag is copied (and its original deleted),
+    the second move fails, and the rollback is cut off after copying the
+    first bag back, while deleting the staged copy."""
+    real_move = assembler._move_bag
+    real_rmtree = shutil.rmtree
+    calls = {"n": 0}
+
+    def move(src, dest, *rest):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise OSError(errno.EIO, "Input/output error")
+        real_move(src, dest, *rest)
+
+    def crash_deleting_staged(path, *a, **k):
+        if f"{paths.staging_dir()}/" in str(path) and "/bags/" in str(path) \
+                and not k.get("ignore_errors"):
+            (Path(path) / "metadata.yaml").unlink()  # half deleted
+            raise OSError(errno.EIO, "power cut")
+        return real_rmtree(path, *a, **k)
+
+    monkeypatch.setattr(assembler, "_move_bag", move)
+    monkeypatch.setattr(assembler.shutil, "rmtree", crash_deleting_staged)
+    with pytest.raises(AssemblyError, match="safe in"):
+        assembler.assemble(record, harvest)
+    monkeypatch.setattr(assembler, "_move_bag", real_move)
+    monkeypatch.setattr(assembler.shutil, "rmtree", real_rmtree)
+
+
+@pytest.mark.parametrize("old_plan", [False, True])
+def test_cut_off_rollback_keeps_the_complete_original(
+        fairy_dirs, cross_device, monkeypatch, old_plan):
+    harvest, context = _spool(fairy_dirs, n_bags=2)
+    original = paths.bags_dir() / "rosbag2_0"
+    want = _bag_hashes(original)
+    record = builder.build(harvest, context)
+    _rollback_cut_off_while_deleting_the_copy(record, harvest, monkeypatch)
+
+    [pending] = assembler.pending_saves()
+    plan = assembler._read_plan(pending.name)
+    # The rollback noted that the spool holds the bag to keep again.
+    assert plan["moves"][0]["copied"] is False
+    assert _bag_hashes(original) == want
+    if old_plan:  # as a save cut off before that was noted would leave it
+        plan["moves"][0]["copied"] = True
+        assembler._write_plan(plan)
+    final = assembler.finish_pending(pending)
+    assert _bag_hashes(final / "bags" / "rosbag2_0") == want
+    assert not original.exists()
+
+
+def test_resume_touches_nothing_when_neither_copy_is_whole(
+        fairy_dirs, cross_device, monkeypatch):
+    harvest, context = _spool(fairy_dirs, n_bags=2)
+    original = paths.bags_dir() / "rosbag2_0"
+    record = builder.build(harvest, context)
+    _rollback_cut_off_while_deleting_the_copy(record, harvest, monkeypatch)
+    [pending] = assembler.pending_saves()
+    plan = assembler._read_plan(pending.name)
+    plan["moves"][0]["copied"] = True
+    assembler._write_plan(plan)
+    damaged = next(original.glob("*.db3"))
+    damaged.write_bytes(damaged.read_bytes()[:10])  # the original, cut off
+    staged_bag = paths.staging_dir() / pending.name / "bags" / "rosbag2_0"
+    staged = sorted(staged_bag.iterdir())
+    with pytest.raises(assembler.AssemblyError, match="Neither copy"):
+        assembler.finish_pending(pending)
+    assert original.is_dir()
+    assert sorted(staged_bag.iterdir()) == staged
+
+
+def test_rollback_puts_back_a_bag_renamed_just_before_ctrl_c(
+        fairy_dirs, monkeypatch):
+    harvest, context = _spool(fairy_dirs, n_bags=2)
+    before = sorted(p.name for p in paths.bags_dir().iterdir())
+    record = builder.build(harvest, context)
+    real_move = assembler._move_bag
+
+    def move_then_ctrl_c(src, dest, *rest):
+        real_move(src, dest, *rest)
+        raise KeyboardInterrupt
+
+    monkeypatch.setattr(assembler, "_move_bag", move_then_ctrl_c)
+    with pytest.raises(KeyboardInterrupt):
+        assembler.assemble(record, harvest)
+    assert sorted(p.name for p in paths.bags_dir().iterdir()) == before
+    assert (paths.bags_dir() / "rosbag2_0" / "metadata.yaml").is_file()
+    assert assembler.pending_saves() == []
 
 
 def test_cross_device_corrupt_copy_is_rejected(fairy_dirs, cross_device,
@@ -510,6 +604,52 @@ def test_calibrations_with_the_same_file_name_both_kept(fairy_dirs):
     assert stored == ["calibrations/gps0.yaml", "calibrations/gps0_2.yaml"]
     for cal in record.calibrations:
         assert fsio.sha256_file(final / cal.archived_path) == cal.sha256
+
+
+def test_a_calibration_file_shared_by_two_sensors_is_listed_once(
+        fairy_dirs):
+    harvest, context = _spool(fairy_dirs)
+    shared = harvest["calibrations"][0]["source_path"]
+    harvest["calibrations"].append(
+        {"name": "gps1_cal", "source_path": shared, "format": "yaml"})
+    record = builder.build(harvest, context)
+    final = assembler.assemble(record, harvest)
+    assert {c.archived_path for c in record.calibrations} == \
+        {"calibrations/gps0.yaml"}
+    doc = json.loads((final / "ro-crate-metadata.json").read_text())
+    ids = [e["@id"] for e in doc["@graph"]]
+    assert len(ids) == len(set(ids))
+    [root] = [e for e in doc["@graph"] if e["@id"] == "./"]
+    parts = [p["@id"] for p in root["hasPart"]]
+    assert parts.count("calibrations/gps0.yaml") == 1
+    assert len(parts) == len(set(parts))
+
+
+def test_checksums_file_is_part_of_the_crate(fairy_dirs):
+    from ros_fairy.archive import edit
+    from ros_fairy.subcommands import verify
+    harvest, context = _spool(fairy_dirs)
+    final = assembler.assemble(builder.build(harvest, context), harvest)
+
+    def entity_and_parts():
+        doc = json.loads((final / "ro-crate-metadata.json").read_text())
+        by_id = {e["@id"]: e for e in doc["@graph"]}
+        return (by_id.get(assembler.CHECKSUMS_FILE),
+                [p["@id"] for p in by_id["./"]["hasPart"]])
+
+    entity, parts = entity_and_parts()
+    assert entity["@type"] == "File"
+    assert entity["encodingFormat"] == "text/plain"
+    assert "sha256" not in entity  # it can't hold its own
+    assert assembler.CHECKSUMS_FILE in parts
+    checks = verify.verify_archive(final)
+    assert [c for c in checks if c["status"] != verify.OK] == [], checks
+
+    edit.apply(final, {"notes": "windy"})  # the crate is patched, not rebuilt
+    entity, parts = entity_and_parts()
+    assert entity and parts.count(assembler.CHECKSUMS_FILE) == 1
+    checks = verify.verify_archive(final)
+    assert [c for c in checks if c["status"] != verify.OK] == [], checks
 
 
 def test_crate_folders_are_group_writable(fairy_dirs):

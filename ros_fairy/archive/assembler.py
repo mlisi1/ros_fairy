@@ -150,8 +150,13 @@ def _move_bag(src: Path, dest: Path,
     shutil.rmtree(src)
 
 
-def _move_back(src: Path, dest: Path) -> None:
-    """Undo ``_move_bag``: put a complete staged bag back where it came from."""
+def _move_back(src: Path, dest: Path,
+               on_restored: Callable[[], None] | None = None) -> None:
+    """Undo ``_move_bag``: put a complete staged bag back where it came from.
+
+    Across filesystems ``on_restored`` runs once ``src`` is a complete copy
+    again and before ``dest`` is deleted, so the caller can record that the
+    original, not the staged bag, is now the one to keep."""
     if src.exists():  # remains of an interrupted delete; dest is verified
         shutil.rmtree(src)
     try:
@@ -161,6 +166,8 @@ def _move_back(src: Path, dest: Path) -> None:
             raise
         shutil.copytree(dest, src)
         fsio.fsync_tree(src)
+        if on_restored:
+            on_restored()
         shutil.rmtree(dest)
     _fsync_dir_quietly(src.parent)
 
@@ -580,6 +587,19 @@ def finish_pending(pending: PendingSave,
     expected = {b.path: b.file_sha256 for b in record.bags}
     for mv in plan.get("moves", []):
         src, dest = Path(mv["src"]), staging / mv["dest"]
+        want = expected.get(mv["dest"])
+        if mv.get("copied") and src.exists() and want and \
+                (not dest.is_dir() or _bag_file_hashes(dest) != want):
+            # Not the verified copy any more (a rollback was cut off while
+            # deleting it): the original in the spool is the one to keep, if
+            # it is whole. If neither is, touch nothing.
+            if _bag_file_hashes(src) != want:
+                raise AssemblyError(
+                    f"Neither copy of the recording {src.name} is complete. "
+                    f"Nothing was changed; the save is still in {staging}. "
+                    "Ask your robot engineer to look at it.")
+            mv["copied"] = False
+            _write_plan(plan)
         if mv.get("copied"):  # verified copy; finish deleting the original
             if src.exists():
                 shutil.rmtree(src)
@@ -598,7 +618,7 @@ def finish_pending(pending: PendingSave,
             mv["copied"] = True
             _write_plan(plan)
         try:
-            _move_bag(src, dest, progress, expected.get(mv["dest"]), copied)
+            _move_bag(src, dest, progress, want, copied)
         except OSError as exc:
             raise AssemblyError(
                 f"Finishing the interrupted save failed "
@@ -908,6 +928,11 @@ def _stage(record: MissionRecord, harvest_doc: dict[str, Any], staging: Path,
     fsio.atomic_write_json(
         staging / "mission_record.json",
         record.model_dump(mode="json"))
+    # Written after the crate metadata (it covers it), but listed in it too;
+    # no sha256 entry: it can't hold its own.
+    extra_files.append({"id": CHECKSUMS_FILE,
+                        "name": "Checksums of the non-recording files",
+                        "encodingFormat": "text/plain"})
     ro_crate.write(record, staging, extra_files,
                    license_url=harvest_doc.get("default_license"))
     _write_checksums(staging)
@@ -978,23 +1003,31 @@ def assemble(record: MissionRecord, harvest_doc: dict[str, Any],
     plan["state"] = MOVING
     plan["moves"] = [{"src": str(src), "dest": f"bags/{name}",
                       "copied": False} for src, name in to_move]
-    moved: list[tuple[Path, Path]] = []
     try:
         _write_plan(plan)
         for mv in plan["moves"]:
             src, dest = Path(mv["src"]), staging / mv["dest"]
 
-            def copied(mv=mv, src=src, dest=dest):
+            def copied(mv=mv):
                 mv["copied"] = True
                 _write_plan(plan)
-                moved.append((src, dest))
             _move_bag(src, dest, progress, expected.get(mv["dest"]), copied)
-            if not mv["copied"]:  # renamed
-                moved.append((src, dest))
     except BaseException as exc:
         try:
-            for src, dest in reversed(moved):
-                _move_back(src, dest)
+            # Put back every bag that reached staging, judged from the disk
+            # (a Ctrl-C can land just after a rename): renamed ones (only in
+            # staging) and verified copies (``copied``). A partial copy is
+            # left for _discard_staging; its original is untouched.
+            for mv in reversed(plan["moves"]):
+                src, dest = Path(mv["src"]), staging / mv["dest"]
+                if not dest.exists() or \
+                        (src.exists() and not mv["copied"]):
+                    continue
+
+                def restored(mv=mv):
+                    mv["copied"] = False
+                    _write_plan(plan)
+                _move_back(src, dest, restored)
         except BaseException:
             log.exception("putting the recordings back failed")
             raise AssemblyError(

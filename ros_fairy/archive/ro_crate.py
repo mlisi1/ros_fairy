@@ -89,6 +89,8 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
          "encodingFormat": "text/markdown"},
     ]
     for extra in extra_files:
+        if _local_id(extra["id"]) in {f["@id"] for f in file_entities}:
+            continue
         entity = {"@id": _local_id(extra["id"]), "@type": "File",
                   "name": extra["name"],
                   "encodingFormat": extra["encodingFormat"]}
@@ -96,7 +98,9 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
             entity["sha256"] = extra["sha256"]
         file_entities.append(entity)
     for cal in record.calibrations:
-        if cal.archived_path:
+        # Two sensors may share one calibration file, stored once.
+        if cal.archived_path and _local_id(cal.archived_path) not in \
+                {f["@id"] for f in file_entities}:
             entity = {"@id": _local_id(cal.archived_path), "@type": "File",
                       "name": f"Calibration: {cal.name}",
                       "encodingFormat": "application/yaml"
