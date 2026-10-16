@@ -13,7 +13,7 @@ They are the reason for the project's name.
 | Principle | How ROS F.A.I.R.y applies it |
 | --- | --- |
 | Findable | Every mission gets a unique ID, a goal, a place, an operator and a date, and is listed in a searchable index ([`list`](commands.md#list)). |
-| Accessible | A mission is a plain folder, or one checksummed `.zip`/`.tar` ([`export`](commands.md#export)), readable without ROS F.A.I.R.y. |
+| Accessible | A mission is a plain folder, or one checksummed `.zip`, `.tar`, `.tar.gz` or `.tar.zst` ([`export`](commands.md#export)), readable without ROS F.A.I.R.y; the receiver can check it without unpacking it ([`verify`](commands.md#an-exported-bundle)). |
 | Interoperable | Metadata is RO-Crate JSON-LD using schema.org and SOSA/SSN terms. Recordings stay standard rosbag2 (MCAP or sqlite3). |
 | Reusable | The full context is recorded: ROS graph, parameters, URDF, software, hardware, udev rules, the build that saved it, recording health and an optional data license ([what is captured](what-is-captured.md)). |
 

@@ -337,6 +337,8 @@ source of truth; the list is only a cache.
 | find a mission | `ros2 fairy list` |
 | send a mission to someone | `ros2 fairy export <n>` |
 | check a mission is intact | `ros2 fairy verify <n>` |
+| check a bundle you were sent | `ros2 fairy verify <file>` |
+| see what hasn't been exported yet | `ros2 fairy list --not-exported` |
 | compare two missions | `ros2 fairy diff <older> <newer>` |
 | fix a bag that won't play | `ros2 fairy repair <n>` |
 

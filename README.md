@@ -70,14 +70,15 @@ ros2 fairy mission_record      # wraps `ros2 bag record` with safety checks
 ros2 fairy mission_close       # review the briefing, then save or discard
 ros2 fairy mission_abort       # abandon a mission that couldn't go ahead
 ros2 fairy list                # latest missions saved on this robot, newest last (--all for every one)
-ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
+ros2 fairy export 1            # bundle the newest mission + sha256 sidecar (--compress: smaller)
+ros2 fairy verify mission.zip  # the receiver checks the bundle, without unpacking it
 ```
 
 ## Commands
 
 | Verb | What it does |
 | --- | --- |
-| `setup` | One-time robot setup: identity file, directories, watchdog service |
+| `setup` | One-time robot setup: identity file, directories, watchdog service; later, change one part with flags (`--add-sensor`, `--set-sensor`, `--storage`, …; `--show` prints it) |
 | `doctor` | Check that this robot is ready to capture a mission |
 | `mission_start` | Answer five quick questions to describe the mission (or give them as options, for scripts and launch files) |
 | `mission_record` | Record mission data (wraps `ros2 bag record`, and takes its options) |
@@ -87,10 +88,10 @@ ros2 fairy export 1            # bundle the newest mission + sha256 sidecar
 | `mission_delete` | Permanently delete saved missions: one by ID, `--today` or `--all` (batch forms need sudo); always asks you to type a confirmation phrase |
 | `mission_abort` | Abandon the open mission without saving (asks first; asks again before deleting recordings) |
 | `drop` | Take one recording out of the open mission, by the number `mission_status` shows (the opposite of `adopt`) |
-| `list` | List the missions saved on this robot, newest last (latest 20 by default; `--limit N`, `--all`); filter by operator, place, date, quality, or words in the goal or notes (`--search`) |
+| `list` | List the missions saved on this robot, newest last (latest 20 by default; `--limit N`, `--all`); filter by operator, place, date, quality, words in the goal or notes (`--search`), or whether it was exported (`--not-exported`) |
 | `diff` | Compare two missions and show what changed |
-| `verify` | Check that a saved archive is complete and unmodified |
-| `export` | Package a mission — or `--all` unexported ones, or `--today`'s — into portable files |
+| `verify` | Check that a saved archive, or an exported bundle without unpacking it, is complete and unmodified |
+| `export` | Package a mission — or `--all` unexported ones, or `--today`'s — into portable files: `.zip`, `.tar`, or compressed (`--compress`: deflated zip, `.tar.zst`) |
 | `repair` | Make unplayable (bad-clock) recordings playable |
 | `adopt` | Ingest a bag recorded outside `mission_record` (`drop` undoes it) |
 | `reindex` | Rebuild the mission list from the archives on disk |
@@ -116,7 +117,12 @@ pip install -e '.[dev]'
 pytest                        # unit + integration, no ROS required
 pytest -m ros                 # live smoke tests, on a sourced ROS 2 box
 ruff check . && mypy ros_fairy
+tools/sandbox/sandbox.sh up && tools/sandbox/sandbox.sh install
+tools/sandbox/sandbox.sh run smoke.py   # a throwaway robot in Docker, end to end
+pip install -r requirements-docs.txt && mkdocs serve   # the documentation site
 ```
+
+The documentation is published at <https://mlisi1.github.io/ros_fairy/>.
 
 ## License
 
