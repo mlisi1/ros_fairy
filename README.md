@@ -39,16 +39,16 @@ ros2 fairy setup                # identity file, directories, watchdog service
 ros2 fairy doctor               # confirm the robot is ready to capture
 ```
 
-Prefer a colcon workspace instead (`ament_python`, ROS 2 Jazzy)? That works
-too — `install.sh` is just `pip install`, nothing it does
-is colcon-specific:
+It also builds in a colcon workspace (`ament_python`, ROS 2 Jazzy), for
+development. The watchdog service can't use a workspace in your home
+directory, though (`ros2 fairy setup` says so and stops), and colcon doesn't
+install the Python dependencies: see
+[Getting started](https://mlisi1.github.io/ros_fairy/getting-started/#or-build-it-in-a-colcon-workspace).
 
 ```bash
 cd ~/ros2_ws/src && git clone https://github.com/mlisi1/ros_fairy.git
 cd ~/ros2_ws && colcon build --packages-select ros_fairy
 source install/setup.bash
-ros2 fairy setup
-ros2 fairy doctor
 ```
 
 ### Uninstall

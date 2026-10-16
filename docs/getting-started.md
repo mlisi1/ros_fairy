@@ -73,14 +73,24 @@ cd ~/ros2_ws && colcon build --packages-select ros_fairy
 source install/setup.bash
 ```
 
-colcon doesn't install Python dependencies. Install them with rosdep
-(`rosdep install --from-paths src --ignore-src`) or pip: `pydantic>=2.5`,
-`rich>=13`, `PyYAML>=6`, `inotify_simple>=1.3`, `mcap`.
+colcon doesn't install Python dependencies. Install them system-wide with
+pip, as root, so the watchdog service can load them too:
+
+```bash
+sudo python3 -m pip install --break-system-packages \
+    "pydantic>=2.5" "rich>=13" "PyYAML>=6" "inotify_simple>=1.3" mcap zstandard
+```
+
+Don't use `rosdep install` for ros_fairy: on Jazzy it can't resolve all of
+its dependencies, and it installs Ubuntu's `python3-pydantic`, version 1,
+with which no `ros2 fairy` command loads. If that package is already
+installed, add `--ignore-installed typing_extensions` to the command above.
 
 > **The service can't use a workspace in your home directory.** It runs as
-> root and only loads code from directories root owns. `setup` checks this and
-> stops if the service couldn't load ros_fairy; install it with `./install.sh`
-> in that case.
+> root and only loads code from directories only root can change.
+> `ros2 fairy setup` checks this before asking anything and stops. Use such a
+> workspace for development, and install with `./install.sh` (from the
+> checkout, e.g. `~/ros2_ws/src/ros_fairy`) on a robot that records.
 
 ## 2. Set up the robot
 

@@ -17,6 +17,22 @@ shell you run it from, start the robot's nodes, and check that `ros2 node list`
 shows them. Running as root? Use `--ros-setup /opt/ros/<distro>/setup.bash` if
 several distros are installed.
 
+**`setup`: "The watchdog service runs as root and can only load ros_fairy from
+directories that only root can change".**
+ros_fairy was built in a colcon workspace, or installed in a venv, in your
+home directory. Install it with `./install.sh` from the checkout, then run
+`ros2 fairy setup` again.
+
+**Every `ros2 fairy` command fails with "cannot import name 'AfterValidator'
+from 'pydantic'".**
+Ubuntu's `python3-pydantic` (version 1) is installed, often by `rosdep`, and
+ros_fairy needs version 2.5 or newer:
+
+```bash
+sudo python3 -m pip install --break-system-packages \
+    --ignore-installed typing_extensions "pydantic>=2.5"
+```
+
 **"Recording assistant is not running".**
 `systemctl status ros-fairy-watchdog` and `journalctl -u ros-fairy-watchdog`
 show why. If `doctor` also says "Background service can't load ros_fairy",
