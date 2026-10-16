@@ -85,13 +85,20 @@ def load_record_with_notes(path: Path) -> tuple[MissionRecord, list[str]]:
         raise LocateError(
             f"{path} doesn't look like a mission archive "
             "(no mission_record.json found).")
+    return record_from_bytes(record_file.read_bytes(), path)
+
+
+def record_from_bytes(data: bytes,
+                      where: Path) -> tuple[MissionRecord, list[str]]:
+    """:func:`load_record_with_notes` for a record already read, e.g. from
+    inside an exported bundle; ``where`` names it in errors."""
     try:
-        return read_record(json.loads(record_file.read_text()))
+        return read_record(json.loads(data))
     except NewerRecordError as exc:
-        raise LocateError(f"Can't read the mission at {path}: {exc}.") from exc
+        raise LocateError(f"Can't read the mission at {where}: {exc}.") from exc
     except Exception as exc:
         raise LocateError(
-            f"Could not read mission record at {path}: {exc}") from exc
+            f"Could not read mission record at {where}: {exc}") from exc
 
 
 def load_record(path: Path) -> MissionRecord:

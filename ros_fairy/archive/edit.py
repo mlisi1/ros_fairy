@@ -64,9 +64,13 @@ class EditError(Exception):
     """Why the briefing can't be changed, in plain words."""
 
 
+def leftovers() -> tuple[str, ...]:
+    """The names an interrupted edit leaves in the archive."""
+    return (READY_MARKER, *(f"{name}{PENDING_SUFFIX}" for name in REWRITTEN))
+
+
 def interrupted(crate: Path) -> bool:
-    return (crate / READY_MARKER).exists() or any(
-        (crate / f"{name}{PENDING_SUFFIX}").exists() for name in REWRITTEN)
+    return any((crate / name).exists() for name in leftovers())
 
 
 def finish_interrupted(crate: Path) -> str | None:

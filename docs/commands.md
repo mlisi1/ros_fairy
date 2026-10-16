@@ -439,7 +439,8 @@ ros2 fairy verify [MISSION] [--json] [--debug]
 <!-- TODO: replace with a real screenshot of `ros2 fairy verify` -->
 ![Screenshot placeholder: ros2 fairy verify, to be added](assets/screenshots/verify-placeholder.svg)
 
-Defaults to the newest mission. Read-only. Checks that:
+`MISSION` is a number (`1` = newest, the default), a mission ID, an archive
+folder, or an exported bundle. Read-only. Checks that:
 
 - `mission_record.json` loads and validates;
 - `ro-crate-metadata.json` is valid JSON. It is fully loaded as JSON-LD when the
@@ -450,11 +451,35 @@ Defaults to the newest mission. Read-only. Checks that:
 - every calibration file matches its sha256;
 - every other file matches `checksums.sha256`, and none were added;
 - every file the RO-Crate lists exists;
-- the mission is in the index, at this path;
+- the mission is in the index, at this path (not for a bundle);
 - no [`mission_edit`](#mission_edit) was left half-done. Edits made after saving
   are listed (how many, the last one's time and account, which fields).
 
 Result: **PASS**, **PASS (with notes)** or **FAIL**. Exit 1 on FAIL.
+`--json` prints `{"archive": ..., "bundle": true|false, "result": ...,
+"checks": [...]}`.
+
+### An exported bundle
+
+```bash
+ros2 fairy verify ~/Downloads/2026-10-16_07-28-24_lab_ana.tar.zst
+```
+
+A `.zip`, `.tar`, `.tar.gz` or `.tar.zst` from [`export`](#export) is checked
+without unpacking it. It is recognised by its content, so a renamed bundle
+works too. It is read once, start to end, with no temporary copy, and checked
+against:
+
+- **its `.sha256` file**, if there is one next to it. A mismatch fails: the
+  bundle changed, or wasn't copied completely. The other checks still run and
+  say which files are affected;
+- **everything a folder is checked for**, except the index: a bundle is a copy,
+  often on another computer. Any account can verify one, also one outside the
+  `ros-fairy` group.
+
+A bundle cut short, or one whose compressed data is damaged, fails with "can't
+be read". In a damaged zip only the damaged files are lost; the rest are still
+checked.
 
 ## export
 
@@ -490,10 +515,13 @@ Bags recorded with rosbag2's defaults aren't compressed, and often shrink by
 half or more. On five real recordings (5 MB to 2.8 GB: navigation, lidar,
 point-cloud maps, sqlite3), zstd left 13–65% of the size and deflate 14–67%;
 zstd ran at 1–2.5 GB/s on all cores, deflate at 45–180 MB/s on one. So a
-deflated zip of a big mission takes minutes where a `.tar.zst` takes seconds. To open a
-`.tar.zst`: `tar --zstd -xf <file>` (needs the `zstd` package). The bundle is written to a `.part` file and renamed when
-complete. Missions that fail `verify` are exported with a warning. The archive
-is never modified. Exit 1 if any export failed.
+deflated zip of a big mission takes minutes where a `.tar.zst` takes seconds.
+To open a `.tar.zst`: `tar --zstd -xf <file>` (needs the `zstd` package).
+
+The bundle is written to a `.part` file and renamed when complete. Missions
+that fail `verify` are exported with a warning. The archive is never modified.
+Exit 1 if any export failed. The recipient can check the bundle as it is, with
+[`verify`](#verify).
 
 ## repair
 

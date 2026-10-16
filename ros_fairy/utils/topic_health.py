@@ -176,9 +176,18 @@ def parse_bag_metadata(bag_dir: Path) -> dict[str, Any] | None:
     if not meta_path.is_file():
         return None
     try:
-        raw = yaml.safe_load(meta_path.read_text(errors="replace"))
+        text = meta_path.read_text(errors="replace")
+    except OSError:
+        return None
+    return parse_bag_metadata_text(text)
+
+
+def parse_bag_metadata_text(text: str) -> dict[str, Any] | None:
+    """:func:`parse_bag_metadata` for the file's text, already read."""
+    try:
+        raw = yaml.safe_load(text)
         info = raw["rosbag2_bagfile_information"]
-    except (OSError, yaml.YAMLError, KeyError, TypeError):
+    except (yaml.YAMLError, KeyError, TypeError):
         return None
     if not isinstance(info, dict):
         return None

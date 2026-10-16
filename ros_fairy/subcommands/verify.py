@@ -16,14 +16,14 @@ Read-only: verify never modifies the archive or the index.
 """
 
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import unquote
 
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from ros_fairy.archive import index, locate
+from ros_fairy.archive import bundle, index, locate
 from ros_fairy.archive.assembler import CHECKSUMS_FILE
 from ros_fairy.subcommands import (
     VerbExtension,
@@ -32,7 +32,7 @@ from ros_fairy.subcommands import (
     json_error,
     print_json,
 )
-from ros_fairy.utils import fsio, topic_health
+from ros_fairy.utils import topic_health
 
 OK, WARN, FAIL = "ok", "warn", "fail"
 _GLYPH = {OK: "[green]✓[/green]", WARN: "[yellow]![/yellow]",
@@ -45,6 +45,51 @@ def _is_external(ref: str) -> bool:
 
 def verify_archive(crate: Path) -> list[dict]:
     """Return a list of {status, title, detail} checks for one archive dir."""
+    return verify_tree(bundle.Folder(crate))
+
+
+def verify_bundle(path: Path, advance=lambda n: None) -> list[dict]:
+    """The checks for an exported bundle, read without unpacking it: its
+    checksum file first, then everything `verify_archive` checks except the
+    index (a bundle is a copy, often on another machine)."""
+    checks: list[dict] = []
+
+    def add(status: str, title: str, detail: str = "") -> None:
+        checks.append({"status": status, "title": title, "detail": detail})
+
+    try:
+        tree = bundle.read_bundle(path, advance)
+    except bundle.BundleError as exc:
+        add(FAIL, "The bundle can't be read", str(exc))
+        return checks
+
+    sidecar = path.with_name(path.name + ".sha256")
+    try:
+        listed = sidecar.read_text(errors="replace").split()
+    except FileNotFoundError:
+        add(WARN, "No checksum file next to the bundle",
+            f"{sidecar.name}; the files inside are still checked")
+    except OSError as exc:
+        add(WARN, "The bundle's checksum file can't be read",
+            f"{sidecar.name}: {exc.strerror or exc}")
+    else:
+        if listed and listed[0].lower() == tree.digest:
+            add(OK, "The bundle matches its checksum file", sidecar.name)
+        else:
+            add(FAIL, "The bundle doesn't match its checksum file",
+                "it was changed or not copied completely; the checks below "
+                "say which files are affected")
+    if tree.unreadable:
+        add(FAIL, "Some files in the bundle can't be read",
+            ", ".join(tree.unreadable))
+    if tree.odd:
+        add(WARN, "The bundle has entries that aren't plain files",
+            ", ".join(tree.odd[:10]))
+    return checks + verify_tree(tree)
+
+
+def verify_tree(tree) -> list[dict]:
+    """The checks for a mission folder or bundle (see archive/bundle.py)."""
     checks: list[dict] = []
 
     def add(status: str, title: str, detail: str = "") -> None:
@@ -52,7 +97,12 @@ def verify_archive(crate: Path) -> list[dict]:
 
     # 1. Mission record loads + validates (schema enforces required fields).
     try:
-        record, set_aside = locate.load_record_with_notes(crate)
+        if not tree.is_file("mission_record.json"):
+            raise locate.LocateError(
+                f"{tree.path} doesn't look like a mission archive "
+                "(no mission_record.json found).")
+        record, set_aside = locate.record_from_bytes(
+            tree.read_bytes("mission_record.json"), tree.path)
         add(OK, "Mission record is valid",
             f"mission {record.identity.mission_id}")
     except locate.LocateError as exc:
@@ -62,10 +112,12 @@ def verify_archive(crate: Path) -> list[dict]:
         add(WARN, "Saved by a newer ros-fairy: some details can't be read "
                   "by this version", ", ".join(set_aside))
     from ros_fairy.archive import edit
-    if edit.interrupted(crate):
+    if any(tree.exists(name) for name in edit.leftovers()):
         add(FAIL, "An edit of the briefing was interrupted",
             "run `ros2 fairy mission_edit "
-            f"{record.identity.mission_id}` to finish or undo it")
+            f"{record.identity.mission_id}` to finish or undo it"
+            if not tree.is_bundle else
+            "it was exported halfway through; export it again")
     edits = record.provenance.edits
     if edits:
         fields = sorted({f for e in edits for f in e.changes})
@@ -81,19 +133,20 @@ def verify_archive(crate: Path) -> list[dict]:
             f"code {built.code_id}" if built.code_id else "")
 
     # 2. RO-Crate metadata well-formed (deep-load with rocrate if present).
-    crate_meta = crate / "ro-crate-metadata.json"
     graph: list[dict] = []
-    if not crate_meta.is_file():
-        add(FAIL, "RO-Crate metadata is missing", crate_meta.name)
+    if not tree.is_file("ro-crate-metadata.json"):
+        add(FAIL, "RO-Crate metadata is missing", "ro-crate-metadata.json")
     else:
         try:
-            graph = json.loads(crate_meta.read_text()).get("@graph", [])
-        except json.JSONDecodeError as exc:
+            graph = json.loads(tree.read_bytes("ro-crate-metadata.json")
+                               ).get("@graph", [])
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
             add(FAIL, "RO-Crate metadata is not valid JSON", str(exc))
         else:
             try:
                 from rocrate.rocrate import ROCrate
-                ROCrate(str(crate))
+                with tree.rocrate_dir() as folder:
+                    ROCrate(str(folder))
                 add(OK, "RO-Crate metadata is valid JSON-LD")
             except ImportError:
                 add(WARN, "RO-Crate metadata is valid JSON",
@@ -104,7 +157,7 @@ def verify_archive(crate: Path) -> list[dict]:
 
     # 3. Core files present.
     for rel in ("README.md", "harvest/harvest.json"):
-        if (crate / rel).is_file():
+        if tree.is_file(rel):
             add(OK, f"{rel} present")
         else:
             add(WARN, f"{rel} is missing")
@@ -114,17 +167,16 @@ def verify_archive(crate: Path) -> list[dict]:
     #    check (metadata + the storage files metadata lists) for older archives.
     for bag in record.bags:
         name = Path(bag.path).name
-        bag_dir = crate / bag.path
-        if not bag_dir.is_dir():
+        if not tree.is_dir(bag.path):
             add(FAIL, f"Recording {bag.path} is missing")
             continue
         if bag.file_sha256:
             missing, modified = [], []
             for rel, expected in bag.file_sha256.items():
-                f = bag_dir / rel
-                if not f.is_file():
+                f = f"{bag.path}/{rel}"
+                if not tree.is_file(f):
                     missing.append(rel)
-                elif fsio.sha256_file(f) != expected:
+                elif tree.sha256(f) != expected:
                     modified.append(rel)
             if missing:
                 add(FAIL, f"Recording {name} is missing data files",
@@ -137,12 +189,15 @@ def verify_archive(crate: Path) -> list[dict]:
                     f"{len(bag.file_sha256)} file(s)")
             continue
         # Pre-1.0 archive: structural check only.
-        meta = topic_health.parse_bag_metadata(bag_dir)
+        meta_file = f"{bag.path}/metadata.yaml"
+        meta = topic_health.parse_bag_metadata_text(
+            tree.read_bytes(meta_file).decode(errors="replace")) \
+            if tree.is_file(meta_file) else None
         if meta is None:
             add(FAIL, f"Recording {bag.path} has no readable metadata")
             continue
         missing = [f for f in meta["relative_file_paths"]
-                   if not (bag_dir / f).is_file()]
+                   if not tree.is_file(f"{bag.path}/{f}")]
         if missing:
             add(FAIL, f"Recording {bag.path} is missing data files",
                 ", ".join(missing))
@@ -154,13 +209,12 @@ def verify_archive(crate: Path) -> list[dict]:
     for cal in record.calibrations:
         if not cal.archived_path:
             continue
-        cal_file = crate / cal.archived_path
-        if not cal_file.is_file():
+        if not tree.is_file(cal.archived_path):
             add(FAIL, f"Calibration {cal.name} is missing", cal.archived_path)
         elif not cal.sha256:
             add(WARN, f"Calibration {cal.name} is present (no checksum "
                       "recorded)")
-        elif fsio.sha256_file(cal_file) != cal.sha256:
+        elif tree.sha256(cal.archived_path) != cal.sha256:
             add(FAIL, f"Calibration {cal.name} has been modified",
                 "sha256 does not match the archived value")
         else:
@@ -168,9 +222,9 @@ def verify_archive(crate: Path) -> list[dict]:
 
     # 5b. Everything else in the crate (record, README, RO-Crate metadata,
     #     harvest files): checksums.sha256, written when it was saved.
-    _check_descriptive_files(crate, add)
+    _check_descriptive_files(tree, add)
 
-    # 6. Every File entity the crate references exists on disk.
+    # 6. Every File entity the crate references exists.
     missing_refs = []
     for entity in graph:
         types = entity.get("@type", [])
@@ -178,7 +232,7 @@ def verify_archive(crate: Path) -> list[dict]:
         ref = entity.get("@id", "")
         # @ids are percent-encoded URI paths ("my%20run/") since 2026-10-06.
         if "File" in types and not _is_external(ref) \
-                and not (crate / unquote(ref)).exists():
+                and not tree.exists(unquote(ref)):
             missing_refs.append(ref)
     if missing_refs:
         add(FAIL, "Some files referenced by the crate are missing",
@@ -186,9 +240,14 @@ def verify_archive(crate: Path) -> list[dict]:
     elif graph:
         add(OK, "All files referenced by the crate are present")
 
-    # 7. Index registration (a cache, so only a warning when absent).
+    # 7. Index registration (a cache, so only a warning when absent). Not
+    #    for a bundle: it is a copy, and the archive it came from may be
+    #    on another robot.
+    if tree.is_bundle:
+        return checks
+    crate = tree.path
     try:
-        rows, _ = index.query(limit=100_000)
+        rows, _ = index.query(limit=None)
     except index.IndexUnavailableError as exc:
         add(WARN, "Couldn't check the mission index", str(exc))
         return checks
@@ -207,27 +266,24 @@ def verify_archive(crate: Path) -> list[dict]:
     return checks
 
 
-def _check_descriptive_files(crate: Path, add) -> None:
-    sums = crate / CHECKSUMS_FILE
-    if not sums.is_file():
+def _check_descriptive_files(tree, add) -> None:
+    if not tree.is_file(CHECKSUMS_FILE):
         add(WARN, "The mission's descriptive files can't be checked",
             "this archive was saved before ros-fairy recorded their "
             "checksums; only the recordings and calibrations are checked")
         return
     listed: dict[str, str] = {}
-    for line in sums.read_text(errors="replace").splitlines():
+    text = tree.read_bytes(CHECKSUMS_FILE).decode(errors="replace")
+    for line in text.splitlines():
         digest, _, rel = line.partition("  ")
         if rel:
             listed[rel] = digest
-    missing = [rel for rel in listed if not (crate / rel).is_file()]
+    missing = [rel for rel in listed if not tree.is_file(rel)]
     modified = [rel for rel, digest in listed.items()
-                if (crate / rel).is_file()
-                and fsio.sha256_file(crate / rel) != digest]
-    added = sorted(f.relative_to(crate).as_posix() for f in crate.rglob("*")
-                   if f.is_file()
-                   and not f.relative_to(crate).as_posix().startswith("bags/")
-                   and f.relative_to(crate).as_posix() not in listed
-                   and f.name != CHECKSUMS_FILE)
+                if tree.is_file(rel) and tree.sha256(rel) != digest]
+    added = sorted(rel for rel in tree.files()
+                   if not rel.startswith("bags/") and rel not in listed
+                   and PurePosixPath(rel).name != CHECKSUMS_FILE)
     if missing:
         add(FAIL, "Some of the mission's files are missing",
             ", ".join(missing))
@@ -265,25 +321,50 @@ def _render(console: Console, crate: Path, checks: list[dict]) -> None:
                         border_style=border))
 
 
+def _verify_bundle_with_progress(path: Path, console: Console) -> list[dict]:
+    from rich.progress import (
+        BarColumn,
+        DownloadColumn,
+        Progress,
+        TextColumn,
+        TimeRemainingColumn,
+    )
+    size = path.stat().st_size
+    total = size * 2 if bundle.kind(path) == "zip" else size
+    progress = Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(), DownloadColumn(), TimeRemainingColumn(),
+        console=console, transient=True)
+    with progress:
+        task = progress.add_task("Reading the bundle", total=total or 1)
+        return verify_bundle(path, lambda n: progress.advance(task, n))
+
+
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
 
+    as_json = getattr(args, "json", False)
     identifier = getattr(args, "mission", None) or "1"
-    try:
-        crate = locate.resolve_archive(identifier)
-    except locate.LocateError as exc:
-        if getattr(args, "json", False):
-            return json_error(str(exc))
-        console.print(f"[red]{exc}[/red]")
-        return 1
-
-    checks = verify_archive(crate)
+    given = Path(identifier).expanduser()
+    if given.is_file():
+        crate = given
+        checks = _verify_bundle_with_progress(
+            given, Console(stderr=True) if as_json else console)
+    else:
+        try:
+            crate = locate.resolve_archive(identifier)
+        except locate.LocateError as exc:
+            if as_json:
+                return json_error(str(exc))
+            console.print(f"[red]{exc}[/red]")
+            return 1
+        checks = verify_archive(crate)
     overall = _overall(checks)
 
-    if getattr(args, "json", False):
-        print_json({"archive": str(crate), "result": overall,
-                    "checks": checks})
+    if as_json:
+        print_json({"archive": str(crate), "bundle": given.is_file(),
+                    "result": overall, "checks": checks})
     else:
         _render(console, crate, checks)
 
@@ -298,8 +379,10 @@ class VerifyVerb(VerbExtension):
     def add_arguments(self, parser, cli_name):
         parser.add_argument(
             "mission", nargs="?",
-            help="mission to verify: number (1 = newest), archive path, or "
-                 "mission ID. Defaults to the most recent mission.")
+            help="mission to verify: number (1 = newest), archive path, "
+                 "mission ID, or an exported bundle (.zip, .tar, .tar.gz, "
+                 ".tar.zst; checked without unpacking it). Defaults to the "
+                 "most recent mission.")
         parser.add_argument(
             "--json", action="store_true",
             help="machine-readable output for scripts")

@@ -160,7 +160,9 @@ Run `ros2 fairy reindex`. The index is only a cache of the archive.
 
 **`verify` fails.**
 A file is missing or has changed since saving. If the archive was copied from
-elsewhere, copy it again and check the bundle's `.sha256` first. `verify` can't
+elsewhere, copy it again and `verify` the bundle before unpacking it. "The
+bundle doesn't match its checksum file" or "can't be read" means the copy is
+damaged or incomplete, not the mission. `verify` can't
 repair anything: it only tells you what's wrong.
 
 **`mission_edit`: "the archive was changed after it was saved".**

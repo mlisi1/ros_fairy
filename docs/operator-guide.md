@@ -212,9 +212,11 @@ archive folder path**.
 
 `export` writes one uncompressed `.zip` (or `.tar` with `--format tar`) with a
 `sha256sum`-compatible `.sha256` file next to it. `--compress` makes it
-smaller, often by half or more ([how](commands.md#export)). The receiver can check the
-transfer with `sha256sum -c <file>.sha256`, then run `ros2 fairy verify` on the
-unpacked folder. `export --all` exports every mission not yet exported.
+smaller, often by half or more ([how](commands.md#export)). The receiver
+checks the transfer and the contents in one step, without unpacking:
+`ros2 fairy verify <file>`. Without ROS F.A.I.R.y, `sha256sum -c
+<file>.sha256` checks the transfer. `export --all` exports every mission not
+yet exported.
 
 ## When something goes wrong
 

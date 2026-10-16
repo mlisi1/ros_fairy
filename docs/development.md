@@ -27,7 +27,8 @@ ros_fairy/
 │                            usb_udev, ros_graph + ros_snapshot, docker)
 ├── manifest/                pydantic schema, record builder, validator, quality grading
 ├── archive/                 crash-safe assembler, RO-Crate writer, SQLite index,
-│                            identifier lookup, duplicate detection, briefing edits
+│                            identifier lookup, duplicate detection, briefing edits,
+│                            reading exported bundles (for verify)
 ├── ui/                      rich rendering: briefing, review, status, diff
 ├── utils/                   paths (and paths.yaml), atomic file IO, ROS env
 │                            handling, clock, bag readers, topic health, bag
