@@ -104,8 +104,8 @@ def test_partial_node_is_incomplete_and_lists_what_is_missing():
 
 
 def test_diff_does_not_call_a_not_captured_parameter_removed(fairy_dirs):
-    from tests.unit.test_archive import _spool
     from ros_fairy.ui import diff
+    from tests.unit.test_archive import _spool
     harvest, context = _spool(fairy_dirs)
     a = builder.build(harvest, context)
     b = a.model_copy(deep=True)
@@ -296,8 +296,8 @@ def test_identity_not_utf8_is_a_plain_error(fairy_dirs):
 # -- H18: not captured vs none, in the diff --------------------------------------
 
 def test_diff_with_uncaptured_debs_says_so(fairy_dirs):
-    from tests.unit.test_archive import _spool
     from ros_fairy.ui import diff
+    from tests.unit.test_archive import _spool
     harvest, context = _spool(fairy_dirs)
     a = builder.build(harvest, context)
     a.software.apt_ros_versions = {"ros-jazzy-rclpy": "7.1.0"}

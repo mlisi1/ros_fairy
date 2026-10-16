@@ -140,8 +140,11 @@ def test_apply_writes_paths_file_before_the_folders(configured, tmp_path):
     new = tmp_path / "data"
     payload = {"config": {"robot": {"name": "X"}}, "env": {},
                "var_dir": str(new)}
+    own_group = SimpleNamespace(gr_gid=os.getgid())  # no real ros-fairy group
     with mock.patch.object(setup_cmd, "write_identity"), \
             mock.patch.object(setup_cmd, "add_operators"), \
+            mock.patch.object(setup_cmd.grp, "getgrnam",
+                              return_value=own_group), \
             mock.patch.object(setup_cmd, "install_service",
                               return_value=True):
         assert setup_cmd._apply(_console(), payload) is True

@@ -1119,8 +1119,9 @@ def test_ensure_ros_environment_autodetects_single_install(fairy_dirs, tmp_path)
             mock.patch.object(setup_cmd.ros_env, "source_setup_bash",
                               return_value={"ROS_DISTRO": "jazzy"}) as src:
         assert setup_cmd._ensure_ros_environment(_console(), None) is True
+        # inside the patch: outside it, it would read this shell's ROS
+        assert setup_cmd.os.environ.get("ROS_DISTRO") == "jazzy"
     src.assert_called_once_with(setup_bash)
-    assert setup_cmd.os.environ.get("ROS_DISTRO") == "jazzy"
 
 
 def test_ensure_ros_environment_explicit_path_overrides_autodetect(
@@ -1697,6 +1698,9 @@ def test_doctor_watchdog_stale_heartbeat_only_matters_while_recording():
     with mock.patch.object(wd, "read_state", return_value=recording):
         c = doctor._check_watchdog()
         assert c["status"] == doctor.WARN and "not responding" in c["title"]
+    no_heartbeat = dict(recording, heartbeat_at=None)
+    with mock.patch.object(wd, "read_state", return_value=no_heartbeat):
+        assert doctor._check_watchdog()["status"] == doctor.OK
 
 
 def test_doctor_service_harvest_distinguishes_service_context():
@@ -1963,9 +1967,8 @@ def test_guarded_main_passes_through_exit_codes():
 
 def test_all_verb_wrappers_are_guarded():
     """Every VerbExtension.main must route through guarded_main."""
-    import inspect
-
     import importlib
+    import inspect
     import re
 
     from ros_fairy import subcommands as pkg

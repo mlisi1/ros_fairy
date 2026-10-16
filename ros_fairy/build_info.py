@@ -56,7 +56,8 @@ def build_info() -> dict[str, Any]:
                             "built_at": None, "code_id": code_id(),
                             "source": "unknown"}
     try:
-        from ros_fairy import _build_info  # written by setup.py at build
+        # written by setup.py at build; absent from a source checkout
+        from ros_fairy import _build_info  # type: ignore[attr-defined]
         info.update(_build_info.BUILD)
         info["source"] = "install"
     except ImportError:

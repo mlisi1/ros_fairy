@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TypeGuard
 
 from rich.console import Console
 from rich.panel import Panel
@@ -28,7 +29,7 @@ def _pid_alive(pid) -> bool:
     return isinstance(pid, int) and Path(f"/proc/{pid}").exists()
 
 
-def watchdog_alive(state: dict | None) -> bool:
+def watchdog_alive(state: dict | None) -> TypeGuard[dict]:
     """Whether the watchdog that wrote ``state`` is still running.
 
     The state file names the process by pid *and* start time, so a stale file
@@ -50,7 +51,7 @@ def assistant_line(state: dict | None) -> str:
     try:
         heartbeat = datetime.fromisoformat(state.get("heartbeat_at", ""))
         age = (datetime.now(timezone.utc) - heartbeat).total_seconds()
-    except ValueError:
+    except (TypeError, ValueError):
         age = None
     if state.get("state") == "RECORDING":
         if age is not None and age > STALE_HEARTBEAT_S:
@@ -62,7 +63,7 @@ def assistant_line(state: dict | None) -> str:
                        datetime.fromisoformat(state["since"])).total_seconds()
             since = (f" (started {started.strftime('%H:%M')}, "
                      f"{humanize_duration(elapsed)} ago)")
-        except (KeyError, ValueError):
+        except (KeyError, TypeError, ValueError):
             pass
         return f"recording{since}"
     if state.get("state") == "FINALISING":

@@ -15,7 +15,7 @@ import logging
 import os
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -272,7 +272,7 @@ class Watchdog:
         self._recorders: dict[Path, dict] = {}
         # Recorders whose output folder is known but still empty, by pid: a
         # recording that ends between two scans is caught when they exit.
-        self._pending: dict[int, dict] = {}
+        self._pending: dict[int, recorder_scan.FoundRecorder] = {}
         self.last_bag_event: float | None = None
         self.last_bag_event_iso: str | None = None
         self._w1: int | None = None
@@ -550,7 +550,7 @@ class Watchdog:
             pid = rec.get("pid")
             if rec.get("active", True) is False:
                 if pid is not None and pid not in self._pending:
-                    self._pending[pid] = dict(rec)
+                    self._pending[pid] = rec
                 continue
             seen_pids.add(pid)
             self._pending.pop(pid, None)
@@ -576,16 +576,18 @@ class Watchdog:
                                                            rec.get("start")):
                 continue
             del self._pending[pid]
-            bag_dir = recorder_scan.pending_output(rec)
-            if bag_dir is None or not (bag_dir / "metadata.yaml").is_file() \
-                    or self._spool_bag(bag_dir) is not None \
-                    or self._is_busy_with(bag_dir) \
-                    or self._is_finalised(bag_dir):
+            pending_dir = recorder_scan.pending_output(rec)
+            if pending_dir is None \
+                    or not (pending_dir / "metadata.yaml").is_file() \
+                    or self._spool_bag(pending_dir) is not None \
+                    or self._is_busy_with(pending_dir) \
+                    or self._is_finalised(pending_dir):
                 continue
-            log.info("short recording %s finished between checks", bag_dir)
-            self._track_foreign(bag_dir, rec)
+            log.info("short recording %s finished between checks",
+                     pending_dir)
+            self._track_foreign(pending_dir, rec)
 
-    def _track_foreign(self, bag_dir: Path, rec: dict) -> None:
+    def _track_foreign(self, bag_dir: Path, rec: Mapping[str, Any]) -> None:
         self._foreign[bag_dir] = {"pid": rec.get("pid"),
                                   "start": rec.get("start"),
                                   "discovery": rec.get("discovery")}
@@ -1025,7 +1027,7 @@ def _bag_record(bag_dir: Path, source: str, sensors: list) -> dict:
     meta = topic_health.metadata_from_storage(bag_dir)
     series = topic_health.read_clean_series(bag_dir, meta) if meta else None
     start_s = end_s = duration_s = None
-    if series:
+    if meta and series:
         start_s, end_s, duration_s = topic_health.bag_timing(
             bag_dir, meta, series)
     if start_s is None and not (series is not None and series.total_read):

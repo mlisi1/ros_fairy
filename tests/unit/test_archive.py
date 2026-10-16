@@ -588,7 +588,8 @@ def test_find_similar_flags_mistyped_location(fairy_dirs):
 def test_duplicate_warning_is_one_line_however_many_matches(fairy_dirs):
     """2026-10-02: seven test missions in a session produced seven near-
     identical "Possible duplicate" warnings; the operator gets one."""
-    from datetime import datetime, timedelta
+    from datetime import timedelta
+
     from ros_fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)

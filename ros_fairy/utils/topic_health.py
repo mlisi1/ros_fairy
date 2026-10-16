@@ -427,8 +427,8 @@ def _clock_steps(ts: bag_storage.Timestamps
             merged[o] = t
     shift_at: list[tuple[int, float]] = []
     steps: list[tuple[float, float]] = []
-    shift = 0.0
-    first = prev = None
+    shift = first = 0.0
+    prev: float | None = None
     for i, t in enumerate(merged):
         if t < EPOCH_FLOOR_S:
             continue  # broken stamps are bag_timing's concern

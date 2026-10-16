@@ -285,6 +285,9 @@ def test_status_lines(fairy_dirs):
     assert status.assistant_line(alive).startswith("recording")
     alive["state"] = "FINALISING"
     assert "wrapping up" in status.assistant_line(alive)
+    # a state file with null times (hand-edited, or an older version)
+    nulls = dict(alive, state="RECORDING", heartbeat_at=None, since=None)
+    assert status.assistant_line(nulls) == "recording"
 
     lines = status.harvest_lines({"harvest_status": {
         "ros_graph": "failed", "docker_info": "skipped",

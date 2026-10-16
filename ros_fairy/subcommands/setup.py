@@ -381,7 +381,10 @@ def create_dirs() -> None:
     try:
         gid = grp.getgrnam(GROUP_NAME).gr_gid
     except KeyError:
-        subprocess.run(["groupadd", "--system", GROUP_NAME], check=False)
+        try:
+            subprocess.run(["groupadd", "--system", GROUP_NAME], check=False)
+        except OSError:
+            pass  # no groupadd: the folders stay the creator's group
         try:
             gid = grp.getgrnam(GROUP_NAME).gr_gid
         except KeyError:

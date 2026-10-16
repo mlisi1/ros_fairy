@@ -7,6 +7,7 @@ import time
 from datetime import datetime, timezone
 
 import pytest
+from pydantic import ValidationError
 
 from ros_fairy import SCHEMA_VERSION
 from ros_fairy.archive import assembler, duplicates, index, locate, ro_crate
@@ -66,7 +67,7 @@ def test_newer_major_record_is_refused_plainly(fairy_dirs):
 def test_strict_validation_still_guards_new_records(fairy_dirs):
     harvest, context = _spool(fairy_dirs)
     harvest["software"]["typo_field"] = 1
-    with pytest.raises(Exception):
+    with pytest.raises(ValidationError, match="typo_field"):
         builder.build(harvest, context)
 
 

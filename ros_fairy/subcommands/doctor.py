@@ -71,7 +71,7 @@ def _check_watchdog() -> dict:
         age = (datetime.now(timezone.utc)
                - datetime.fromisoformat(state.get("heartbeat_at", ""))
                ).total_seconds()
-    except ValueError:
+    except (TypeError, ValueError):
         age = None
     # The watchdog heartbeats only while RECORDING; while IDLE the state
     # file is rewritten only on transitions, so age says nothing there.
@@ -314,8 +314,8 @@ def _check_service_harvest() -> dict:
     empty archives on the real robot.
     """
     from ros_fairy.watchdog import watchdog as wd
-    state = wd.read_state()
-    status = (state or {}).get("harvest_status", {})
+    state = wd.read_state() or {}
+    status = state.get("harvest_status", {})
     if not status:
         return {"status": SKIP, "title": "Service has not harvested yet",
                 "detail": "no harvest recorded since the watchdog started",
@@ -343,9 +343,11 @@ def _check_service_harvest() -> dict:
 
 def _when(iso: str | None) -> str:
     """" at 10:22" (today) / " on 01 Oct, 17:20"; "" if unknown."""
+    if not isinstance(iso, str):
+        return ""
     try:
         t = datetime.fromisoformat(iso).astimezone()
-    except (TypeError, ValueError):
+    except ValueError:
         return ""
     if t.date() == datetime.now().astimezone().date():
         return f" at {t:%H:%M}"

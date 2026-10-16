@@ -24,9 +24,9 @@ import json
 import math
 import os
 import re
-import threading
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
@@ -245,8 +245,7 @@ def snapshot(emit, nodes_only: bool = False) -> None:  # pragma: no cover
     import rclpy
     from rcl_interfaces.srv import GetParameters, ListParameters
     from rclpy.executors import SingleThreadedExecutor
-    from rclpy.qos import (DurabilityPolicy, HistoryPolicy, QoSProfile,
-                           ReliabilityPolicy)
+    from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
     from std_msgs.msg import String
     from tf2_msgs.msg import TFMessage
 
@@ -288,7 +287,7 @@ def snapshot(emit, nodes_only: bool = False) -> None:  # pragma: no cover
     subscribed: set[str] = set()
 
     def gid(info) -> Any:
-        g = (info or {}).get("publisher_gid") if isinstance(info, dict) \
+        g: Any = (info or {}).get("publisher_gid") if isinstance(info, dict) \
             else getattr(info, "publisher_gid", None)
         if isinstance(g, dict):
             g = g.get("data", g)
@@ -316,7 +315,10 @@ def snapshot(emit, nodes_only: bool = False) -> None:  # pragma: no cover
             merge_transforms(transforms, [transform_to_dict(t)
                                           for t in msg.transforms], conflicts)
             tf_heard[topic].add(gid(info))
-        node.create_subscription(TFMessage, topic, on_tf, latched(100))
+        # rclpy passes the message info to a two-argument callback; its
+        # stubs only know the one-argument form.
+        node.create_subscription(TFMessage, topic, on_tf,  # type: ignore[arg-type]
+                                 latched(100))
 
     # The usual names right away, so latched samples arrive during discovery.
     subscribe_urdf("/robot_description")
@@ -430,7 +432,8 @@ def snapshot(emit, nodes_only: bool = False) -> None:  # pragma: no cover
         elif stage == "get":
             values = [] if result is None else result.values
             if len(values) == len(names_of[fqn]):
-                finish(fqn, dict(zip(names_of[fqn], map(_value, values))))
+                finish(fqn, dict(zip(names_of[fqn], map(_value, values),
+                                     strict=True)))
                 return
             # One at a time per node: a burst of requests overflows the
             # service's request queue (depth 10) and the rest are silently

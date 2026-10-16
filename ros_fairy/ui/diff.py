@@ -521,17 +521,17 @@ def _diff_usb_udev(a: MissionRecord, b: MissionRecord) -> list[tuple]:
                              pb.get(key, "")))
     da = {_usb_key(d): d for d in ua.devices}
     db = {_usb_key(d): d for d in ub.devices}
-    for key in sorted(set(da) | set(db), key=lambda k: tuple(map(str, k))):
-        if key not in db:
-            rows.append((_usb_label(da[key]), "connected", ""))
+    for dev_key in sorted(set(da) | set(db), key=lambda k: tuple(map(str, k))):
+        if dev_key not in db:
+            rows.append((_usb_label(da[dev_key]), "connected", ""))
             continue
-        if key not in da:
-            rows.append((_usb_label(db[key]), "", "connected"))
+        if dev_key not in da:
+            rows.append((_usb_label(db[dev_key]), "", "connected"))
             continue
-        sa, sb = _usb_settings(da[key]), _usb_settings(db[key])
+        sa, sb = _usb_settings(da[dev_key]), _usb_settings(db[dev_key])
         for setting in sorted(set(sa) | set(sb)):
             if sa.get(setting) != sb.get(setting):
-                rows.append((f"{_usb_label(da[key])}: {setting}",
+                rows.append((f"{_usb_label(da[dev_key])}: {setting}",
                              sa.get(setting, ""), sb.get(setting, "")))
     return rows
 

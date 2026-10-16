@@ -190,7 +190,7 @@ def _already_saved(console: Console) -> bool:
     context = builder.load_spool()[1]
     mission_id = ((context or {}).get("identity") or {}).get("mission_id")
     crate = assembler.saved_crate_for(mission_id)
-    if crate is None:
+    if crate is None or not mission_id:
         return False
     assembler.clear_saved_spool(crate, mission_id)
     console.print(f"This mission was already saved as [bold]{crate.name}"

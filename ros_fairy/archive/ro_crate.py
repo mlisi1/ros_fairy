@@ -7,6 +7,7 @@ of extra files it actually copied (this writer does no filesystem reads).
 
 import json
 from pathlib import Path
+from typing import Any
 from urllib.parse import quote
 
 from ros_fairy.manifest.schema import MissionRecord
@@ -218,9 +219,10 @@ def build(record: MissionRecord, extra_files: list[dict] | None = None,
         mission["endTime"] = max(ends).isoformat()
     graph.append(mission)
 
-    software = {"@id": ROS_FAIRY_ID, "@type": "SoftwareApplication",
-                "name": "ros-fairy",
-                "version": record.provenance.ros_fairy_version}
+    software: dict[str, Any] = {"@id": ROS_FAIRY_ID,
+                                "@type": "SoftwareApplication",
+                                "name": "ros-fairy",
+                                "version": record.provenance.ros_fairy_version}
     built = record.provenance.assembled_by
     if built is not None:
         # the exact build that wrote this crate

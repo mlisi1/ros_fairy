@@ -122,7 +122,7 @@ def rules_inventory() -> tuple[list[dict], list[dict], dict[str, str]]:
     owners = _dpkg_owners()
     seen_real: set[str] = set()
     by_name: dict[str, list[str]] = {}
-    custom: list[dict] = []
+    custom: list[dict[str, Any]] = []
     default: list[dict] = []
     contents: dict[str, str] = {}
     for directory in RULE_DIRS:
@@ -158,11 +158,11 @@ def rules_inventory() -> tuple[list[dict], list[dict], dict[str, str]]:
                 why = "modified"
             else:
                 why = "unpackaged"
-            entry = {"path": path, "reason": why,
-                     "package": owner[0] if owner else None,
-                     "sha256": hashlib.sha256(data).hexdigest(),
-                     "size_bytes": len(data),
-                     "masks": None, "overrides": None}
+            entry: dict[str, Any] = {"path": path, "reason": why,
+                                     "package": owner[0] if owner else None,
+                                     "sha256": hashlib.sha256(data).hexdigest(),
+                                     "size_bytes": len(data),
+                                     "masks": None, "overrides": None}
             if masked or (directory in LOCAL_DIRS and not data.strip()):
                 entry["masks"] = f.name
             custom.append(entry)
@@ -222,7 +222,8 @@ def usb_state() -> dict[str, Any] | None:
                        if _USB_NAME.match(p.name))
     except OSError:
         return None
-    devices, ports = [], []
+    devices: list[dict[str, Any]] = []
+    ports: list[dict[str, Any]] = []
     for name in names:
         d = USB_DEVICES / name
         attrs = _attrs(d, _DEVICE_ATTRS)

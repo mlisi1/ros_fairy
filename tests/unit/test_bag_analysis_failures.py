@@ -81,9 +81,11 @@ def test_mcap_reader_streams_in_arrival_order(tmp_path, chunked):
         ts = bag_storage.McapReader().read_timestamps(bag, [])
     assert ts.total == 30 * 65 and not ts.truncated
     merged = sorted((o, t) for topic in ts.stamps
-                    for o, t in zip(ts.order[topic], ts.stamps[topic]))
+                    for o, t in zip(ts.order[topic], ts.stamps[topic],
+                                    strict=True))
     assert [o for o, _ in merged] == list(range(ts.total))
-    assert all(a <= b for (_, a), (_, b) in zip(merged, merged[1:]))
+    assert all(a <= b for (_, a), (_, b) in zip(merged, merged[1:],
+                                                strict=False))
     assert ts.types["/imu/data"] == "std_msgs/msg/String"
 
 

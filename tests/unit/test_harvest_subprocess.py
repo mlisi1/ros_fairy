@@ -2,7 +2,6 @@
 
 import json
 import subprocess
-import time
 from unittest import mock
 
 import pytest
