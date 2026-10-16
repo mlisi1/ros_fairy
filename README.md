@@ -7,6 +7,10 @@
   automatic context capture, plain-language briefings, RO-Crate archives.
 </p>
 
+<p align="center">
+  <a href="https://mlisi1.github.io/ros_fairy/"><strong>Documentation</strong></a>
+</p>
+
 ---
 
 ## What it is

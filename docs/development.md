@@ -125,13 +125,19 @@ your own machine.
 
 ## Documentation
 
-The site is built with [MkDocs](https://www.mkdocs.org) and the Material theme
-(`pip install mkdocs-material`), from `mkdocs.yml` and `docs/`:
+The site is built with [MkDocs](https://www.mkdocs.org) and the Material theme,
+from `mkdocs.yml` and `docs/`, at the versions pinned in `requirements-docs.txt`
+(MkDocs 2.0 would break the theme):
 
 ```bash
+pip install -r requirements-docs.txt
 mkdocs serve                 # live preview at http://127.0.0.1:8000
 mkdocs build --strict        # what to run before committing: fails on any broken link
 ```
+
+It is published at <https://mlisi1.github.io/ros_fairy/> by
+`.github/workflows/docs.yml`, on every push to `main` that changes it. A pull
+request only builds it, so a broken link fails there before the merge.
 
 - **Diagrams** are SVG files in `docs/assets/diagrams/`, never text art in a
   code block. Each has a `-dark.svg` twin, and pages include both:

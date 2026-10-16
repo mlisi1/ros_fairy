@@ -1,0 +1,5 @@
+# The documentation site's build (mkdocs.yml), pinned so a release of either
+# can't change or break it. MkDocs 2.0 drops the plugin system the Material
+# theme relies on: stay below it.
+mkdocs==1.6.1
+mkdocs-material==9.7.6

@@ -1,5 +1,6 @@
 site_name: ROS F.A.I.R.y
 site_description: Make ROS 2 field mission data FAIR-compliant with zero friction
+site_url: https://mlisi1.github.io/ros_fairy/
 repo_url: https://github.com/mlisi1/ros_fairy
 edit_uri: edit/main/docs/
 
