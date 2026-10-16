@@ -346,12 +346,15 @@ def search_terms(text: str) -> list[str]:
 def query(operator: str | None = None, location: str | None = None,
           since: str | None = None, until: str | None = None,
           quality: str | None = None, search: str | None = None,
+          exported: bool | None = None,
           limit: int | None = 20) -> tuple[list[dict[str, Any]], int]:
     """Filtered mission rows, newest first. Returns (rows, total_matching).
 
     ``search`` keeps the missions whose goal or notes contain every one of
-    its words (see :func:`search_terms`). ``limit=None`` returns every
-    matching row.
+    its words (see :func:`search_terms`). ``exported`` keeps only the
+    missions with (True) or without (False) a recorded export. Each row's
+    ``export`` is that record (exported_at, bundle_path, format, sha256), or
+    None. ``limit=None`` returns every matching row.
     """
     where: list[str] = []
     params: list[Any] = []
@@ -393,20 +396,50 @@ def query(operator: str | None = None, location: str | None = None,
             for term in terms:
                 where.append(f"instr(fairy_fold({text}), ?) > 0")
                 params.append(term)
+        # A read-only account may see an index older than the exports
+        # table: then nothing has been exported.
+        has_exports = con.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND "
+            "name = 'exports'").fetchone() is not None
+        if has_exports:
+            source = ("missions LEFT JOIN exports AS e "
+                      "ON e.mission_id = missions.mission_id")
+            export_columns = ", ".join(f"e.{c} AS export_{c}"
+                                       for c in _EXPORT_COLUMNS)
+            if exported is not None:
+                where.append("e.mission_id IS NOT NULL" if exported
+                             else "e.mission_id IS NULL")
+        else:
+            source = "missions"
+            export_columns = ", ".join(f"NULL AS export_{c}"
+                                       for c in _EXPORT_COLUMNS)
+            if exported:
+                where.append("0")
         clause = (" WHERE " + " AND ".join(where)) if where else ""
         with con:
             total = con.execute(
-                f"SELECT COUNT(*) FROM missions{clause}", params).fetchone()[0]
+                f"SELECT COUNT(*) FROM {source}{clause}", params).fetchone()[0]
             rows = con.execute(
-                f"SELECT * FROM missions{clause} ORDER BY created_at DESC "
-                f"LIMIT ?", [*params, -1 if limit is None else limit]).fetchall()
+                f"SELECT missions.*, {export_columns} FROM {source}{clause} "
+                f"ORDER BY created_at DESC LIMIT ?",
+                [*params, -1 if limit is None else limit]).fetchall()
     except sqlite3.OperationalError as exc:
         if "no such table" in str(exc):
             return [], 0
         raise
     finally:
         con.close()
-    return [dict(r) for r in rows], total
+    return [_with_export(dict(r)) for r in rows], total
+
+
+_EXPORT_COLUMNS = ("exported_at", "bundle_path", "format", "sha256")
+
+
+def _with_export(row: dict[str, Any]) -> dict[str, Any]:
+    """Fold the joined export_* columns into one ``export`` entry."""
+    export = {c: row.pop(f"export_{c}") for c in _EXPORT_COLUMNS}
+    row["export"] = export if export["exported_at"] else None
+    return row
 
 
 def delete(mission_id: str) -> None:

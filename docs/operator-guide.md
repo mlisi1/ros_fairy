@@ -198,6 +198,7 @@ ros2 fairy list                       # latest 20 missions, newest last
 ros2 fairy list --all --path          # every mission, with folders
 ros2 fairy list --operator ana --since 2026-10-01 --quality poor
 ros2 fairy list --search "sonar pier"  # goal or notes mention both words
+ros2 fairy list --not-exported        # not sent anywhere yet
 ros2 fairy export 1                   # newest mission → ./<name>.zip + .sha256
 ros2 fairy export --today -o /media/usb/
 ros2 fairy export 1 --compress        # smaller: deflated .zip

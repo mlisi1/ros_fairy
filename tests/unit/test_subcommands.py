@@ -626,6 +626,91 @@ def test_list_json(fairy_dirs, capsys):
     assert data["missions"][0]["goal"] == "Survey eelgrass beds"
 
 
+def _two_missions_one_exported(fairy_dirs):
+    """Two indexed missions; the first has an export record."""
+    from ros_fairy.archive import index
+    a = _indexed_mission(fairy_dirs, "a")
+    b = _indexed_mission(fairy_dirs, "b")
+    index.mark_exported(a, Path("/media/usb/a.tar.zst"), "tar.zst", "f00d")
+    return a, b
+
+
+def _indexed_mission(fairy_dirs, suffix: str) -> str:
+    from ros_fairy.archive import index
+    if not paths.mission_context_path().exists():
+        _spool(fairy_dirs)
+    harvest, context = builder.load_spool()
+    record = builder.build(harvest, context)
+    record.identity.mission_id += suffix
+    index.insert(record, paths.archive_dir() / suffix)
+    return record.identity.mission_id
+
+
+def test_list_exported_filters_and_marks(fairy_dirs, capsys):
+    a, b = _two_missions_one_exported(fairy_dirs)
+    args = SimpleNamespace(limit=20, json=True)
+
+    def listed(**filters) -> dict:
+        assert list_missions.run(SimpleNamespace(**vars(args), **filters),
+                                 console=_console()) == 0
+        data = json.loads(capsys.readouterr().out)
+        return {m["mission_id"]: m["export"] for m in data["missions"]}
+
+    every = listed()
+    assert every[b] is None
+    assert every[a]["bundle_path"] == "/media/usb/a.tar.zst"
+    assert every[a]["format"] == "tar.zst" and every[a]["sha256"] == "f00d"
+    assert every[a]["exported_at"]
+    assert list(listed(exported=True)) == [a]
+    assert list(listed(exported=False)) == [b]
+
+    console = _console()
+    assert list_missions.run(SimpleNamespace(limit=20), console=console) == 0
+    lines = console.file.getvalue().splitlines()
+    assert "Exp" in lines[1]
+    row_of = {m: next(line for line in lines if m in line) for m in (a, b)}
+    assert "✓" in row_of[a] and "✓" not in row_of[b]
+
+
+def test_list_exported_flags_parse(fairy_dirs):
+    import argparse
+    parser = argparse.ArgumentParser()
+    list_missions.ListVerb().add_arguments(parser, "fairy")
+    assert parser.parse_args([]).exported is None
+    assert parser.parse_args(["--exported"]).exported is True
+    assert parser.parse_args(["--not-exported"]).exported is False
+    with pytest.raises(SystemExit):
+        parser.parse_args(["--exported", "--not-exported"])
+
+
+def test_list_forgotten_export_is_unmarked(fairy_dirs):
+    from ros_fairy.archive import index
+    a, _b = _two_missions_one_exported(fairy_dirs)
+    index.forget_export(a)
+    assert index.query(exported=True) == ([], 0)
+
+
+def test_list_reads_an_index_older_than_exports(fairy_dirs, monkeypatch):
+    """A read-only account may meet an index no writer has upgraded: no
+    exports table means nothing was exported, not an empty list."""
+    import sqlite3
+
+    from ros_fairy.archive import index
+    a, b = _two_missions_one_exported(fairy_dirs)
+    con = sqlite3.connect(paths.index_db_path())
+    con.execute("DROP TABLE exports")
+    con.commit()
+    con.close()
+
+    def no_write():
+        raise sqlite3.OperationalError("attempt to write a readonly database")
+    monkeypatch.setattr(index, "_connect", no_write)
+    rows, total = index.query()
+    assert total == 2 and all(r["export"] is None for r in rows)
+    assert index.query(exported=False)[1] == 2
+    assert index.query(exported=True) == ([], 0)
+
+
 def test_list_json_no_index(fairy_dirs, capsys):
     args = SimpleNamespace(json=True)
     assert list_missions.run(args, console=_console()) == 0

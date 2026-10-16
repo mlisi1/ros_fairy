@@ -381,12 +381,13 @@ def run(args, console: Console | None = None) -> int:
 
     if all_mode or today_mode:
         try:
-            rows, _total = index.query(limit=10_000)
+            # --all: what `list --not-exported` shows.
+            rows, _total = index.query(
+                exported=False if all_mode else None, limit=None)
         except index.IndexUnavailableError as exc:
             return fail(str(exc))
         if all_mode:
-            already = index.exported_mission_ids()
-            candidates = [r for r in rows if r["mission_id"] not in already]
+            candidates = rows
             what = "not already exported"
         else:
             today = datetime.now().astimezone().date()

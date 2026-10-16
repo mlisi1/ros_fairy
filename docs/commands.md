@@ -383,8 +383,8 @@ There is no `--yes`.
 ```
 ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
                 [--until YYYY-MM-DD] [--quality {ok,degraded,poor}]
-                [--search WORDS] [--limit N | --all] [--path] [--json]
-                [--debug]
+                [--search WORDS] [--exported | --not-exported]
+                [--limit N | --all] [--path] [--json] [--debug]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy list` -->
@@ -396,14 +396,21 @@ ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
 | `--since`, `--until` | Local dates, both inclusive. |
 | `--quality` | Only missions with this verdict. |
 | `--search WORDS` | Only missions whose goal or notes contain every word, in any order. Case and accents are ignored (`citta` finds "Città"); quote a phrase to keep it together: `--search '"north pier" sonar'`. |
+| `--exported`, `--not-exported` | Only missions exported at least once, or never (what `export --all` would export). |
 | `--limit N` | Show the latest N (default 20; at least 1). |
 | `--all` | Show every mission. |
 | `--path` | Add the archive folder column. |
 
-Columns: date, mission ID, goal, location, operator, duration, size, warnings
-and data quality. The newest mission is last. Filters combine: every one must
-match. `--json` prints `{"missions": [...], "total": N, "shown": M}`; each
-mission carries the index columns, `notes` included.
+Columns: date, mission ID, goal, location, operator, duration, size, warnings,
+data quality, and a ✓ under **Exp** once the mission has been exported. The
+newest mission is last. Filters combine: every one must match. `--json` prints
+`{"missions": [...], "total": N, "shown": M}`; each mission carries the index
+columns, `notes` included, and `export`: `null`, or the last export's
+`exported_at`, `bundle_path`, `format` and `sha256`.
+
+An export stays marked after the bundle is moved or deleted (sending it
+somewhere is the point). It is forgotten when the bundle no longer matches the
+mission, after [`mission_edit`](#mission_edit).
 
 ## diff
 

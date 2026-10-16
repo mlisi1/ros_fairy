@@ -115,4 +115,19 @@ expect(result.returncode == 0 and batch.get("failed") == 0,
 expect(batch.get("exported", 0) >= 1 and
        all(r["bundle"].endswith(".tar.zst") for r in batch["results"]),
        "every bundle is a .tar.zst")
+
+step("list marks it exported, with the last bundle in --json")
+missions = json.loads(sh("ana", "ros2 fairy list --json", quiet=True)
+                      .stdout)["missions"]
+last = missions[0]["export"] or {}
+expect(last.get("bundle_path", "").endswith(".tar.zst") and
+       last.get("format") == "tar.zst", f"export: {last}")
+result = sh("ana", "ros2 fairy list", quiet=True)
+print(result.stdout)
+expect("✓" in result.stdout, "✓ under Exp")
+result = sh("ana", "ros2 fairy list --not-exported --json", quiet=True)
+expect(json.loads(result.stdout)["total"] == 0, "nothing left to export")
+result = sh("ana", f"ros2 fairy export --all -o {OUT} --json", quiet=True)
+expect(json.loads(result.stdout)["exported"] == 0,
+       "export --all agrees: nothing to do")
 sys.exit(finish())

@@ -76,6 +76,7 @@ def run(args, console: Console | None = None) -> int:
             until=getattr(args, "until", None),
             quality=getattr(args, "quality", None),
             search=getattr(args, "search", None),
+            exported=getattr(args, "exported", None),
             limit=None if show_all else limit)
     except index.IndexUnavailableError as exc:
         if as_json:
@@ -111,6 +112,9 @@ def run(args, console: Console | None = None) -> int:
     table.add_column("Size", justify="right")
     table.add_column("⚠", justify="right")
     table.add_column("Data")
+    # Narrow on purpose: the table is already tight at 120 columns. When
+    # and where are in --json.
+    table.add_column("Exp", justify="center", no_wrap=True)
     if show_path:
         table.add_column("Path")
     for i, row in enumerate(rows):
@@ -127,6 +131,7 @@ def run(args, console: Console | None = None) -> int:
             human_size(row["size_bytes"]) if row["size_bytes"] else "",
             str(row["warning_count"]) if row["warning_count"] else "",
             _quality_cell(row.get("data_quality")),
+            "[green]✓[/green]" if row.get("export") else "",
         ]
         if show_path:
             cells.append(row["archive_path"])
@@ -168,6 +173,14 @@ class ListVerb(VerbExtension):
                                  "together)")
         parser.add_argument("--quality", choices=["ok", "degraded", "poor"],
                             help="only missions with this data-quality verdict")
+        exported = parser.add_mutually_exclusive_group()
+        exported.add_argument("--exported", action="store_true",
+                              default=None,
+                              help="only missions exported at least once")
+        exported.add_argument("--not-exported", dest="exported",
+                              action="store_false",
+                              help="only missions never exported (what "
+                                   "`export --all` would export)")
         parser.add_argument("--limit", type=int, default=20,
                             help="show the latest N missions (default 20)")
         parser.add_argument("--all", action="store_true",
