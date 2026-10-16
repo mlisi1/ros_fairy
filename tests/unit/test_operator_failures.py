@@ -457,7 +457,7 @@ def test_checksum_failure_removes_the_bundle(fairy_dirs, tmp_path,
         return real(path, text, mode)
     monkeypatch.setattr(export.fsio, "atomic_write_text", full)
     result = export._export_one(crate, str(tmp_path / "out") + "/", "zip",
-                                False, _console())
+                                "none", False, _console())
     assert result["ok"] is False and "checksum" in result["error"]
     assert not list((tmp_path / "out").glob("*.zip"))
 

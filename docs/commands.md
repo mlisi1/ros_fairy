@@ -453,7 +453,8 @@ Result: **PASS**, **PASS (with notes)** or **FAIL**. Exit 1 on FAIL.
 
 ```
 ros2 fairy export [MISSION | --all | --today] [--exclude ID]... [-o PATH]
-                  [--format {zip,tar}] [--force] [--yes] [--json] [--debug]
+                  [--format {zip,tar,tar.gz,tar.zst}] [--compress] [--force]
+                  [--yes] [--json] [--debug]
 ```
 
 | Option | |
@@ -463,12 +464,27 @@ ros2 fairy export [MISSION | --all | --today] [--exclude ID]... [-o PATH]
 | `--today` | Every mission recorded today. |
 | `--exclude`, `-e ID` | Skip this mission (repeatable; with `--all`/`--today`). |
 | `--output`, `-o` | A file name (one mission) or a directory. Default: the current directory. |
-| `--format` | `zip` (default) or `tar`. |
+| `--format` | `zip` (default), `tar`, or a compressed tar: `tar.gz` or `tar.zst`. |
+| `--compress`, `-z` | Compress the bundle (see below). |
 | `--force` | Overwrite existing files. |
 | `--yes`, `-y` | Don't ask before batch exports. Implied by `--json`. |
 
-Each bundle holds the mission folder uncompressed, under one top-level folder, next to a `sha256sum`-compatible
-`<bundle>.sha256`. The bundle is written to a `.part` file and renamed when
+Each bundle holds the mission folder under one top-level folder, next to a
+`sha256sum`-compatible `<bundle>.sha256`. It is uncompressed unless asked:
+
+- **`--compress` with a zip** deflates each file that shrinks, so the zip still
+  opens everywhere. Files already compressed are stored as they are: those
+  compressed whole (`.mcap.zstd`, `.db3.zstd`, images) and MCAPs with
+  compressed chunks. Each file is judged by compressing a sample of it.
+- **`--compress` with a tar** makes a `.tar.zst`. For a recipient without
+  zstd, name `--format tar.gz` instead (slower, a little larger).
+
+Bags recorded with rosbag2's defaults aren't compressed, and often shrink by
+half or more. On five real recordings (5 MB to 2.8 GB: navigation, lidar,
+point-cloud maps, sqlite3), zstd left 13–65% of the size and deflate 14–67%;
+zstd ran at 1–2.5 GB/s on all cores, deflate at 45–180 MB/s on one. So a
+deflated zip of a big mission takes minutes where a `.tar.zst` takes seconds. To open a
+`.tar.zst`: `tar --zstd -xf <file>` (needs the `zstd` package). The bundle is written to a `.part` file and renamed when
 complete. Missions that fail `verify` are exported with a warning. The archive
 is never modified. Exit 1 if any export failed.
 

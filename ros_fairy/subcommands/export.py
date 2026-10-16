@@ -3,10 +3,10 @@
 A mission archive is an RO-Crate *directory*; sharing it means an operator
 hand-zips it (and hopes the transfer didn't corrupt anything). This makes that a
 first-class, safe step: it bundles the crate into a single ``.zip`` (or ``.tar``)
-with a top-level folder, writes a ``sha256sum``-compatible sidecar so the
-recipient can prove the transfer, and refuses to clobber an existing file. The
-crate's own per-file checksums still let the recipient run ``ros2 fairy verify``
-after unpacking.
+with a top-level folder, uncompressed unless ``--compress`` is given, writes a
+``sha256sum``-compatible sidecar so the recipient can prove the transfer, and
+refuses to clobber an existing file. The crate's own per-file checksums still
+let the recipient run ``ros2 fairy verify`` after unpacking.
 
 Read-only with respect to the archive and index.
 """
@@ -16,6 +16,7 @@ import os
 import shutil
 import tarfile
 import zipfile
+import zlib
 from datetime import datetime
 from pathlib import Path
 
@@ -43,23 +44,46 @@ from ros_fairy.utils import fsio
 
 log = logging.getLogger("ros_fairy.subcommands.export")
 
-FORMATS = ("zip", "tar")
-_EXT = {"zip": ".zip", "tar": ".tar"}
+FORMATS = ("zip", "tar", "tar.gz", "tar.zst")
+_EXT = {fmt: "." + fmt for fmt in FORMATS}
+
+# Files already compressed are stored in a compressed zip as they are:
+# deflating them again costs time and saves nothing. Anything else is
+# probed (see _worth_deflating).
+_COMPRESSED_SUFFIXES = {
+    ".zst", ".zstd", ".gz", ".xz", ".bz2", ".lz4", ".zip", ".7z",
+    ".jpg", ".jpeg", ".png", ".webp", ".mp4", ".mkv", ".webm"}
+_PROBE_BYTES = 4 << 20
+_CHUNK = 1 << 20
+
+
+def choose_format(fmt: str, compress: bool) -> tuple[str, str]:
+    """(format, compression) from --format and --compress.
+
+    ``--compress`` deflates a zip, so it still opens everywhere, and turns a
+    tar into .tar.zst. Naming tar.gz or tar.zst asks for that directly.
+    """
+    if fmt == "zip":
+        return "zip", ("deflate" if compress else "none")
+    if fmt == "tar" and compress:
+        fmt = "tar.zst"
+    return fmt, {"tar": "none", "tar.gz": "gzip", "tar.zst": "zstd"}[fmt]
 
 
 def _resolve_output(crate: Path, output: str | None, fmt: str) -> Path:
     """Where to write the bundle, from --output (file or dir) and format.
 
     A path that doesn't exist yet is a folder unless it names a bundle file
-    (ends in .zip/.tar): `-o /media/usb/missions` makes that folder rather
-    than writing a file called "missions".
+    (ends in .zip, .tar, .tar.gz or .tar.zst): `-o /media/usb/missions`
+    makes that folder rather than writing a file called "missions".
     """
     default_name = crate.name + _EXT[fmt]
     if not output:
         return Path.cwd() / default_name
     out = Path(output).expanduser()
+    names_a_bundle = output.lower().endswith(tuple(_EXT.values()))
     if out.is_dir() or output.endswith(os.sep) or \
-            (not out.exists() and out.suffix.lower() not in _EXT.values()):
+            (not out.exists() and not names_a_bundle):
         return out / default_name
     return out
 
@@ -70,11 +94,60 @@ def _bundle_files(crate: Path) -> list[tuple[Path, str]]:
             for f in sorted(crate.rglob("*")) if f.is_file()]
 
 
+def _worth_deflating(path: Path) -> bool:
+    """Whether deflate would shrink this file, judged on a sample.
+
+    Bags recorded with rosbag2's defaults are plain MCAP or sqlite3 and
+    shrink a lot; an MCAP with compressed chunks, or a file compressed
+    whole, doesn't. The sample comes from the middle, past an MCAP's
+    uncompressed header and schemas.
+    """
+    if path.suffix.lower() in _COMPRESSED_SUFFIXES:
+        return False
+    size = path.stat().st_size
+    with open(path, "rb") as f:
+        f.seek(max(0, size // 2 - _PROBE_BYTES // 2))
+        sample = f.read(_PROBE_BYTES)
+    if len(sample) < 4096:
+        return True
+    return len(zlib.compress(sample, 1)) < 0.9 * len(sample)
+
+
+class _Counted:
+    """A file read through to the progress bar, so a multi-GB bag that is
+    being compressed doesn't leave the bar still for minutes."""
+
+    def __init__(self, f, advance):
+        self._f = f
+        self._advance = advance
+
+    def read(self, size=-1):
+        data = self._f.read(size)
+        self._advance(len(data))
+        return data
+
+
+def _pack_zip(part: Path, files, compress: bool, advance) -> None:
+    with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED,
+                         allowZip64=True) as zf:
+        for src, arc in files:
+            info = zipfile.ZipInfo.from_file(src, arc)
+            if compress and _worth_deflating(src):
+                info.compress_type = zipfile.ZIP_DEFLATED
+            with open(src, "rb") as f, zf.open(info, "w") as out:
+                shutil.copyfileobj(_Counted(f, advance), out, _CHUNK)
+
+
+def _pack_tar(tf: tarfile.TarFile, files, advance) -> None:
+    for src, arc in files:
+        info = tf.gettarinfo(str(src), arcname=arc)
+        with open(src, "rb") as f:
+            tf.addfile(info, _Counted(f, advance))
+
+
 def _write_bundle(files: list[tuple[Path, str]], dest: Path, fmt: str,
-                  console: Console) -> None:
-    """Pack files into dest atomically (.part then rename). ZIP/TAR are stored
-    uncompressed — bag data (MCAP, images) is already compressed, so deflating
-    multi-GB recordings only burns CPU for no gain."""
+                  compression: str, console: Console) -> None:
+    """Pack files into dest atomically (.part then rename)."""
     total = sum(f.stat().st_size for f, _ in files) or 1
     part = dest.with_name(dest.name + ".part")
     progress = Progress(
@@ -83,18 +156,32 @@ def _write_bundle(files: list[tuple[Path, str]], dest: Path, fmt: str,
         console=console, transient=True)
     try:
         with progress:
-            task = progress.add_task("Packaging", total=total)
+            task = progress.add_task(
+                "Compressing" if compression != "none" else "Packaging",
+                total=total)
+
+            def advance(n: int) -> None:
+                progress.advance(task, n)
+
             if fmt == "zip":
-                with zipfile.ZipFile(part, "w", zipfile.ZIP_STORED,
-                                     allowZip64=True) as zf:
-                    for src, arc in files:
-                        zf.write(src, arc)
-                        progress.advance(task, src.stat().st_size)
+                _pack_zip(part, files, compression == "deflate", advance)
+            elif fmt == "tar.zst":
+                import zstandard
+                # Level 3 (zstd's default) on every core: measured on real
+                # bags at 1-2.5 GB/s, faster than the disk being written.
+                cctx = zstandard.ZstdCompressor(level=3, threads=-1)
+                with open(part, "wb") as raw, \
+                        cctx.stream_writer(raw, closefd=False) as zw, \
+                        tarfile.open(fileobj=zw, mode="w|") as tf:
+                    _pack_tar(tf, files, advance)
+            elif fmt == "tar.gz":
+                # Level 6 like gzip's own default; tarfile's 9 is much
+                # slower for a few percent.
+                with tarfile.open(part, "w:gz", compresslevel=6) as tf:
+                    _pack_tar(tf, files, advance)
             else:
                 with tarfile.open(part, "w") as tf:
-                    for src, arc in files:
-                        tf.add(str(src), arcname=arc, recursive=False)
-                        progress.advance(task, src.stat().st_size)
+                    _pack_tar(tf, files, advance)
         os.replace(part, dest)
     except BaseException:
         part.unlink(missing_ok=True)
@@ -108,8 +195,9 @@ def _local_date(iso: str):
         return None
 
 
-def _export_one(crate: Path, output_arg: str | None, fmt: str, force: bool,
-                console: Console, quiet: bool = False) -> dict:
+def _export_one(crate: Path, output_arg: str | None, fmt: str,
+                compression: str, force: bool, console: Console,
+                quiet: bool = False) -> dict:
     """Export one archive. Never raises — failures come back as {"ok": False,
     "error": ...} so both the single-mission and batch paths can report them
     without a bundle failure aborting the whole batch."""
@@ -142,7 +230,7 @@ def _export_one(crate: Path, output_arg: str | None, fmt: str, force: bool,
     files = _bundle_files(crate)
     try:
         dest.parent.mkdir(parents=True, exist_ok=True)
-        _write_bundle(files, dest, fmt, console)
+        _write_bundle(files, dest, fmt, compression, console)
     except OSError as exc:
         return {"mission_id": record.identity.mission_id, "source": str(crate),
                 "ok": False,
@@ -175,6 +263,7 @@ def _export_one(crate: Path, output_arg: str | None, fmt: str, force: bool,
         "ok": True,
         "bundle": str(dest),
         "format": fmt,
+        "compression": compression,
         "size_bytes": dest.stat().st_size,
         "sha256": digest,
         "checksum_file": str(checksum_path),
@@ -192,8 +281,8 @@ def _print_result(result: dict, console: Console) -> None:
                   "run `ros2 fairy verify` after unpacking.[/dim]")
 
 
-def _run_batch(args, console: Console, candidates: list[dict],
-              what: str) -> int:
+def _run_batch(args, console: Console, candidates: list[dict], what: str,
+               fmt: str, compression: str) -> int:
     """Shared body of --all/--today: confirm, check disk space, export each."""
     yes = getattr(args, "yes", False) or getattr(args, "json", False)
     exclude = set(getattr(args, "exclude", None) or [])
@@ -208,7 +297,6 @@ def _run_batch(args, console: Console, candidates: list[dict],
             console.print("Nothing to export.")
         return 0
 
-    fmt = getattr(args, "format", "zip")
     output_arg = getattr(args, "output", None)
     out_dir = Path(output_arg).expanduser() if output_arg else Path.cwd()
     if out_dir.exists() and not out_dir.is_dir():
@@ -246,7 +334,7 @@ def _run_batch(args, console: Console, candidates: list[dict],
     results = []
     for row in candidates:
         result = _export_one(Path(row["archive_path"]), output_arg, fmt,
-                             force, console, quiet=as_json)
+                             compression, force, console, quiet=as_json)
         results.append(result)
         if not as_json:
             if result["ok"]:
@@ -288,6 +376,9 @@ def run(args, console: Console | None = None) -> int:
     if (all_mode or today_mode) and mission_arg:
         return fail("Give a mission, or --all/--today — not both.")
 
+    fmt, compression = choose_format(
+        getattr(args, "format", "zip"), getattr(args, "compress", False))
+
     if all_mode or today_mode:
         try:
             rows, _total = index.query(limit=10_000)
@@ -302,16 +393,16 @@ def run(args, console: Console | None = None) -> int:
             candidates = [r for r in rows
                          if _local_date(r["created_at"]) == today]
             what = "recorded today"
-        return _run_batch(args, console, candidates, what)
+        return _run_batch(args, console, candidates, what, fmt,
+                          compression)
 
-    fmt = getattr(args, "format", "zip")
     try:
         crate = locate.resolve_archive(mission_arg or "1")
     except locate.LocateError as exc:
         return fail(str(exc))
 
     result = _export_one(crate, getattr(args, "output", None), fmt,
-                         getattr(args, "force", False), console,
+                         compression, getattr(args, "force", False), console,
                          quiet=as_json)
     if not result["ok"]:
         if as_json:
@@ -354,7 +445,15 @@ class ExportVerb(VerbExtension):
                  "directory)")
         parser.add_argument(
             "--format", choices=FORMATS, default="zip",
-            help="bundle format (default: zip)")
+            help="bundle format (default: zip). tar.gz and tar.zst are "
+                 "compressed tar files; tar.gz for recipients without zstd")
+        parser.add_argument(
+            "--compress", "-z", action="store_true",
+            help="compress the bundle: a zip is deflated (files that are "
+                 "already compressed are stored as they are), a tar becomes "
+                 ".tar.zst. "
+                 "Bags recorded with rosbag2's defaults often shrink by half or "
+                 "more")
         parser.add_argument(
             "--force", action="store_true",
             help="overwrite output files that already exist")

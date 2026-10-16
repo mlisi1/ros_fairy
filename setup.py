@@ -77,6 +77,9 @@ setup(
         # to read per-message timestamps for bag duration and topic health.
         # The code still degrades gracefully if it is somehow absent.
         "mcap",
+        # `export --compress` writes .tar.zst. mcap needs it too (for
+        # compressed chunks), so it is there wherever mcap is.
+        "zstandard",
     ],
     extras_require={
         "test": ["pytest", "rocrate"],

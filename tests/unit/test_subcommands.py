@@ -1365,6 +1365,104 @@ def test_export_unknown_mission(fairy_dirs):
     assert export.run(args, console=_console()) == 1
 
 
+def _export_args(crate, out, **overrides):
+    base = dict(mission=str(crate), output=str(out), format="zip",
+                compress=False, force=False, json=True)
+    base.update(overrides)
+    return SimpleNamespace(**base)
+
+
+def _add_bag(crate, name: str, data: bytes) -> None:
+    bag = crate / "bags" / "extra"
+    bag.mkdir(parents=True, exist_ok=True)
+    (bag / name).write_bytes(data)
+
+
+def test_export_is_uncompressed_by_default(fairy_dirs, tmp_path, capsys):
+    import zipfile
+    crate = _make_archive(fairy_dirs)
+    assert export.run(_export_args(crate, tmp_path)) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["compression"] == "none"
+    with zipfile.ZipFile(data["bundle"]) as zf:
+        assert {i.compress_type for i in zf.infolist()} == {zipfile.ZIP_STORED}
+
+
+def test_export_compressed_zip_skips_what_is_already_compressed(
+        fairy_dirs, tmp_path, capsys):
+    import zipfile
+    crate = _make_archive(fairy_dirs)
+    plain = b"/scan sensor_msgs/msg/LaserScan " * 300_000   # ~9 MB, shrinks
+    noise = os.urandom(6 << 20)                             # doesn't
+    _add_bag(crate, "plain_0.mcap", plain)
+    _add_bag(crate, "chunked_0.mcap", noise)
+    _add_bag(crate, "whole_0.mcap.zstd", b"\0" * 100_000)  # by its name
+    assert export.run(_export_args(crate, tmp_path, compress=True)) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["format"] == "zip" and data["compression"] == "deflate"
+    with zipfile.ZipFile(data["bundle"]) as zf:
+        method = {Path(i.filename).name: i.compress_type
+                  for i in zf.infolist()}
+        assert zf.read(f"{crate.name}/bags/extra/plain_0.mcap") == plain
+        assert zf.read(f"{crate.name}/bags/extra/chunked_0.mcap") == noise
+        assert zf.testzip() is None
+    assert method["plain_0.mcap"] == zipfile.ZIP_DEFLATED
+    assert method["mission_record.json"] == zipfile.ZIP_DEFLATED
+    assert method["chunked_0.mcap"] == zipfile.ZIP_STORED
+    assert method["whole_0.mcap.zstd"] == zipfile.ZIP_STORED
+    assert data["size_bytes"] < len(noise) + len(plain) // 10
+
+
+def _tar_names_and(path: Path, member: str, opener) -> tuple[set, bytes]:
+    import tarfile
+    with opener(path) as raw, tarfile.open(fileobj=raw, mode="r|*") as tf:
+        names, content = set(), b""
+        for info in tf:
+            names.add(info.name)
+            if info.name == member:
+                content = tf.extractfile(info).read()
+    return names, content
+
+
+def test_export_compressed_tar_is_zstd(fairy_dirs, tmp_path, capsys):
+    import zstandard
+    crate = _make_archive(fairy_dirs)
+    assert export.run(_export_args(crate, tmp_path, format="tar",
+                                   compress=True)) == 0
+    data = json.loads(capsys.readouterr().out)
+    bundle = Path(data["bundle"])
+    assert bundle.name == f"{crate.name}.tar.zst"
+    assert (data["format"], data["compression"]) == ("tar.zst", "zstd")
+    assert Path(data["checksum_file"]).name == f"{crate.name}.tar.zst.sha256"
+    record = f"{crate.name}/mission_record.json"
+    names, content = _tar_names_and(
+        bundle, record,
+        lambda p: zstandard.ZstdDecompressor().stream_reader(open(p, "rb")))
+    assert content == (crate / "mission_record.json").read_bytes()
+    assert not list(tmp_path.glob("*.part"))
+    from ros_fairy.archive import index
+    con = index._connect()
+    assert con.execute("SELECT format FROM exports").fetchone()[0] == \
+        "tar.zst"
+
+
+def test_export_tar_gz(fairy_dirs, tmp_path, capsys):
+    import gzip
+    crate = _make_archive(fairy_dirs)
+    assert export.run(_export_args(crate, tmp_path, format="tar.gz")) == 0
+    data = json.loads(capsys.readouterr().out)
+    assert (data["format"], data["compression"]) == ("tar.gz", "gzip")
+    record = f"{crate.name}/mission_record.json"
+    _names, content = _tar_names_and(Path(data["bundle"]), record, gzip.open)
+    assert content == (crate / "mission_record.json").read_bytes()
+
+
+def test_export_output_may_name_a_compressed_tar(fairy_dirs, tmp_path):
+    crate = _make_archive(fairy_dirs)
+    dest = tmp_path / "new" / "mission.tar.gz"
+    assert export._resolve_output(crate, str(dest), "tar.gz") == dest
+
+
 def _batch_args(out_dir, **overrides):
     base = dict(mission=None, all=False, today=False, exclude=None,
                output=str(out_dir), format="zip", force=False, json=True)

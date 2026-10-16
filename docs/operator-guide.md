@@ -200,6 +200,7 @@ ros2 fairy list --operator ana --since 2026-10-01 --quality poor
 ros2 fairy list --search "sonar pier"  # goal or notes mention both words
 ros2 fairy export 1                   # newest mission → ./<name>.zip + .sha256
 ros2 fairy export --today -o /media/usb/
+ros2 fairy export 1 --compress        # smaller: deflated .zip
 ros2 fairy verify 1                   # is it intact?
 ros2 fairy diff                       # what changed between the last two missions?
 ```
@@ -209,7 +210,8 @@ before), **a mission ID** (`m-20261002-082109-1a2b`, shown by `list`) or **an
 archive folder path**.
 
 `export` writes one uncompressed `.zip` (or `.tar` with `--format tar`) with a
-`sha256sum`-compatible `.sha256` file next to it. The receiver can check the
+`sha256sum`-compatible `.sha256` file next to it. `--compress` makes it
+smaller, often by half or more ([how](commands.md#export)). The receiver can check the
 transfer with `sha256sum -c <file>.sha256`, then run `ros2 fairy verify` on the
 unpacked folder. `export --all` exports every mission not yet exported.
 
