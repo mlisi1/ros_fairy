@@ -75,6 +75,17 @@ NO_TERMINAL = ("This step needs an answer, but there's no terminal to type "
                "option to accept the defaults.")
 
 
+def _line_editing() -> None:
+    """Arrow keys, Home/End and the like in the prompts. Rich's prompts read
+    with ``input()``, which edits the line only once ``readline`` is loaded;
+    without it the arrows type escape codes into the answer."""
+    if sys.stdin.isatty():
+        try:
+            import readline  # noqa: F401
+        except ImportError:  # pragma: no cover - not on Linux
+            pass
+
+
 def guarded_main(run, args) -> int:
     """The verb boundary: nothing past here may show an operator a traceback.
 
@@ -85,6 +96,7 @@ def guarded_main(run, args) -> int:
     outcome is JSON on stdout.
     """
     as_json = getattr(args, "json", False)
+    _line_editing()
     try:
         return run(args)
     except KeyboardInterrupt:
