@@ -300,8 +300,8 @@ class Watchdog:
         self._state_error_at: float | None = None
         self._stop = threading.Event()
         # The watchdog's own (trusted) discovery settings, from watchdog.env.
-        # A session.env that omits a key reverts to this baseline rather than
-        # leaking the previous session's value (issue #29 review #3).
+        # Used only when a recording has no environment to go by (no
+        # session.env, unreadable recorder environ) (issue #29 review #3).
         self._base_discovery = {k: os.environ.get(k)
                                 for k in ros_env.SESSION_ADOPT_KEYS}
 
@@ -377,6 +377,11 @@ class Watchdog:
                 self._finalise_offline(bag_dir, "mission_record",
                                        "was cut off (nothing is recording "
                                        "it any more)")
+            else:
+                # Created but nothing written yet: its first storage file
+                # may land any moment, as in _rescan_spool.
+                self._watch_candidate(bag_dir)
+                self._promote_candidate(bag_dir)
         # Recordings outside the spool tracked before the restart: one that
         # finished (or died) meanwhile is finalised now; one still running is
         # picked up again by the recorder poller.
@@ -444,6 +449,13 @@ class Watchdog:
 
         bag_dir = self._wd_dirs.get(event.wd)
         if bag_dir is None:
+            return
+        if mask & flags.IGNORED:
+            # The folder was deleted, so the kernel dropped its watch: forget
+            # it, or a folder re-created at the same path looks watched.
+            del self._wd_dirs[event.wd]
+            if bag_dir not in self._wd_dirs.values():
+                self._candidate_dirs.discard(bag_dir)
             return
         if _is_storage_file(name) and mask & flags.CREATE:
             if self.state == IDLE and bag_dir in self._candidate_dirs:
@@ -576,7 +588,7 @@ class Watchdog:
     def _track_foreign(self, bag_dir: Path, rec: dict) -> None:
         self._foreign[bag_dir] = {"pid": rec.get("pid"),
                                   "start": rec.get("start"),
-                                  "discovery": rec.get("discovery", {})}
+                                  "discovery": rec.get("discovery")}
         if self.state == IDLE:
             log.info("foreign recording detected: %s (pid %s)",
                      bag_dir, rec.get("pid"))
@@ -738,8 +750,12 @@ class Watchdog:
         while self.queued_bags:
             queued = self.queued_bags.pop(0)
             try:
-                ready = queued.is_dir() and any(_is_storage_file(f.name)
-                                                for f in queued.iterdir())
+                # A bag recorded with --compression-mode file ends with only
+                # *.mcap.zstd and metadata.yaml: finished, so ready too.
+                ready = queued.is_dir() and (
+                    (queued / "metadata.yaml").is_file()
+                    or any(_is_storage_file(f.name)
+                           for f in queued.iterdir()))
             except OSError:
                 ready = False
             if ready:
@@ -784,25 +800,29 @@ class Watchdog:
 
         Only :data:`ros_env.SESSION_ADOPT_KEYS` are honoured — both sources are
         untrusted for loader paths (``session.env`` is group-writable; this
-        process is root), so paths are never applied. Keys the source does not
-        set revert to the watchdog's own baseline so a previous session's value
-        never leaks into a later harvest.
+        process is root), so paths are never applied. Both sources are whole
+        environments, so a key the source does not set is unset (the ROS
+        default) for the harvest too; only when there is no source at all (no
+        session.env, or an unreadable recorder environ) does the watchdog's
+        own baseline apply. Either way a previous session's value never leaks
+        into a later harvest.
         """
         foreign = (self._foreign.get(self.active_bag_dir)
                    if self.active_bag_dir is not None else None)
+        env: dict[str, str] | None
         if foreign is not None:
-            env = dict(foreign.get("discovery", {}))
+            env = foreign.get("discovery")
             label = "recorder process"
         else:
-            env = ros_env.safe_session_env(
-                ros_env.read_file(paths.session_env_path()))
+            session = paths.session_env_path()
+            env = (ros_env.safe_session_env(ros_env.read_file(session))
+                   if session.is_file() else None)
             label = "recording session"
+        source = env if env is not None else self._base_discovery
         for key in ros_env.SESSION_ADOPT_KEYS:
-            base = self._base_discovery.get(key)
-            if key in env:
-                os.environ[key] = env[key]
-            elif base is not None:
-                os.environ[key] = base
+            value = source.get(key)
+            if value is not None:
+                os.environ[key] = value
             else:
                 os.environ.pop(key, None)
         if env:
@@ -841,9 +861,15 @@ class Watchdog:
                     return
                 if current:
                     self._active_doc = json.loads(json.dumps(doc))
-                self._save_harvest(doc, keep_graph=descriptions_only)
+                saved = self._save_harvest(doc, keep_graph=descriptions_only)
                 if current:
-                    self._schedule_retry(status)
+                    # A description retry decides from what was saved: its
+                    # own graph capture failing kept the earlier graph, and
+                    # must not escalate to a full retry. A full run decides
+                    # from its own result, so a graph that belongs to an
+                    # earlier recording doesn't stop the retries.
+                    self._schedule_retry(saved if descriptions_only
+                                         else status)
                 self.write_state()
         except Exception:
             log.exception("harvest failed; will try again")
@@ -880,9 +906,10 @@ class Watchdog:
         self._next_retry = None
         self._run_harvest(descriptions_only=descriptions_only)
 
-    def _save_harvest(self, doc: dict, keep_graph: bool = False) -> None:
+    def _save_harvest(self, doc: dict, keep_graph: bool = False) -> dict:
         """Write harvest.json, preserving bag records already finalised and
-        any ROS capture that was better than this run's."""
+        any ROS capture that was better than this run's. Returns the saved
+        harvest_status."""
         with _spool_lock():
             existing = _load_harvest_for_update()
             if existing:
@@ -898,6 +925,7 @@ class Watchdog:
                     doc["provenance"]["harvested_at"] = \
                         existing["provenance"]["harvested_at"]
             fsio.atomic_write_json(paths.harvest_json_path(), doc)
+        return doc["provenance"]["harvest_status"]
 
     def _append_bag_record(self, bag_dir: Path) -> None:
         source = "detected" if bag_dir in self._foreign else "mission_record"
@@ -1120,6 +1148,13 @@ def _writable_dir(path: Path) -> bool:
         return False
 
 
+def _owned_by_me(path: Path) -> bool:
+    try:
+        return path.stat().st_uid == os.geteuid()
+    except OSError:
+        return False
+
+
 def ensure_ros_log_dir() -> None:
     """Give ROS a logging directory it can actually write to.
 
@@ -1140,7 +1175,10 @@ def ensure_ros_log_dir() -> None:
     if os.environ.get("ROS_LOG_DIR"):
         return
     home = os.environ.get("HOME")
-    if home and _writable_dir(Path(home) / ".ros" / "log"):
+    # Root can write anywhere, so the probe alone would leave a root-owned
+    # ~/.ros/log in an operator's home: only a HOME this account owns counts.
+    if home and _owned_by_me(Path(home)) and \
+            _writable_dir(Path(home) / ".ros" / "log"):
         return
     log_dir = paths.ros_log_dir()
     try:

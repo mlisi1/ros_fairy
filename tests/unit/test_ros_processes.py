@@ -85,6 +85,14 @@ def test_written_only_when_it_changes(fairy_dirs):
     assert ros_processes.read() == {}
 
 
+def test_a_changed_process_count_alone_is_not_rewritten(fairy_dirs):
+    found = [{"pid": 5, "processes": 1, "settings": [{"ROS_DISTRO": "j"}]}]
+    assert ros_processes.write_if_changed(found)
+    assert not ros_processes.write_if_changed([{**found[0], "processes": 4}])
+    assert ros_processes.write_if_changed(
+        [{**found[0], "settings": [{"ROS_DISTRO": "k"}]}])
+
+
 def test_read_without_or_with_a_broken_file(fairy_dirs):
     assert ros_processes.read() == {}
     paths.ros_processes_path().write_text("{not json")

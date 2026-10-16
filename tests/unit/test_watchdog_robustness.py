@@ -250,6 +250,60 @@ def test_missing_description_is_retried_twice_and_keeps_the_graph(fairy_dirs):
     assert builder.load_spool()[0]["ros_graph"]["nodes"] == ["/first"]
 
 
+def test_a_description_retry_whose_graph_fails_stays_description_only(
+        fairy_dirs):
+    runs = []
+
+    def flaky():
+        doc = _graph_pipeline(["/first"] if not runs else ["/later"])()
+        doc["ros_graph"]["robot_description"] = None
+        doc["ros_graph"]["tf_static"] = None
+        status = doc["provenance"]["harvest_status"]
+        status["ros_descriptions"] = "timeout"
+        if runs:  # the stack went quiet: this run captured no graph
+            doc["ros_graph"]["nodes"] = []
+            status["ros_graph"] = "timeout"
+        runs.append(doc)
+        return doc
+
+    ino, clock, dog = _dog(pipeline=flaky)
+    bag = _spool_bag(ino, dog)
+    ino.emit_file(bag, "rosbag2_test_0.db3")
+    dog.step(0)
+    for _ in range(6):
+        clock.now += wd_mod.ROS_RETRY_INTERVAL_S + 1
+        ino.emit_file(bag, "rosbag2_test_0.db3", flags.MODIFY)
+        dog.step(0)
+    assert len(runs) == 1 + wd_mod.MAX_DESCRIPTION_RETRIES
+    assert builder.load_spool()[0]["ros_graph"]["nodes"] == ["/first"]
+
+
+def test_a_full_run_without_a_graph_retries_despite_an_earlier_one(
+        fairy_dirs):
+    """An earlier recording's graph is kept, but it isn't this recording's:
+    a full run that captured none must still retry."""
+    fsio.atomic_write_json(paths.harvest_json_path(),
+                           _graph_pipeline(["/earlier"])())
+    runs = []
+
+    def ros_down():
+        doc = _graph_pipeline([] if not runs else ["/now"])()
+        if not runs:
+            doc["provenance"]["harvest_status"]["ros_graph"] = "failed"
+        runs.append(doc)
+        return doc
+
+    ino, clock, dog = _dog(pipeline=ros_down)
+    bag = _spool_bag(ino, dog)
+    ino.emit_file(bag, "rosbag2_test_0.db3")
+    dog.step(0)
+    clock.now += wd_mod.ROS_RETRY_INTERVAL_S + 1
+    ino.emit_file(bag, "rosbag2_test_0.db3", flags.MODIFY)
+    dog.step(0)
+    assert len(runs) == 2
+    assert builder.load_spool()[0]["ros_graph"]["nodes"] == ["/now"]
+
+
 # -- W7 / W8 / W9: restarts ---------------------------------------------------
 
 def _age(bag, seconds=3600):
@@ -290,6 +344,17 @@ def test_restart_resumes_only_live_recordings(fairy_dirs):
     ino, clock, dog = _dog(scanner)
     assert dog.state == RECORDING and dog.active_bag_dir == live
     assert [b["path"] for b in builder.load_spool()[0]["bags"]] == [str(dead)]
+
+
+def test_restart_watches_a_spool_bag_with_nothing_written_yet(fairy_dirs):
+    bag = paths.bags_dir() / "rosbag2_new"
+    bag.mkdir(parents=True)
+    ino, clock, dog = _dog()
+    assert dog.state == IDLE
+    (bag / "rosbag2_new_0.mcap").write_bytes(b"")
+    ino.emit_file(bag, "rosbag2_new_0.mcap")
+    dog.step(0)
+    assert dog.state == RECORDING and dog.active_bag_dir == bag
 
 
 def test_foreign_recording_finished_while_down_is_finalised(fairy_dirs,
@@ -338,6 +403,44 @@ def test_vanished_queued_recording_is_forgotten(fairy_dirs, tmp_path):
     ino.emit_file(bag, "metadata.yaml", flags.CLOSE_WRITE)
     dog.step(0)
     assert ghost not in dog._foreign and dog.queued_bags == []
+
+
+def test_queued_file_compressed_recording_is_harvested(fairy_dirs,
+                                                        tmp_path):
+    ino, clock, dog = _dog()
+    packed = make_bag(tmp_path / "packed", {"/fix": [T0, T0 + 1]})
+    for f in packed.glob("*.db3"):
+        f.rename(f.with_name(f.name + ".zstd"))  # --compression-mode file
+    dog._foreign[packed] = {"pid": DEAD_PID}
+    dog.queued_bags.append(packed)
+    bag = _spool_bag(ino, dog, metadata=True)
+    ino.emit_file(bag, "rosbag2_test_0.db3")
+    dog.step(0)
+    ino.emit_file(bag, "metadata.yaml", flags.CLOSE_WRITE)
+    dog.step(0)
+    dog.step(0)
+    assert str(packed) in {b["path"]
+                           for b in builder.load_spool()[0]["bags"]}
+
+
+def test_a_deleted_and_recreated_spool_folder_is_watched_again(fairy_dirs):
+    ino, clock, dog = _dog()
+    bag = paths.bags_dir() / "rosbag2_again"
+    bag.mkdir()
+    ino.emit_dir_created(paths.bags_dir(), bag.name)
+    dog.step(0)
+    bag.rmdir()  # the kernel drops the watch and says so
+    ino.emit_file(bag, "", flags.IGNORED)
+    dog.step(0)
+    assert bag not in dog._wd_dirs.values()
+    assert bag not in dog._candidate_dirs
+    # re-created and written, its CREATE event lost in an overflow
+    bag.mkdir()
+    (bag / "rosbag2_again_0.mcap").write_bytes(b"")
+    from inotify_simple import Event
+    ino.queue.append(Event(-1, flags.Q_OVERFLOW, 0, ""))
+    dog.step(0)
+    assert dog.state == RECORDING and dog.active_bag_dir == bag
 
 
 # -- W11 / W12 / W17: recorder processes ---------------------------------------
@@ -452,6 +555,16 @@ def test_unreadable_harvest_is_kept_aside_not_overwritten(fairy_dirs):
     wd_mod.append_bag_record(bag)
     [aside] = paths.spool_dir().glob("harvest.json.corrupt-*")
     assert aside.read_text() == "{ truncated"
+    assert len(builder.load_spool()[0]["bags"]) == 1
+
+
+def test_a_harvest_that_is_not_utf8_is_kept_aside_too(fairy_dirs):
+    paths.harvest_json_path().write_bytes(b'{"bags": "\xff\xfe"}')
+    assert builder.load_spool() == (None, None)
+    bag = make_bag(paths.bags_dir() / "rosbag2_x", {"/fix": [T0, T0 + 1]})
+    wd_mod.append_bag_record(bag)
+    [aside] = paths.spool_dir().glob("harvest.json.corrupt-*")
+    assert aside.read_bytes() == b'{"bags": "\xff\xfe"}'
     assert len(builder.load_spool()[0]["bags"]) == 1
 
 

@@ -190,7 +190,7 @@ def load_spool() -> tuple[dict | None, dict | None]:
         if path.is_file():
             try:
                 docs.append(json.loads(path.read_text()))
-            except json.JSONDecodeError:
+            except ValueError:  # bad JSON, or not UTF-8 at all
                 docs.append(None)
         else:
             docs.append(None)

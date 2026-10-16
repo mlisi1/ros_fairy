@@ -112,12 +112,18 @@ def scan() -> list[dict]:
 def write_if_changed(found: list[dict], path: Path | None = None) -> bool:
     """Write ``found`` unless the file already says the same; True when
     written. Rewriting only on a change keeps an SD card from being worn
-    every ten seconds."""
+    every ten seconds. The process count, which moves with every node
+    started or stopped, doesn't count as a change."""
     path = path or paths.ros_processes_path()
+
+    def same(containers):
+        return [{k: v for k, v in c.items() if k != "processes"}
+                for c in containers]
     try:
-        if json.loads(path.read_text()).get("containers") == found:
+        if same(json.loads(path.read_text()).get("containers")) == \
+                same(found):
             return False
-    except (OSError, ValueError, AttributeError):
+    except (OSError, ValueError, AttributeError, TypeError):
         pass
     doc = {"containers": found,
            "since": datetime.now(timezone.utc).isoformat()}

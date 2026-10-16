@@ -34,7 +34,9 @@ fi
 VAR_DIR="${ROS_FAIRY_VAR_DIR:-${CONFIGURED_VAR_DIR:-$DEFAULT_VAR_DIR}}"
 ARCHIVE_DIR="$VAR_DIR/archive"
 INDEX_DB="$VAR_DIR/index.db"
-PYTHON="${PYTHON:-python3}"
+# Empty: the interpreter the service's unit runs (setup may have pointed it
+# at another one than python3), read before the unit is removed below.
+PYTHON="${PYTHON:-}"
 
 ASSUME_YES=0
 for arg in "$@"; do
@@ -58,7 +60,8 @@ echo "  - $INDEX_DB"
 echo
 
 if [ "$ASSUME_YES" -ne 1 ]; then
-    read -r -p "Continue? [y/N] " reply
+    # EOF (no terminal) would otherwise end the script silently under set -e.
+    read -r -p "Continue? [y/N] " reply || reply=
     case "$reply" in
         [yY]|[yY][eE][sS]) ;;
         *) echo "Cancelled — nothing was changed."
@@ -74,7 +77,10 @@ if [ "$(id -u)" -ne 0 ]; then
         # re-derives CONFIG_DIR/VAR_DIR from the (now-empty) environment —
         # silently targeting the default paths instead of the ones just
         # shown in the confirmation banner above.
-        exec sudo --preserve-env=ROS_FAIRY_CONFIG_DIR,ROS_FAIRY_VAR_DIR "$0" --yes
+        # Through bash and by its full path: run as `bash uninstall.sh`, $0
+        # has no slash and sudo would look it up (and fail) in secure_path.
+        exec sudo --preserve-env=ROS_FAIRY_CONFIG_DIR,ROS_FAIRY_VAR_DIR \
+            bash "$(readlink -f "$0")" --yes
     fi
     echo "This needs root (it removes a system service, /etc, and a system" >&2
     echo "group) and sudo isn't available. Re-run this script as root." >&2
@@ -84,6 +90,11 @@ fi
 echo "Stopping and disabling $SERVICE_NAME..."
 systemctl disable --now "$SERVICE_NAME" >/dev/null 2>&1 || true
 UNIT_PATH="/etc/systemd/system/$SERVICE_NAME"
+if [ -z "$PYTHON" ] && [ -f "$UNIT_PATH" ]; then
+    PYTHON="$(sed -n 's/^ExecStart=[-@+!:]*\([^[:space:]]*\).*/\1/p' "$UNIT_PATH" | head -1)"
+    [ -n "$PYTHON" ] && [ -x "$PYTHON" ] || PYTHON=""
+fi
+PYTHON="${PYTHON:-python3}"
 if [ -f "$UNIT_PATH" ]; then
     rm -f "$UNIT_PATH"
     systemctl daemon-reload

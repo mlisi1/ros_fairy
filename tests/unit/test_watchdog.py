@@ -405,9 +405,10 @@ def test_apply_session_env_ignores_loader_paths(fairy_dirs):
         assert wd_mod.os.environ["PYTHONPATH"] == "/safe"
 
 
-def test_apply_session_env_reverts_keys_absent_from_session(fairy_dirs):
-    """A key a session doesn't set reverts to the watchdog's baseline, so a
-    previous session's value never leaks into a later harvest (#29 review #3)."""
+def test_apply_session_env_unsets_keys_absent_from_session(fairy_dirs):
+    """session.env is the session's whole ROS environment: a key it doesn't
+    set is unset there (the ROS default), so it is unset for the harvest too,
+    neither a previous session's value nor watchdog.env's (#29 review #3)."""
     from unittest import mock
 
     from ros_fairy.utils import ros_env
@@ -421,14 +422,20 @@ def test_apply_session_env_reverts_keys_absent_from_session(fairy_dirs):
         wd_mod.os.environ["RMW_IMPLEMENTATION"] = "rmw_leaked"  # stale prior run
         dog._apply_session_env()
         assert wd_mod.os.environ["ROS_DOMAIN_ID"] == "42"
-        assert wd_mod.os.environ["RMW_IMPLEMENTATION"] == "rmw_base"
+        assert "RMW_IMPLEMENTATION" not in wd_mod.os.environ
 
 
-def test_apply_session_env_noop_without_file(fairy_dirs):
-    dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
-                   harvest_in_thread=False,
-                   scan_recorders=no_recorders)
-    dog._apply_session_env()  # must not raise when no session.env exists
+def test_apply_session_env_uses_baseline_without_file(fairy_dirs):
+    """With no session.env there is nothing to go by but watchdog.env."""
+    from unittest import mock
+    with mock.patch.dict(wd_mod.os.environ,
+                         {"ROS_DOMAIN_ID": "42"}, clear=False):
+        dog = Watchdog(inotify=FakeINotify(), pipeline=good_pipeline,
+                       harvest_in_thread=False,
+                       scan_recorders=no_recorders)
+        wd_mod.os.environ["ROS_DOMAIN_ID"] = "7"  # stale prior run
+        dog._apply_session_env()  # must not raise when no session.env exists
+        assert wd_mod.os.environ["ROS_DOMAIN_ID"] == "42"
 
 
 def test_read_state(fairy_dirs):
@@ -479,6 +486,19 @@ def test_ensure_ros_log_dir_falls_back_when_home_unwritable(fairy_dirs,
     monkeypatch.delenv("ROS_LOG_DIR", raising=False)
     wd_mod.ensure_ros_log_dir()
     assert wd_mod.os.environ["ROS_LOG_DIR"] == str(paths.ros_log_dir())
+
+
+def test_ensure_ros_log_dir_ignores_a_home_owned_by_someone_else(
+        fairy_dirs, monkeypatch, tmp_path):
+    # Root passes any writability probe: an operator's inherited HOME would
+    # get a root-owned ~/.ros/log that later breaks the operator's own ROS.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("ROS_LOG_DIR", raising=False)
+    monkeypatch.setattr(wd_mod.os, "geteuid",
+                        lambda: tmp_path.stat().st_uid + 1)
+    wd_mod.ensure_ros_log_dir()
+    assert wd_mod.os.environ["ROS_LOG_DIR"] == str(paths.ros_log_dir())
+    assert not (tmp_path / ".ros").exists()
 
 
 def test_run_pipeline_marks_ros_graph_partial_when_incomplete(fairy_dirs,

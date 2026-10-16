@@ -53,7 +53,8 @@ class FoundRecorder(TypedDict, total=False):
     # Host path of the bag directory. None only for a pending recorder whose
     # directory isn't visible yet.
     output_dir: Path | None
-    discovery: dict[str, str]
+    # None when the recorder's environment couldn't be read.
+    discovery: dict[str, str] | None
     # Present (False) only on a pending recorder: its output path is known
     # from its arguments but nothing is recorded there yet. ``ns_path`` and
     # ``mountinfo`` let ``pending_output`` find the directory after the
@@ -214,18 +215,18 @@ def _portal(pid: str, path: Path) -> Path:
     return PROC / pid / "root" / path.relative_to("/")
 
 
-def _discovery_env(pid: str) -> dict[str, str]:
+def _discovery_env(pid: str) -> dict[str, str] | None:
     """DDS discovery keys from the recorder's own environment.
 
     Only :data:`ros_env.SESSION_ADOPT_KEYS` are returned — never loader paths —
     so adopting them into the root watchdog cannot load code (same rule as
     ``session.env``). The recorder is on the partition we want to harvest, so its
-    environment is the authoritative source.
+    environment is the authoritative source. None when it can't be read.
     """
     try:
         raw = (PROC / pid / "environ").read_bytes()
     except OSError:
-        return {}
+        return None
     env: dict[str, str] = {}
     for entry in raw.decode("utf-8", "replace").split("\0"):
         key, sep, val = entry.partition("=")

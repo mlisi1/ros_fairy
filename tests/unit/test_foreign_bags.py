@@ -355,6 +355,34 @@ def test_foreign_harvest_adopts_recorder_environ(fairy_dirs, tmp_path):
         assert wd_mod.os.environ["ROS_DOMAIN_ID"] == "42"
 
 
+def test_foreign_harvest_unsets_what_the_recorder_doesnt_set(fairy_dirs,
+                                                             tmp_path):
+    """A recorder without ROS_DOMAIN_ID records on the default domain, even
+    when watchdog.env names another one."""
+    foreign = make_bag(tmp_path / "ext4", {"/fix": _steady(T0, T0 + 5, 10)})
+    found = [{"pid": os.getpid(), "output_dir": foreign, "discovery": {}}]
+    with mock.patch.dict(wd_mod.os.environ, {"ROS_DOMAIN_ID": "42"},
+                         clear=False):
+        ino, clock, dog = _foreign_dog(found)
+        clock.now += SCAN_S
+        dog.step(0)
+        assert dog.state == RECORDING
+        assert "ROS_DOMAIN_ID" not in wd_mod.os.environ
+
+
+def test_foreign_harvest_unreadable_environ_uses_baseline(fairy_dirs,
+                                                          tmp_path):
+    foreign = make_bag(tmp_path / "ext6", {"/fix": _steady(T0, T0 + 5, 10)})
+    found = [{"pid": os.getpid(), "output_dir": foreign, "discovery": None}]
+    with mock.patch.dict(wd_mod.os.environ, {"ROS_DOMAIN_ID": "42"},
+                         clear=False):
+        ino, clock, dog = _foreign_dog(found)
+        clock.now += SCAN_S
+        dog.step(0)
+        assert dog.state == RECORDING
+        assert wd_mod.os.environ["ROS_DOMAIN_ID"] == "42"
+
+
 def test_quiet_foreign_bag_waits_for_recorder_exit(fairy_dirs, tmp_path):
     # No bag-file activity for BAG_INACTIVITY_S, but the recorder still runs
     # (quiet topics, buffered writes): must NOT finalise until it exits.
