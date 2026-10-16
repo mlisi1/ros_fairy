@@ -89,12 +89,38 @@ def parse_spec(text: str, flag: str) -> dict[str, str]:
     return spec
 
 
-def _calibration(sensor_id: str, path: str) -> dict:
+def _calibration(sensor_id: str, path: str, taken) -> dict:
+    """A calibration entry for ``sensor_id``, named apart from ``taken``."""
+    from ros_fairy.subcommands.setup import calibration_name
     file = Path(path).expanduser()
     if not file.is_file():
         raise EditError(f"calibration file for {sensor_id} not found: {path}")
     # Absolute: the watchdog (root, cwd "/") reads it later.
-    return {"name": f"{sensor_id}_cal", "source_path": str(file.resolve())}
+    return {"name": calibration_name(sensor_id, taken),
+            "source_path": str(file.resolve())}
+
+
+def _section(config: dict, key: str, kind: type[list] | type[dict]):
+    """``config[key]``, made an empty list or mapping when missing or empty
+    (``sensors:`` with nothing after it); one of another kind is refused."""
+    value = config.get(key)
+    if value is None:
+        value = config[key] = kind()
+    if not isinstance(value, kind) or (
+            isinstance(value, list)
+            and not all(isinstance(v, dict) for v in value)):
+        what = "a list of entries" if kind is list else "a group of fields"
+        raise EditError(f"`{key}:` in the configuration should be {what} but "
+                        f"isn't ({value!r}); fix it by hand in "
+                        f"{paths.robot_identity_path()} (with sudo) or run "
+                        "`ros2 fairy setup` again")
+    return value
+
+
+def _used_by_others(config: dict, sensor: dict) -> set:
+    """Calibration names other sensors refer to."""
+    return {s.get("calibration") for s in config.get("sensors") or []
+            if s is not sensor} - {None}
 
 
 def _sensor_value(key: str, value: str, sensor_types: list[str],
@@ -113,15 +139,38 @@ def _sensor_value(key: str, value: str, sensor_types: list[str],
 def _set_calibration(config: dict, sensor: dict, path: str | None) -> None:
     """Point ``sensor`` at a calibration file (or at none), dropping an
     entry no sensor uses any more."""
-    calibrations = config.setdefault("calibrations", [])
+    calibrations = _section(config, "calibrations", list)
     old = sensor.pop("calibration", None)
     if path:
-        entry = _calibration(sensor["sensor_id"], path)
+        # Never repoint an entry another sensor still uses.
+        entry = _calibration(sensor["sensor_id"], path,
+                             _used_by_others(config, sensor))
         calibrations[:] = [c for c in calibrations
                            if c.get("name") != entry["name"]]
         calibrations.append(entry)
         sensor["calibration"] = entry["name"]
     _drop_unused_calibrations(config, also=old)
+
+
+def _rename_calibration(config: dict, sensor: dict, old_id: str) -> None:
+    """After ``old_id`` was renamed: rename the sensor's own calibration entry
+    (``<old_id>_cal``) after it too, so a sensor added later with the old id
+    doesn't take it over. Kept when another sensor also uses it."""
+    from ros_fairy.subcommands.setup import calibration_name
+    old = sensor.get("calibration")
+    if not old or not re.fullmatch(rf"{re.escape(old_id)}_cal(_\d+)?", old) \
+            or old in _used_by_others(config, sensor):
+        return
+    calibrations = _section(config, "calibrations", list)
+    taken = {c.get("name") for c in calibrations} | \
+        _used_by_others(config, sensor)
+    new = calibration_name(sensor["sensor_id"], taken - {old})
+    for entry in calibrations:
+        if entry.get("name") == old:
+            entry["name"] = new
+    sensor["calibration"] = new
+    if not calibrations:
+        config.pop("calibrations")
 
 
 def _drop_unused_calibrations(config: dict, also: str | None = None) -> None:
@@ -152,11 +201,11 @@ def apply(current: dict, args) -> dict:
         if flag == "contact_email" and not EMAIL_RE.match(value):
             raise EditError(f"--contact-email: {value!r} doesn't look like "
                             "an email address")
-        config.setdefault(section, {})[key] = value
+        _section(config, section, dict)[key] = value
 
     license_ = getattr(args, "license", None)
     if license_ is not None:
-        owner = config.setdefault("owner", {})
+        owner = _section(config, "owner", dict)
         license_ = license_.strip()
         if not license_:
             owner.pop("default_license", None)
@@ -169,7 +218,7 @@ def apply(current: dict, args) -> dict:
             raise EditError(f"--license: {license_!r} is neither a URL nor "
                             "an SPDX identifier such as CC-BY-4.0")
 
-    sensors = config.setdefault("sensors", [])
+    sensors = _section(config, "sensors", list)
 
     def find(sensor_id: str, flag: str) -> dict:
         for sensor in sensors:
@@ -205,6 +254,8 @@ def apply(current: dict, args) -> dict:
                 raise EditError(f"--set-sensor {sensor_id}: id {value!r} is "
                                 "already taken")
             sensor[field] = value
+        if sensor.get("sensor_id") != sensor_id:
+            _rename_calibration(config, sensor, sensor_id)
         if "calibration" in spec:
             _set_calibration(config, sensor, spec["calibration"] or None)
 
@@ -231,8 +282,7 @@ def apply(current: dict, args) -> dict:
     topics = getattr(args, "record_topics", None)
     storage = getattr(args, "storage", None)
     if topics is not None or storage is not None:
-        recording = config.setdefault("recording", {}) or {}
-        config["recording"] = recording
+        recording = _section(config, "recording", dict)
         if topics is not None:
             names = [t.strip() for t in topics.split(",") if t.strip()]
             if names == ["all"]:

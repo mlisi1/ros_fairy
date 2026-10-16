@@ -154,6 +154,74 @@ def test_docker_package_not_captured_does_not_show_fake_removals(fairy_dirs):
     assert "packages captured" in out
 
 
+def _py(*pairs):
+    return [{"name": n, "version": v} for n, v in pairs]
+
+
+def test_host_python_package_changes_rendered(fairy_dirs):
+    def mutate(h, c):
+        h["software"]["python_env"]["packages"] = _py(
+            ("rclpy", "5.0.1"), ("numpy", "2.1.0"))
+
+    a, b = _pair(fairy_dirs, mutate)
+    out = " ".join(_render(a, b).split())
+    assert "host py rclpy 5.0.0 5.0.1" in out   # changed version
+    assert "host py numpy 2.1.0" in out          # added
+
+
+def test_host_python_package_removed_rendered(fairy_dirs):
+    def mutate(h, c):
+        h["software"]["python_env"]["packages"].append(
+            {"name": "scipy", "version": "1.14.0"})
+
+    a, b = _pair(fairy_dirs, mutate)
+    out = " ".join(_render(b, a).split())  # b has scipy, a (shown as B) not
+    assert "host py scipy 1.14.0" in out
+    assert "host py rclpy" not in out           # unchanged, so not shown
+
+
+def test_missing_host_python_env_is_one_row_not_every_package_removed(
+        fairy_dirs):
+    def mutate(h, c):
+        h["software"]["python_env"] = None
+    a, b = _pair(fairy_dirs, mutate)
+    out = " ".join(_render(a, b).split())
+    assert "host Python captured yes no" in out
+    assert "host py" not in out
+
+
+def test_docker_python_package_changes_rendered(fairy_dirs):
+    h1, c1 = _spool(fairy_dirs)
+    h1["software"]["docker_containers"][0]["python_packages"] = _py(
+        ("rclpy", "5.0.0"), ("transforms3d", "0.4.1"), ("numpy", "1.26.4"))
+    a = builder.build(h1, c1)
+
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["software"]["docker_containers"][0]["python_packages"] = _py(
+        ("rclpy", "5.0.0"), ("numpy", "2.1.0"), ("pyproj", "3.6.1"))
+    b = builder.build(h2, c2)
+
+    out = " ".join(_render(a, b).split())
+    assert "navstack: py numpy 1.26.4 2.1.0" in out
+    assert "navstack: py pyproj 3.6.1" in out
+    assert "navstack: py transforms3d 0.4.1" in out
+    assert "navstack: py rclpy" not in out      # unchanged, so not shown
+    assert (out.index("navstack: py numpy") < out.index("navstack: py pyproj")
+            < out.index("navstack: py transforms3d"))
+
+
+def test_docker_python_packages_not_captured_does_not_show_fake_removals(
+        fairy_dirs):
+    def mutate(h, c):
+        h["software"]["docker_containers"][0]["python_packages"] = _py(
+            *[(f"dist_{i}", "1.0") for i in range(20)])
+
+    a, b = _pair(fairy_dirs, mutate)
+    out = " ".join(_render(b, a).split())
+    assert "dist_0" not in out
+    assert "navstack: Python captured yes no" in out
+
+
 def test_parameter_changes_rendered(fairy_dirs):
     h1, c1 = _spool(fairy_dirs)
     h1["ros_graph"]["parameters"] = {
@@ -444,3 +512,19 @@ def test_ekf_frequency_and_newly_set_parameter_are_diffed(fairy_dirs):
     assert "/ekf_filter_node_odom: frequency 30.0 30.1" in out
     assert "/ekf_filter_node_odom: pose0 (not set) /gnss_pose" in out
     assert "two_d_mode" not in out
+
+
+def test_changed_sensor_fields_rendered_one_row_each(fairy_dirs):
+    # What `setup --set-sensor gps0 topic=/gps/fix,frame=` does between two
+    # missions.
+    def mutate(h, c):
+        h["sensors"][0]["topic"] = "/gps/fix"
+        h["sensors"][0]["frame_id"] = None
+
+    a, b = _pair(fairy_dirs, mutate)
+    rows = diff_ui._diff_sensors(a, b)
+    assert ("gps0: topic", "/fix", "/gps/fix") in rows
+    assert ("gps0: frame", "gps_link", "") in rows
+    assert len(rows) == 2
+    out = _render(a, b)
+    assert "Sensors" in out and "/gps/fix" in out

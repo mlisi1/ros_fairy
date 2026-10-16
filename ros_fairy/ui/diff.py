@@ -112,6 +112,13 @@ def _diff_software(a: MissionRecord, b: MissionRecord) -> list[tuple]:
     elif bool(pkgs_a) != bool(pkgs_b):
         rows.append(_captured_row("host packages captured", pkgs_a, pkgs_b))
 
+    # python_env is None when its harvest failed: one "captured" row, not
+    # every distribution listed as removed.
+    env_a, env_b = a.software.python_env, b.software.python_env
+    rows += _python_rows("host py", "host Python captured",
+                         env_a.packages if env_a else None,
+                         env_b.packages if env_b else None)
+
     da, db = a.software.docker_containers, b.software.docker_containers
     if da is None or db is None:
         if (da is None) != (db is None):
@@ -145,7 +152,27 @@ def _diff_software(a: MissionRecord, b: MissionRecord) -> list[tuple]:
                          "no" if ra is None else "yes",
                          "no" if rb is None else "yes"))
 
+        # python_packages is None when not probed, like ros_packages above.
+        rows += _python_rows(
+            f"{name}: py", f"{name}: Python captured",
+            ca[name].python_packages if name in ca else None,
+            cb[name].python_packages if name in cb else None)
+
     return rows
+
+
+def _python_rows(prefix: str, captured_label: str, pa, pb) -> list[tuple]:
+    """One row per Python distribution whose version differs (blank side =
+    not installed). None means not captured: one row saying so instead."""
+    if pa is None or pb is None:
+        if (pa is None) != (pb is None):
+            return [_captured_row(captured_label, pa is not None,
+                                  pb is not None)]
+        return []
+    va = {p.name: p.version for p in pa}
+    vb = {p.name: p.version for p in pb}
+    return [(f"{prefix} {pkg}", va.get(pkg, ""), vb.get(pkg, ""))
+            for pkg in sorted(set(va) | set(vb)) if va.get(pkg) != vb.get(pkg)]
 
 
 def _detected(sensor) -> str:
@@ -153,6 +180,11 @@ def _detected(sensor) -> str:
     if sensor.detected_at_start is None:
         return "unknown"
     return "✓ detected" if sensor.detected_at_start else "✗ not detected"
+
+
+_SENSOR_FIELDS = ("make_model", "type", "topic", "frame_id", "calibration_ref")
+_SENSOR_FIELD_LABELS = {"make_model": "make and model", "frame_id": "frame",
+                        "calibration_ref": "calibration"}
 
 
 def _diff_sensors(a: MissionRecord, b: MissionRecord) -> list[tuple]:
@@ -168,8 +200,15 @@ def _diff_sensors(a: MissionRecord, b: MissionRecord) -> list[tuple]:
         elif s_b is None:
             rows.append((s_a.make_model,
                          "✓ detected" if s_a.detected_at_start else "configured", ""))
-        elif s_a.detected_at_start != s_b.detected_at_start:
-            rows.append((s_a.make_model, _detected(s_a), _detected(s_b)))
+        else:
+            # A sensor changed with `setup --set-sensor` between the missions.
+            for field in _SENSOR_FIELDS:
+                va, vb = getattr(s_a, field), getattr(s_b, field)
+                if va != vb:
+                    label = _SENSOR_FIELD_LABELS.get(field, field)
+                    rows.append((f"{sid}: {label}", va or "", vb or ""))
+            if s_a.detected_at_start != s_b.detected_at_start:
+                rows.append((s_a.make_model, _detected(s_a), _detected(s_b)))
     return rows
 
 

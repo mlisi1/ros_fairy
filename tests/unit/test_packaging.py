@@ -52,3 +52,31 @@ def test_unit_files_match_the_package():
     assert f"EnvironmentFile=-{paths.DEFAULT_CONFIG_DIR}/watchdog.env" in unit
     assert f"Group={setup.GROUP_NAME}" in unit
     assert f"ExecStart={setup.SYSTEM_PYTHON} " in unit  # setup replaces it
+
+
+# setup.py's requirement -> its rosdep key in package.xml.
+_ROSDEP_KEYS = {
+    "setuptools": None,  # build only
+    "pydantic": "python3-pydantic",
+    "rich": "python3-rich",
+    "PyYAML": "python3-yaml",
+    "inotify_simple": "python3-inotify-simple-pip",
+    "mcap": "python3-mcap-pip",
+    "zstandard": "python3-zstandard",
+}
+
+
+def test_runtime_requirements_are_package_xml_dependencies():
+    setup_py = (REPO / "setup.py").read_text()
+    block = re.search(r"install_requires=\[(.*?)\]", setup_py, re.S).group(1)
+    required = [re.split(r"[<>=!~ ]", r)[0]
+                for r in re.findall(r"\"([^\"]+)\"", block)]
+    unknown = [r for r in required if r not in _ROSDEP_KEYS]
+    assert not unknown, f"add the rosdep key of {unknown} here and to " \
+                        "package.xml"
+    package_xml = ET.parse(REPO / "package.xml").getroot()
+    depends = {e.text for e in package_xml.iter()
+               if e.tag in ("depend", "exec_depend")}
+    missing = [_ROSDEP_KEYS[r] for r in required
+               if _ROSDEP_KEYS[r] and _ROSDEP_KEYS[r] not in depends]
+    assert not missing, f"package.xml lacks exec_depend {missing}"

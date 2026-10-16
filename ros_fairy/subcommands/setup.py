@@ -58,13 +58,26 @@ class SetupAborted(Exception):
 def _ask(console: Console, prompt: str, validate=None, default=None,
          reason: str = "that doesn't look right", **kwargs) -> str:
     for _ in range(MAX_ATTEMPTS):
-        answer = Prompt.ask(prompt, console=console,
-                            **({"default": default} if default else {}),
-                            **kwargs).strip()
+        # str(): a value read from the YAML may be a number (serial 2031),
+        # which Rich would hand back as is on Enter.
+        if default not in (None, ""):
+            kwargs["default"] = str(default)
+        answer = str(Prompt.ask(prompt, console=console, **kwargs)).strip()
         if answer and (validate is None or validate(answer)):
             return answer
         console.print(f"[yellow]Sorry, {reason}.[/yellow]")
     raise SetupAborted(f"Gave up on '{prompt}' after {MAX_ATTEMPTS} attempts.")
+
+
+def calibration_name(sensor_id: str, taken) -> str:
+    """The name of a sensor's calibration entry: ``<sensor_id>_cal``, or
+    ``_cal_2``, ``_cal_3``… when another entry already has it (a sensor
+    renamed by hand keeps its entry's name)."""
+    name, n = f"{sensor_id}_cal", 1
+    while name in taken:
+        n += 1
+        name = f"{sensor_id}_cal_{n}"
+    return name
 
 
 def _existing_identity() -> dict:
@@ -182,7 +195,8 @@ def ask_sensors(console: Console, current: dict) -> tuple[list, list]:
                 if not cal_path:
                     break
             if cal_path and Path(cal_path).is_file():
-                cal_name = f"{sid}_cal"
+                cal_name = calibration_name(
+                    sid, {c.get("name") for c in calibrations})
                 # Absolute: the watchdog (root, cwd "/") reads it later.
                 calibrations.append({
                     "name": cal_name,
@@ -236,11 +250,24 @@ def has_missions(var_dir: Path) -> bool:
         or (bags.is_dir() and any(bags.iterdir()))
 
 
-def data_dir_problem(new: str, current: Path) -> str | None:
+def current_var_dir(console: Console) -> Path | None:
+    """The data directory in use, or None when paths.yaml is broken (setup
+    then writes a good one over it)."""
+    try:
+        return paths.var_dir()
+    except paths.PathsConfigError as exc:
+        console.print(f"[yellow]{exc}[/yellow]")
+        console.print("[dim]Setup will write it again with the folder you "
+                      "choose.[/dim]")
+        return None
+
+
+def data_dir_problem(new: str, current: Path | None) -> str | None:
     """Why ``new`` can't become the data directory, or None.
 
     Moving existing missions is move_data's job; setup only chooses where
-    they go while there are none (or keeps the current place)."""
+    they go while there are none (or keeps the current place). ``current``
+    None: paths.yaml is broken, so no folder is known to hold missions."""
     if not os.path.isabs(new):
         return f"{new} isn't an absolute path (start it with /)"
     target = Path(os.path.normpath(new))
@@ -248,7 +275,7 @@ def data_dir_problem(new: str, current: Path) -> str | None:
         return None
     if target == paths.config_dir() or paths.config_dir() in target.parents:
         return f"{target} is inside the configuration folder"
-    if has_missions(current):
+    if current is not None and has_missions(current):
         return (f"missions are already kept in {current}. To move them, run "
                 f"`ros2 fairy move_data {target}`")
     if target.is_dir():
@@ -275,11 +302,12 @@ def free_space(folder: Path) -> str:
         return "free space unknown"
 
 
-def ask_var_dir(console: Console, current: Path) -> Path:
+def ask_var_dir(console: Console, current: Path | None) -> Path:
     """Where recordings and saved missions are kept (Enter keeps it)."""
     prompt = "Where should recordings and saved missions be kept?"
+    default = current or Path(paths.DEFAULT_VAR_DIR)
     for _ in range(MAX_ATTEMPTS):
-        answer = Prompt.ask(prompt, default=str(current),
+        answer = Prompt.ask(prompt, default=str(default),
                             console=console).strip()
         problem = data_dir_problem(answer, current)
         if problem is None:
@@ -583,6 +611,29 @@ def _choose_service_python(console: Console,
     return None
 
 
+def _service_main_pid() -> int | None:
+    """The pid of the watchdog service's main process, or None."""
+    try:
+        result = subprocess.run(
+            ["systemctl", "show", "-p", "MainPID", "--value", SERVICE_NAME],
+            capture_output=True, text=True)
+        pid = int(result.stdout.strip())
+    except (OSError, ValueError):
+        return None
+    return pid or None
+
+
+def _state_written_by(pid: int | None) -> bool:
+    """Whether watchdog.state was written by the process ``pid``."""
+    if pid is None:
+        return False
+    try:
+        state = json.loads(paths.watchdog_state_path().read_text())
+    except (OSError, ValueError):
+        return False
+    return isinstance(state, dict) and state.get("pid") == pid
+
+
 def install_service(console: Console, env: dict[str, str],
                     python: str = SYSTEM_PYTHON) -> bool:
     if not interpreter_root_safe(python):
@@ -602,16 +653,24 @@ def install_service(console: Console, env: dict[str, str],
     # environment, interpreter and data directory.
     subprocess.run(["systemctl", "restart", SERVICE_NAME], check=True)
     deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
+    first_pid = None
+    while True:
         active = subprocess.run(["systemctl", "is-active", SERVICE_NAME],
                                 capture_output=True, text=True)
         state = active.stdout.strip()
-        if state == "active" and paths.watchdog_state_path().is_file():
+        pid = _service_main_pid() if state == "active" else None
+        first_pid = first_pid or pid
+        # watchdog.state is left over from the previous watchdog on a re-run:
+        # only one written by the process systemd just started counts.
+        if pid is not None and _state_written_by(pid):
             return True
         if state == "failed":
             return False  # crashed on start — no point waiting out the timer
+        if time.monotonic() >= deadline:
+            # Still busy with what the spool holds (big bags) but up the
+            # whole time: the same process, not one restarted after a crash.
+            return pid is not None and pid == first_pid
         time.sleep(0.5)
-    return False
 
 
 def _collect(console: Console, operator_names: list[str] | None = None,
@@ -626,33 +685,40 @@ def _collect(console: Console, operator_names: list[str] | None = None,
     Reading /etc/ros-fairy/robot_identity.yaml to offer current values as
     defaults works without root too — :func:`write_identity` leaves it
     world-readable (0644).
+
+    Raises SetupAborted when an answer was wrong too many times (or the
+    data directory can't be chosen here).
     """
+    override = os.environ.get(paths.VAR_DIR_ENV)
+    if var_dir is None and override:
+        # As for --var-dir: the folders would be made where the variable
+        # says, whatever the answer.
+        raise SetupAborted(
+            f"{paths.VAR_DIR_ENV} is set in this shell ({override}) and would "
+            "override where missions are kept. Unset it and try again (or "
+            f"keep it with --var-dir {override}).")
     current = _existing_identity()
     if current:
         console.print("[dim]Existing configuration found — current values "
                       "are offered as defaults.[/dim]")
-    try:
-        config = ask_robot(console, current)
-        sensors, calibrations = ask_sensors(console, current)
-        if sensors:
-            config["sensors"] = sensors
-        if calibrations:
-            config["calibrations"] = calibrations
-        # Sections this wizard doesn't ask about (`recording:` — the topics
-        # and storage mission_record uses — or anything hand-added) are kept,
-        # not silently dropped by a re-run.
-        for key, value in current.items():
-            if key not in ("robot", "owner", "sensors", "calibrations"):
-                config[key] = value
-        if operator_names is None:
-            operator_names = ask_operators(console)
-        if var_dir is None:
-            var_dir = ask_var_dir(console, paths.var_dir())
-        if not review(console, config, operator_names, var_dir):
-            console.print("Nothing was written.")
-            return None
-    except SetupAborted as exc:
-        console.print(f"[red]{exc}[/red]")
+    config = ask_robot(console, current)
+    sensors, calibrations = ask_sensors(console, current)
+    if sensors:
+        config["sensors"] = sensors
+    if calibrations:
+        config["calibrations"] = calibrations
+    # Sections this wizard doesn't ask about (`recording:` — the topics
+    # and storage mission_record uses — or anything hand-added) are kept,
+    # not silently dropped by a re-run.
+    for key, value in current.items():
+        if key not in ("robot", "owner", "sensors", "calibrations"):
+            config[key] = value
+    if operator_names is None:
+        operator_names = ask_operators(console)
+    if var_dir is None:
+        var_dir = ask_var_dir(console, current_var_dir(console))
+    if not review(console, config, operator_names, var_dir):
+        console.print("Nothing was written.")
         return None
     return config, operator_names, var_dir
 
@@ -960,15 +1026,20 @@ def run(args, console: Console | None = None) -> int:
                           f"({paths.var_dir()}) and would override "
                           "--var-dir here. Unset it and try again.[/red]")
             return 1
-        problem = data_dir_problem(chosen, paths.var_dir())
+        problem = data_dir_problem(chosen, current_var_dir(console))
         if problem:
             console.print(f"[red]Can't keep missions there: {problem}.[/red]")
             return 1
         chosen = Path(os.path.normpath(chosen))
 
-    collected = _collect(console, wanted, chosen)
+    try:
+        collected = _collect(console, wanted, chosen)
+    except SetupAborted as exc:
+        console.print(f"[red]{exc}[/red]")
+        console.print("Nothing was written.")
+        return 1
     if collected is None:
-        return 0
+        return 0  # declined at the review
     config, operator_names, var_dir = collected
     payload = {"config": config, "env": env, "python": python,
                "operators": operator_names, "var_dir": str(var_dir)}

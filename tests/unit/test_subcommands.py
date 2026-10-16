@@ -1069,7 +1069,8 @@ def test_run_stops_before_the_wizard_when_service_cant_load(fairy_dirs):
     collect.assert_not_called()
 
 
-def test_collect_returns_none_when_review_declined(fairy_dirs):
+def test_collect_returns_none_when_review_declined(fairy_dirs, monkeypatch):
+    monkeypatch.delenv("ROS_FAIRY_VAR_DIR")  # else it can't be asked
     console = _console()
     config = {"robot": {"name": "X", "platform": "P", "serial_number": "S"},
               "owner": {"organization": "O", "contact_email": "a@b.c"}}

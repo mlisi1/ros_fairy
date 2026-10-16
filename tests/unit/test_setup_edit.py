@@ -220,3 +220,84 @@ def test_the_privileged_half_writes_only_the_file(identity_yaml, monkeypatch):
     assert setup._apply(Console(file=io.StringIO()), {"edit": config})
     assert _saved(identity_yaml)["robot"]["name"] == "R"
     assert (identity_yaml.stat().st_mode & 0o777) == 0o644
+
+
+def test_renaming_a_sensor_renames_its_calibration(edit, identity_yaml,
+                                                   fairy_dirs):
+    # Otherwise a new gps0 with a calibration would take over gps1's entry.
+    assert edit("--set-sensor", "gps0", "id=gps1")[0] == 0
+    saved = _saved(identity_yaml)
+    assert saved["sensors"][0]["calibration"] == "gps1_cal"
+    assert [c["name"] for c in saved["calibrations"]] == ["gps1_cal"]
+    new = fairy_dirs["cfg"] / "new.yaml"
+    new.write_text("k: 2\n")
+    code, out = edit("--add-sensor", "id=gps0,type=gps,model=X,topic=/g,"
+                                     f"calibration={new}")
+    assert code == 0, out
+    cals = {c["name"]: c["source_path"]
+            for c in _saved(identity_yaml)["calibrations"]}
+    assert cals["gps0_cal"] == str(new.resolve())
+    assert cals["gps1_cal"] != str(new.resolve())
+
+
+def test_a_calibration_name_another_sensor_uses_is_not_taken_over(
+        edit, identity_yaml, fairy_dirs):
+    # gps1 still points at gps0_cal (renamed by hand, say).
+    saved = _saved(identity_yaml)
+    saved["sensors"][0]["sensor_id"] = "gps1"
+    identity_yaml.write_text(yaml.safe_dump(saved))
+    new = fairy_dirs["cfg"] / "new.yaml"
+    new.write_text("k: 2\n")
+    code, out = edit("--add-sensor", "id=gps0,type=gps,model=X,topic=/g,"
+                                     f"calibration={new}")
+    assert code == 0, out
+    saved = _saved(identity_yaml)
+    sensors = {s["sensor_id"]: s for s in saved["sensors"]}
+    cals = {c["name"]: c["source_path"] for c in saved["calibrations"]}
+    assert sensors["gps1"]["calibration"] == "gps0_cal"
+    assert cals["gps0_cal"] != str(new.resolve())
+    assert cals[sensors["gps0"]["calibration"]] == str(new.resolve())
+
+
+@pytest.mark.parametrize("key", ["sensors", "calibrations"])
+def test_empty_sections_are_treated_as_empty(edit, identity_yaml, key):
+    saved = _saved(identity_yaml)
+    saved[key] = None
+    if key == "sensors":
+        saved.pop("calibrations")
+    else:
+        saved["sensors"][0].pop("calibration")
+    identity_yaml.write_text(yaml.safe_dump(saved))
+    code, out = edit("--add-sensor", "id=imu0,type=imu,model=X,topic=/imu")
+    assert code == 0, out
+    assert "imu0" in [s["sensor_id"] for s in _saved(identity_yaml)["sensors"]]
+
+
+def test_empty_owner_is_filled_in(edit, identity_yaml):
+    saved = _saved(identity_yaml)
+    saved["owner"] = None
+    identity_yaml.write_text(yaml.safe_dump(saved))
+    code, out = edit("--license", "CC-BY-4.0")
+    assert code == 1 and "Traceback" not in out   # still needs an organization
+    code, out = edit("--organization", "Lab", "--contact-email", "a@b.org")
+    assert code == 0, out
+    assert _saved(identity_yaml)["owner"] == {"organization": "Lab",
+                                              "contact_email": "a@b.org"}
+
+
+@pytest.mark.parametrize("key, value, argv", [
+    ("robot", "Jo", ("--robot-name", "Heron")),
+    ("recording", "x", ("--storage", "mcap")),
+    ("sensors", "gps0", ("--remove-sensor", "gps0")),
+])
+def test_a_section_of_the_wrong_kind_is_refused_plainly(
+        edit, identity_yaml, key, value, argv):
+    saved = _saved(identity_yaml)
+    saved[key] = value
+    identity_yaml.write_text(yaml.safe_dump(saved))
+    before = identity_yaml.read_text()
+    code, out = edit(*argv)
+    assert code == 1
+    assert f"`{key}:` in the configuration should be" in out
+    assert "Nothing was changed" in out
+    assert identity_yaml.read_text() == before

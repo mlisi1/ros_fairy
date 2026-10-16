@@ -10,14 +10,23 @@ import functools
 import hashlib
 from pathlib import Path
 
+# Written at install time with the build's date (setup.py): not code, and it
+# would give the same code installed twice two ids.
+_GENERATED = "_build_info.py"
+
 
 @functools.lru_cache(maxsize=1)
 def code_id() -> str:
     """12 hex digits; computed once per process (so a long-running process
     keeps reporting the code it started with)."""
-    root = Path(__file__).resolve().parent.parent
+    return _hash(Path(__file__).resolve().parent.parent)
+
+
+def _hash(root: Path) -> str:
     digest = hashlib.sha256()
     for path in sorted(root.rglob("*.py")):
+        if path.name == _GENERATED:
+            continue
         try:
             digest.update(path.relative_to(root).as_posix().encode())
             digest.update(path.read_bytes())

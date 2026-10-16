@@ -140,3 +140,16 @@ def test_doctor_names_the_builds(fairy_dirs):
     detail = doctor._check_watchdog_code()["detail"]
     assert "watchdog d3a47db" in detail
     assert build_info.short(build_info.build_info()) in detail
+
+
+def test_code_id_ignores_the_generated_build_info(tmp_path):
+    # _build_info.py holds the build's date: the same code installed twice
+    # must keep one id, or doctor says the watchdog runs different code.
+    from ros_fairy.utils import code_id
+    (tmp_path / "a.py").write_text("x = 1\n")
+    (tmp_path / "_build_info.py").write_text("BUILT_AT = 'monday'\n")
+    first = code_id._hash(tmp_path)
+    (tmp_path / "_build_info.py").write_text("BUILT_AT = 'tuesday'\n")
+    assert code_id._hash(tmp_path) == first
+    (tmp_path / "a.py").write_text("x = 2\n")
+    assert code_id._hash(tmp_path) != first
