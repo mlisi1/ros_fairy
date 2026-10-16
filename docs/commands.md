@@ -57,8 +57,7 @@ ros2 fairy setup [--robot-name NAME] [--platform TEXT] [--serial TEXT]
                  [--record-topics TOPICS] [--storage NAME] [--yes]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy setup` -->
-![Screenshot placeholder: ros2 fairy setup, to be added](assets/screenshots/setup-placeholder.svg)
+![ros2 fairy setup: the wizard's answers for robot scout-02, two sensors and operators ben and cleo, then the configuration review and the Write question](assets/screenshots/setup.png)
 
 The interactive robot setup described in
 [Set up the robot](getting-started.md#2-set-up-the-robot). Run it as your
@@ -135,8 +134,7 @@ hand) can be fixed with them: `doctor` names the mistake. A section left empty
 ros2 fairy doctor [--json] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy doctor` -->
-![Screenshot placeholder: ros2 fairy doctor, to be added](assets/screenshots/doctor-placeholder.svg)
+![ros2 fairy doctor reporting the robot READY (with warnings): the only warning is the missing optional harvest tools, with the command that installs them](assets/screenshots/doctor.png)
 
 Read-only checks, each reported as ok, warning, failure or skipped:
 
@@ -170,8 +168,7 @@ ros2 fairy mission_start [--operator NAME] [--goal TEXT] [--location PLACE]
                          [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy mission_start` -->
-![Screenshot placeholder: ros2 fairy mission_start, to be added](assets/screenshots/mission_start-placeholder.svg)
+![ros2 fairy mission_start: the five briefing questions answered, then Mission briefing saved](assets/screenshots/mission_start.png)
 
 Asks the [five briefing questions](operator-guide.md#1-start-the-mission-mission_start)
 and saves them to the spool. It also records the shell's DDS settings for the
@@ -251,8 +248,7 @@ if the recorder exits with an error; the data captured so far is kept.
 ros2 fairy mission_status [--json] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy mission_status` -->
-![Screenshot placeholder: ros2 fairy mission_status, to be added](assets/screenshots/mission_status-placeholder.svg)
+![ros2 fairy mission_status during a recording: the assistant recording, the briefing, the active bag, and the context captured so far](assets/screenshots/mission_status.png)
 
 Shows:
 
@@ -273,8 +269,7 @@ Shows:
 ros2 fairy mission_close [--note TEXT] [--yes] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy mission_close` -->
-![Screenshot placeholder: ros2 fairy mission_close, to be added](assets/screenshots/mission_close-placeholder.svg)
+![ros2 fairy mission_close: the notes question, then the mission summary with its sensors and a warning, and the Save this mission question](assets/screenshots/mission_close.png)
 
 | Option | |
 | --- | --- |
@@ -306,8 +301,7 @@ your data is left exactly as it was.
 ros2 fairy mission_abort [--yes] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy mission_abort` -->
-![Screenshot placeholder: ros2 fairy mission_abort, to be added](assets/screenshots/mission_abort-placeholder.svg)
+![ros2 fairy mission_abort asking to confirm, listing the recording it would delete, then asking Delete 1 recording and abort](assets/screenshots/mission_abort.png)
 
 Abandons the open mission. It asks to confirm, and again before deleting
 spool recordings. Recordings made outside ros_fairy are never deleted.
@@ -448,8 +442,7 @@ ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
                 [--limit N | --all] [--path] [--json] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy list` -->
-![Screenshot placeholder: ros2 fairy list, to be added](assets/screenshots/list-placeholder.svg)
+![ros2 fairy list showing five saved missions by Ana, Cleo and Ben, newest last](assets/screenshots/list.png)
 
 | Option | |
 | --- | --- |
@@ -479,8 +472,7 @@ mission, after [`mission_edit`](#mission_edit).
 ros2 fairy diff [OLDER NEWER] [--json] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy diff` -->
-![Screenshot placeholder: ros2 fairy diff, to be added](assets/screenshots/diff-placeholder.svg)
+![ros2 fairy diff comparing two north pier surveys: a new goal, the Xsens IMU added, its node and topic in the ROS graph, and the base controller's max_speed lowered from 1.0 to 0.6](assets/screenshots/diff.png)
 
 With no arguments, compares the two most recent missions (`2` and `1`). Give
 both or neither.
@@ -499,8 +491,7 @@ couldn't compare.
 ros2 fairy verify [MISSION] [--json] [--debug]
 ```
 
-<!-- TODO: replace with a real screenshot of `ros2 fairy verify` -->
-![Screenshot placeholder: ros2 fairy verify, to be added](assets/screenshots/verify-placeholder.svg)
+![ros2 fairy verify passing on the newest mission, with a note that the rocrate package would allow full JSON-LD validation](assets/screenshots/verify.png)
 
 `MISSION` is a number (`1` = newest, the default), a mission ID, an archive
 folder, or an exported bundle. Read-only. Checks that:

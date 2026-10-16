@@ -43,7 +43,8 @@ ros_fairy/
 │                            handling, clock, bag readers, topic health, bag
 │                            repair, operator accounts, the harvest's tools
 └── build_info.py            which ros_fairy build is running
-tools/sandbox/               a throwaway robot in Docker, and scenarios to run on it
+tools/sandbox/               a throwaway robot in Docker, scenarios to run on it,
+                             and the docs' screenshots (screenshots/)
 ```
 
 Verbs are registered as entry points in `setup.py` (`fairy.verb` group). A new
@@ -131,6 +132,26 @@ commands as these accounts and answer prompts on a real terminal
 if any failed. The container needs `--privileged` for systemd, so keep it to
 your own machine.
 
+The terminal screenshots in these docs are taken on the sandbox robot:
+
+```bash
+tools/sandbox/sandbox.sh reset && tools/sandbox/sandbox.sh install \
+    && tools/sandbox/screenshots/take.sh
+tools/sandbox/sandbox.sh reset         # afterwards: a clean robot again
+```
+
+`take.sh` installs a virtual X server, terminator and JetBrains Mono in the
+container. Then `take_screenshots.py` sets the robot up through the real
+wizard, records a few missions as `ana`, `ben` and `cleo`, and types each
+command into a terminator window with `xdotool`, using the profile in
+`terminator.config` (the docs' code-block colours). Between the last two
+missions it adds an IMU and changes a parameter of `base_controller.py` (a
+stand-in node: the talkers have no parameters), so `diff` has something to
+show. The PNGs are copied to `docs/assets/screenshots/`, one per command
+(`doctor.png`, `list.png`, …). Look at each one before committing: the output
+is real, so a change in a command's output shows up there. Commit your changes
+first, or `doctor` and `verify` show the version as `-dirty`.
+
 ## Documentation
 
 The site is built with [MkDocs](https://www.mkdocs.org) and the Material theme,
@@ -150,8 +171,8 @@ request only builds it, so a broken link fails there before the merge.
 - **Diagrams** are SVG files in `docs/assets/diagrams/`, never text art in a
   code block. Each has a `-dark.svg` twin, and pages include both:
   `name.svg#only-light` and `name-dark.svg#only-dark`.
-- **Screenshots** go in `docs/assets/screenshots/`. Placeholders are marked
-  with a `TODO` comment next to the image.
+- **Screenshots** go in `docs/assets/screenshots/`. Terminal ones are taken
+  with `tools/sandbox/screenshots/take.sh` (see [The sandbox robot](#the-sandbox-robot)).
 - **Links** use the page or section title as text (`[Paths](configuration.md#paths)`),
   not the file name.
 - **Colours and fonts** live in `docs/stylesheets/extra.css`: cream and slate,

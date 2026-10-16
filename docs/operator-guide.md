@@ -14,8 +14,7 @@ Check where things stand at any time with `ros2 fairy mission_status`.
 ros2 fairy doctor
 ```
 
-<!-- TODO: replace the placeholder with a real screenshot of `ros2 fairy doctor` -->
-![Screenshot placeholder: the output of ros2 fairy doctor, to be added](assets/screenshots/doctor-placeholder.svg)
+![ros2 fairy doctor reporting the robot READY (with warnings): the only warning is the missing optional harvest tools, with the command that installs them](assets/screenshots/doctor.png)
 
 If it says **NOT READY**, fix what it lists first: each line has a hint. A
 **READY (with warnings)** is fine to record with, but read the warnings. An
