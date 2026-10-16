@@ -72,8 +72,10 @@ The service never sees a shell's variables, so a shell with
 
 ## robot_identity.yaml
 
-Created by `ros2 fairy setup`. You can also edit it by hand: it is read again at
-every harvest, so no restart is needed.
+Created by `ros2 fairy setup`, and changed one part at a time with its
+[flags](commands.md#changing-one-part-of-the-configuration) (`--show` prints
+it). You can also edit it by hand. It is read again at every harvest, so no
+restart is needed.
 
 ```yaml
 robot:

@@ -49,6 +49,12 @@ ros2 fairy setup [--operator USER]... [--var-dir DIR] [--ros-setup PATH]
                  [--debug]
 ros2 fairy setup --refresh-env [--from-container NAME] [--ros-setup PATH]
                  [--debug]
+ros2 fairy setup --show
+ros2 fairy setup [--robot-name NAME] [--platform TEXT] [--serial TEXT]
+                 [--organization TEXT] [--contact-email EMAIL]
+                 [--license URL_OR_SPDX] [--add-sensor SPEC]...
+                 [--set-sensor ID SPEC]... [--remove-sensor ID]...
+                 [--record-topics TOPICS] [--storage NAME] [--yes]
 ```
 
 <!-- TODO: replace with a real screenshot of `ros2 fairy setup` -->
@@ -76,6 +82,51 @@ exits 0.
 
 `ros-fairy-setup` is the same command as a standalone script.
 
+### Changing one part of the configuration
+
+```bash
+ros2 fairy setup --show
+ros2 fairy setup --set-sensor gps0 topic=/gps/fix
+ros2 fairy setup --remove-sensor lidar0 \
+    --add-sensor id=lidar1,type=lidar,model="Ouster OS2",topic=/points
+```
+
+These flags change only what they name in
+[`robot_identity.yaml`](configuration.md#robot_identityyaml), without the
+wizard and without needing ROS. Every flag that takes a sensor can be repeated,
+and they combine in one call: one diff, one write.
+
+| Option | |
+| --- | --- |
+| `--show` | Print the configuration as the recording assistant reads it, or the mistake in it. |
+| `--robot-name`, `--platform`, `--serial` | The robot. The name is 40 characters at most. |
+| `--organization`, `--contact-email` | The owner. |
+| `--license URL_OR_SPDX` | The missions' default license: a URL, or an SPDX identifier such as `CC-BY-4.0` (saved as its `https://spdx.org/licenses/` URL). `""` removes it. |
+| `--add-sensor SPEC` | `id=ID,type=TYPE,model=MAKE_MODEL,topic=TOPIC`, optionally `,frame=FRAME` and `,calibration=FILE`. `TYPE` is `gps`, `lidar`, `camera`, `imu`, `sonar` or `other`. Quote a value that has a comma: `model="Foo, Inc. X1"`. |
+| `--set-sensor ID SPEC` | Change a sensor with the same `KEY=VALUE` pairs: `id=` renames it, an empty `frame=` or `calibration=` removes that. |
+| `--remove-sensor ID` | Remove a sensor, and its calibration entry if no other sensor uses it. |
+| `--record-topics TOPICS` | What [`mission_record`](#mission_record) records: `/fix,/scan`, or `all`. |
+| `--storage NAME` | `mission_record`'s storage (`mcap`, `sqlite3`), or `default` for rosbag2's. |
+| `--yes`, `-y` | Write without asking. |
+
+The result is checked with the same rules the recording assistant uses before
+anything is written. A mistake is refused with what's wrong, and nothing
+changes. Otherwise the change is shown as a diff of the file and confirmed.
+Then it is written through `sudo`, keeping the previous file as
+`robot_identity.yaml.bak`. A calibration file must exist; it is saved by its
+absolute path. When the robot's ROS graph is visible, a sensor topic nobody
+publishes gets a warning, not a refusal (the sensor may be off).
+
+Nothing needs restarting: the configuration is read again at every recording.
+**Saved missions are unaffected:** each keeps the configuration it was recorded
+with, and `verify` checks it against that. A sensor added later doesn't make an
+older mission look incomplete. [`diff`](#diff) between a mission from before
+and one from after shows the change.
+
+The edit flags can't be combined with the wizard's flags (`--operator`,
+`--var-dir`) or `--refresh-env`. A configuration with a mistake (edited by
+hand) can be fixed with them: `doctor` names the mistake.
+
 ## doctor
 
 ```
@@ -89,7 +140,7 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 
 | Check | Fails / warns when |
 | --- | --- |
-| Robot identity | `robot_identity.yaml` is missing or invalid |
+| Robot identity | `robot_identity.yaml` is missing ("Robot is not set up") or has a mistake ("The robot configuration has a mistake", with what's wrong; fix it with [`setup`'s flags](#changing-one-part-of-the-configuration)) |
 | Data folder | says where missions are kept; fails if `paths.yaml` can't be used, warns if this shell's `ROS_FAIRY_VAR_DIR` points elsewhere than the service, or missions were left behind in `/var/ros-fairy` |
 | Recording assistant | the watchdog isn't running, or has been recording with no heartbeat for 5 minutes |
 | Service interpreter | the installed service's interpreter can't load ros_fairy (only installed in a home directory) |

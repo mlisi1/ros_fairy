@@ -39,10 +39,18 @@ def _check_identity() -> dict:
     try:
         data = robot_identity.harvest()
     except robot_identity.RobotIdentityError as exc:
+        path = paths.robot_identity_path()
+        if path.is_file():
+            return {"status": FAIL,
+                    "title": "The robot configuration has a mistake",
+                    "detail": str(exc),
+                    "hint": "fix it with the `ros2 fairy setup` flags (e.g. "
+                            "--set-sensor; see `ros2 fairy setup -h`), or "
+                            f"by hand in {path} (with sudo)"}
         return {"status": FAIL, "title": "Robot is not set up",
                 "detail": str(exc),
                 "hint": "run `ros2 fairy setup` (as an engineer) to create "
-                        "/etc/ros-fairy/robot_identity.yaml"}
+                        f"{path}"}
     robot = data.get("robot") or {}
     n = len(data.get("sensors", []))
     return {"status": OK, "title": "Robot identity configured",

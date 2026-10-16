@@ -27,7 +27,7 @@ from rich.prompt import Confirm, Prompt
 from rich.table import Table
 
 from ros_fairy.subcommands import VerbExtension, _configure_logging, guarded_main
-from ros_fairy.utils import operators, paths, ros_env
+from ros_fairy.utils import fsio, operators, paths, ros_env
 
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 SLUG_RE = re.compile(r"^[a-z0-9_]+$")
@@ -316,12 +316,18 @@ def review(console: Console, config: dict,
 
 
 def write_identity(config: dict) -> None:
+    """Write robot_identity.yaml atomically, keeping the previous one as
+    robot_identity.yaml.bak."""
     config_dir = paths.config_dir()
     config_dir.mkdir(parents=True, exist_ok=True, mode=0o755)
     path = paths.robot_identity_path()
-    path.write_text(yaml.safe_dump(config, sort_keys=False,
-                                   allow_unicode=True))
-    path.chmod(0o644)
+    if path.is_file():
+        backup = path.with_name(path.name + ".bak")
+        fsio.atomic_write_text(backup, path.read_text(errors="replace"),
+                               mode=0o644)
+    fsio.atomic_write_text(path, yaml.safe_dump(config, sort_keys=False,
+                                                allow_unicode=True),
+                           mode=0o644)
 
 
 def write_paths_file(var_dir: Path) -> None:
@@ -770,6 +776,14 @@ def _apply(console: Console, payload: dict) -> bool:
     function does no interactive prompting and no ROS 2 access of its own,
     so it needs nothing beyond filesystem/systemd privileges.
     """
+    if "edit" in payload:
+        # The edit flags: only robot_identity.yaml.
+        write_identity(payload["edit"])
+        console.print(Panel(
+            "Saved. Recordings from now on use it; saved missions keep the "
+            "configuration they were recorded with.\nThe previous file is "
+            f"{paths.robot_identity_path()}.bak.", border_style="green"))
+        return True
     if payload.get("refresh_env"):
         # --refresh-env: only the environment, the interpreter and a restart.
         if install_service(console, payload["env"],
@@ -854,6 +868,26 @@ def run(args, console: Console | None = None) -> int:
                           f"{exc}[/red]")
             return 1
         return 0 if _apply(console, payload) else 1
+
+    from ros_fairy.subcommands import setup_edit
+    editing = setup_edit.wanted(args)
+    if editing or getattr(args, "show", False):
+        clash = [flag for flag, attr in (
+            ("--operator", "operator"), ("--var-dir", "var_dir"),
+            ("--refresh-env", "refresh_env"),
+            ("--from-container", "from_container"))
+            if getattr(args, attr, None)]
+        if editing and getattr(args, "show", False):
+            clash.append("--show")
+        if clash:
+            what = ("the flags that change the configuration" if editing
+                    else "--show")
+            console.print(f"[red]{' and '.join(clash)} can't be combined "
+                          f"with {what}; run them separately.[/red]")
+            return 1
+        if not editing:
+            return setup_edit.show(console)
+        return setup_edit.run(args, console)
 
     from_container = getattr(args, "from_container", None)
     refresh = getattr(args, "refresh_env", False)
@@ -967,6 +1001,47 @@ def _add_setup_arguments(parser) -> None:
         "--operator", action="append", metavar="USER",
         help="another account that will record missions; repeatable. "
              "Skips the question about other operators")
+    edit = parser.add_argument_group(
+        "change one part of the configuration",
+        "Without the wizard: only what these name changes. The result is "
+        "checked, shown as a diff and confirmed; the previous file is kept "
+        "as robot_identity.yaml.bak. Repeatable, and combinable in one call. "
+        "Saved missions keep the configuration they were recorded with.")
+    edit.add_argument("--show", action="store_true",
+                      help="print the current configuration and exit")
+    edit.add_argument("--robot-name", metavar="NAME")
+    edit.add_argument("--platform", metavar="TEXT",
+                      help="make and model of the robot")
+    edit.add_argument("--serial", metavar="TEXT",
+                      help="serial number or asset tag")
+    edit.add_argument("--organization", metavar="TEXT",
+                      help="the owning organization")
+    edit.add_argument("--contact-email", metavar="EMAIL")
+    edit.add_argument("--license", metavar="URL_OR_SPDX",
+                      help="default license of the missions, a URL or an "
+                           "SPDX identifier such as CC-BY-4.0; \"\" removes "
+                           "it")
+    edit.add_argument(
+        "--add-sensor", action="append", metavar="SPEC",
+        help="add a sensor: id=ID,type=TYPE,model=MAKE_MODEL,topic=TOPIC"
+             "[,frame=FRAME][,calibration=FILE]; quote values with commas "
+             f"(model=\"A, B\"). TYPE is one of {', '.join(SENSOR_TYPES)}")
+    edit.add_argument(
+        "--set-sensor", action="append", nargs=2, metavar=("ID", "SPEC"),
+        help="change a sensor: the same KEY=VALUE pairs (id renames it); an "
+             "empty frame= or calibration= removes it")
+    edit.add_argument("--remove-sensor", action="append", metavar="ID",
+                      help="remove a sensor (and its calibration entry)")
+    edit.add_argument(
+        "--record-topics", metavar="TOPICS",
+        help="what mission_record records, comma-separated "
+             "(/fix,/scan), or `all`")
+    edit.add_argument(
+        "--storage", metavar="NAME",
+        help="mission_record's storage (mcap, sqlite3), or `default` for "
+             "rosbag2's")
+    edit.add_argument("--yes", "-y", action="store_true",
+                      help="write the change without asking")
     parser.add_argument(
         "--apply-from-stdin", action="store_true",
         help=argparse.SUPPRESS)  # internal: used by the root re-exec only

@@ -148,7 +148,21 @@ through `sudo`. It:
 
 ### Changing the robot's configuration later
 
-Re-run `ros2 fairy setup` whenever the robot's sensors change. It offers your
+To change one thing (a sensor added, removed or moved to another topic, a
+calibration file, what `mission_record` records), use `setup`'s flags:
+
+```bash
+ros2 fairy setup --show                                   # what is set now
+ros2 fairy setup --set-sensor gps0 calibration=/opt/cal/gps0_2026.yaml
+ros2 fairy setup --add-sensor id=imu0,type=imu,model="Xsens MTi-630",topic=/imu
+```
+
+Each shows the change as a diff and asks before writing it. The previous file
+is kept. The flags are listed in
+[`setup`](commands.md#changing-one-part-of-the-configuration). Saved missions
+keep the configuration they were recorded with.
+
+To go through every question again, re-run `ros2 fairy setup`: it offers your
 existing answers as defaults, so you only retype what changed.
 
 When only the robot's ROS environment changes (distro, overlay,
@@ -214,8 +228,7 @@ What it can't see:
 - **Defaults are Jazzy's.** An unset setting is compared as its Jazzy default:
   domain `0`, `rmw_fastrtps_cpp`, `SUBNET`, localhost-only off.
 
-For small changes (a sensor's topic, a calibration file, the `recording:`
-section), you can also edit the file directly and check it:
+You can also edit the file directly, and check it:
 
 ```bash
 sudo nano /etc/ros-fairy/robot_identity.yaml

@@ -99,6 +99,12 @@ def harvest() -> dict[str, Any]:
         raise RobotIdentityError(f"identity file is not valid YAML: {exc}") from exc
     except (OSError, UnicodeDecodeError) as exc:
         raise RobotIdentityError(f"identity file can't be read: {exc}") from exc
+    return validate(raw)
+
+
+def validate(raw: Any) -> dict[str, Any]:
+    """:func:`harvest` for a configuration already read (what `setup` is
+    about to write)."""
     if not isinstance(raw, dict):
         raise RobotIdentityError("identity file must be a YAML mapping")
 
