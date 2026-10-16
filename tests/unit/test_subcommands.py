@@ -1859,7 +1859,11 @@ def test_setup_captures_ros_environment(fairy_dirs):
            "ROS_DOMAIN_ID": "7",
            "PATH": "/opt/ros/jazzy/bin:/usr/bin",
            "HOME": "/root", "EDITOR": "vim"}
-    with mock.patch.dict(setup_cmd.os.environ, env, clear=True):
+    # Whether /opt/ros/jazzy/bin exists here is beside the point (the
+    # root-safety filter has its own tests).
+    with mock.patch.dict(setup_cmd.os.environ, env, clear=True), \
+            mock.patch.object(setup_cmd.ros_env, "root_safe_dir",
+                              return_value=True):
         setup_cmd.write_watchdog_env(setup_cmd.ros_env.capture())
         text = paths.watchdog_env_path().read_text()
     assert "ROS_DISTRO=jazzy" in text
