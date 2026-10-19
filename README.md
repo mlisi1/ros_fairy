@@ -123,6 +123,7 @@ pip install -r requirements-docs.txt && mkdocs serve   # the documentation site
 ```
 
 The documentation is published at <https://mlisi1.github.io/ros_fairy/>.
+To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

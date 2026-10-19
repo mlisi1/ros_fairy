@@ -66,13 +66,45 @@ unexpected errors get the standard messages and exit codes.
   throwing; the main loop logs and carries on.
 - **Files are written atomically** (`utils/fsio.py`): write to a temp file,
   fsync, rename.
-- **The schema is versioned.** Adding fields to `manifest/schema.py` is a minor
-  bump of `SCHEMA_VERSION` in `ros_fairy/__init__.py`; changing or removing
-  them is a major bump. Note the change in its history comment.
+- **The record format is versioned.** Adding fields to `manifest/schema.py`
+  is a minor bump of `SCHEMA_VERSION`; changing or removing them is a major
+  bump. See [Changing the record format](#changing-the-record-format).
 - **The version** lives in `package.xml`, `setup.py` and
   `ros_fairy/__init__.py`; `tests/unit/test_packaging.py` checks they agree.
   The same test checks the service name, group and default paths written out
   in `uninstall.sh` and the systemd unit against the package.
+
+## Changing the record format
+
+`SCHEMA_VERSION` in `ros_fairy/__init__.py` versions `mission_record.json` as
+`MAJOR.MINOR` ([Versioning](archive-format.md#versioning)). Saved missions
+outlive the version that wrote them, so every version keeps reading the older
+records, and reads a newer minor one by setting aside the fields it doesn't
+know (`read_record` in `manifest/schema.py`).
+
+To add a field (a minor bump):
+
+1. Add it to its model in `manifest/schema.py` **with a default** (`None`, or
+   an empty list), so records written before it still validate. Say in a
+   comment which version added it.
+2. Fill it in where the record is built (`manifest/builder.py`), or where it
+   changes (as `archive/edit.py` does for `provenance.edits`).
+3. Bump the minor number of `SCHEMA_VERSION` and add a line to the history
+   comment above it: the version, the date, what was added.
+4. In [Archive format](archive-format.md): the field in its table, the new
+   number where it says "currently", and a row in the versions table.
+5. Tests: a new record carries the field, and a record of the previous
+   version (without it) still reads.
+
+Changing or removing a field is a major bump: older versions refuse the
+record and tell the user to update ros_fairy, and records already saved must
+still read. Open an issue to discuss it first. A minor bump is almost always
+possible instead: add the new field and keep the old one.
+
+The mission index (`index.db`) has its own `DB_VERSION`
+(`archive/index.py`). It can always be rebuilt from the records
+(`ros2 fairy reindex`), but an existing index is upgraded in place on first
+open, as DB version 4 did for the `notes` column.
 
 ## Tests
 
