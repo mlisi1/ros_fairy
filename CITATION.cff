@@ -1,0 +1,29 @@
+# How to cite ROS F.A.I.R.y. GitHub shows it as "Cite this repository".
+# Keep `version` in step with package.xml (tests/unit/test_packaging.py checks
+# it); set `date-released` at each release.
+cff-version: 1.2.0
+message: "If you use ROS F.A.I.R.y in your research, please cite it as below."
+type: software
+title: "ROS F.A.I.R.y"
+abstract: >-
+  A ROS 2 command-line extension and background service that makes field
+  mission data FAIR: it captures the robot's context automatically, asks the
+  operator five plain-language questions, and saves each mission with its
+  recordings as a checksummed RO-Crate archive.
+authors:
+  - given-names: Michele
+    family-names: Lisi
+    email: michele.lisi@phd.unipi.it
+  - given-names: Giovanni
+    family-names: Di Lorenzo
+    email: giovanni.dilorenzo@phd.unipi.it
+version: 0.1.0
+license: Apache-2.0
+repository-code: "https://github.com/mlisi1/ros_fairy"
+url: "https://mlisi1.github.io/ros_fairy/"
+keywords:
+  - ROS 2
+  - FAIR data
+  - RO-Crate
+  - field robotics
+  - research data management

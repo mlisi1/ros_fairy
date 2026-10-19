@@ -27,6 +27,10 @@ def test_version_declarations_agree():
     assert match is not None, "setup.py has no version= literal"
     assert match.group(1) == ros_fairy.__version__
 
+    citation = (REPO / "CITATION.cff").read_text()
+    assert re.search(r"^version: (\S+)$", citation, re.M).group(1) == \
+        ros_fairy.__version__
+
 
 def _shell_default(script: str, name: str) -> str:
     """The value of ``NAME="..."`` or default of ``NAME="${VAR:-...}"``."""

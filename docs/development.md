@@ -69,8 +69,8 @@ unexpected errors get the standard messages and exit codes.
 - **The record format is versioned.** Adding fields to `manifest/schema.py`
   is a minor bump of `SCHEMA_VERSION`; changing or removing them is a major
   bump. See [Changing the record format](#changing-the-record-format).
-- **The version** lives in `package.xml`, `setup.py` and
-  `ros_fairy/__init__.py`; `tests/unit/test_packaging.py` checks they agree.
+- **The version** lives in `package.xml`, `setup.py`, `ros_fairy/__init__.py`
+  and `CITATION.cff`; `tests/unit/test_packaging.py` checks they agree.
   The same test checks the service name, group and default paths written out
   in `uninstall.sh` and the systemd unit against the package.
 
