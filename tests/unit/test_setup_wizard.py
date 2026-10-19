@@ -171,3 +171,16 @@ def test_service_counts_only_a_state_file_from_the_new_watchdog(
             mock.patch.object(setup_cmd.time, "monotonic",
                               side_effect=lambda: next(clock)):
         assert setup_cmd.install_service(_console(), {}) is ok
+
+
+def test_optional_sensor_answers_show_no_empty_default(monkeypatch):
+    # Rich shows an empty default as "()": "TF frame id (Enter to skip) ():".
+    answers = iter(["y", "gps0", "gps", "u-blox F9P", "/fix", "", "", "n"])
+    monkeypatch.setattr("builtins.input", lambda *a: next(answers))
+    console = _console()
+    with mock.patch.object(setup_cmd, "_live_topics", return_value=[]):
+        sensors, _ = setup_cmd.ask_sensors(console, {})
+    assert sensors[0]["sensor_id"] == "gps0"
+    out = console.file.getvalue()
+    assert "TF frame id (Enter to skip):" in out
+    assert "()" not in out

@@ -32,7 +32,26 @@ def _mission_label(r: MissionRecord) -> str:
     return f"{dt}  {goal}  —  {r.intent.location_name}  ({r.identity.operator_name})"
 
 
-def _table(rows: list[tuple[str, str, str]]) -> Table:
+# The widest the A column grows before its values wrap, and the room kept
+# for the B column; the label column takes what is left of the terminal.
+A_MAX, B_MIN = 32, 22
+
+
+def _widths(sections: list[list[tuple[str, str, str]]],
+            console_width: int) -> tuple[int, int]:
+    """The label and A column widths every section shares, so that their A
+    and B columns line up (a parameter's long "node: name" label used to
+    push its section's columns right)."""
+    rows = [row for section in sections for row in section]
+    a = min(max([22] + [len(row[1]) for row in rows]), A_MAX)
+    # The panel's borders and padding (4) and the gaps between columns (4).
+    room = console_width - 8 - a - B_MIN
+    label = max([26] + [len(row[0]) for row in rows])
+    return max(min(label, room), 26), a
+
+
+def _table(rows: list[tuple[str, str, str]],
+           widths: tuple[int, int] = (26, 22)) -> Table:
     """Three-column grid: label | A value | B value.
 
     Convention for the value columns:
@@ -41,8 +60,8 @@ def _table(rows: list[tuple[str, str, str]]) -> Table:
       both non-empty → value changed (dim old, bold new)
     """
     t = Table.grid(padding=(0, 2))
-    t.add_column(style="dim", min_width=26)
-    t.add_column(min_width=22)
+    t.add_column(style="dim", width=widths[0], overflow="fold")
+    t.add_column(width=widths[1], overflow="fold")
     t.add_column()
     for label, a, b in rows:
         if not a and b:
@@ -572,10 +591,11 @@ def show_diff(a: MissionRecord, b: MissionRecord,
                      Text("No differences found.", style="dim"))
     else:
         parts: list = [header]
+        widths = _widths([rows for _, rows in changed], console.width)
         for title, rows in changed:
             parts.append(Text(""))
             parts.append(Rule(title, style="dim"))
-            parts.append(_table(rows))
+            parts.append(_table(rows, widths))
         body = Group(*parts)
 
     console.print(Panel(body, title="Mission diff", border_style="cyan"))

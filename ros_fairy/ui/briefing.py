@@ -25,11 +25,26 @@ QUESTIONS = [
 ]
 
 
+class _Question(Prompt):
+    """No ": " after a question mark (Rich's suffix would make "?:")."""
+    prompt_suffix = " "
+
+
+def ask(prompt: str, console: Console, **kwargs: Any) -> str:
+    """Prompt.ask, with the suffix that fits what ends the line: the
+    question, or the "(default)" Rich shows after it."""
+    shows_default = kwargs.get("default", ...) not in (..., "") and \
+        kwargs.get("show_default", True)
+    kind = _Question if prompt.endswith("?") and not shows_default \
+        else Prompt
+    return kind.ask(prompt, console=console, **kwargs)
+
+
 def _ask_one(console: Console, field: str, prompt: str, required: bool,
              default: str | None) -> str | None:
     while True:
         kwargs: dict[str, Any] = {"default": default} if default else {}
-        answer = Prompt.ask(prompt, console=console, **kwargs)
+        answer = ask(prompt, console, **kwargs)
         answer = (answer or "").strip()
         error = validator.length_error(field, answer)
         if error:

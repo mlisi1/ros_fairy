@@ -236,6 +236,15 @@ def pick_description(urdfs: dict[str, str]) -> tuple[str | None, str | None]:
     return None, None
 
 
+def _used_by_others(topic_list: list, endpoint_nodes) -> list:
+    """The topics some other node publishes or subscribes to. This node's own
+    endpoints (/robot_description and /tf_static, which it listens to from the
+    start, and /parameter_events) would otherwise be listed on a robot where
+    nothing uses them."""
+    return [(name, types) for name, types in topic_list
+            if any(n != SELF_NAME for n in endpoint_nodes(name))]
+
+
 def snapshot(emit, nodes_only: bool = False) -> None:  # pragma: no cover
     """The capture itself (child side; needs a live ROS environment).
 
@@ -350,7 +359,11 @@ def snapshot(emit, nodes_only: bool = False) -> None:  # pragma: no cover
             break
         spin_for(0.2)
     out["nodes"] = sorted(names)
-    topic_list = node.get_topic_names_and_types()
+    topic_list = _used_by_others(
+        node.get_topic_names_and_types(),
+        lambda topic: [i.node_name for i in
+                       node.get_publishers_info_by_topic(topic)
+                       + node.get_subscriptions_info_by_topic(topic)])
     out["topics"] = sorted(
         ({"name": n, "type": ",".join(types)} for n, types in topic_list),
         key=lambda t: t["name"])

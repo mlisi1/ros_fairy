@@ -94,7 +94,8 @@ def _run_locked(args, console: Console) -> int:
             console.print("Say which one: ros2 fairy drop <#>.")
             return 2
         which = Prompt.ask("Which recording should be taken out? (#, Enter "
-                           "for none)", default="", console=console).strip()
+                           "for none)", default="", show_default=False,
+                           console=console).strip()
         if not which:
             console.print("Nothing was changed.")
             return 0

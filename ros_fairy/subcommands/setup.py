@@ -177,13 +177,14 @@ def ask_sensors(console: Console, current: dict) -> tuple[list, list]:
                                console=console):
                 continue
         frame = Prompt.ask("TF frame id (Enter to skip)", default="",
-                           console=console).strip() or None
+                           show_default=False, console=console).strip() or None
         sensor = {"sensor_id": sid, "type": stype, "make_model": make,
                   "topic": topic}
         if frame:
             sensor["frame_id"] = frame
         cal_path = Prompt.ask("Calibration file path (Enter to skip)",
-                              default="", console=console).strip()
+                              default="", show_default=False,
+                              console=console).strip()
         if cal_path:
             for _ in range(MAX_ATTEMPTS - 1):
                 if Path(cal_path).is_file():
@@ -191,6 +192,7 @@ def ask_sensors(console: Console, current: dict) -> tuple[list, list]:
                 console.print("[yellow]That file doesn't exist.[/yellow]")
                 cal_path = Prompt.ask("Calibration file path (Enter to "
                                       "skip)", default="",
+                                      show_default=False,
                                       console=console).strip()
                 if not cal_path:
                     break
@@ -221,7 +223,8 @@ def ask_operators(console: Console) -> list[str]:
               "spaces, Enter for none)")
     for _ in range(MAX_ATTEMPTS):
         names = [n for n in operators.parse_names(
-            Prompt.ask(prompt, default="", console=console))
+            Prompt.ask(prompt, default="", show_default=False,
+                       console=console))
             if n != me and n not in already]
         unknown = [n for n in names if not operators.account_exists(n)]
         if not unknown:

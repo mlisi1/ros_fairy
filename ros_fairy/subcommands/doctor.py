@@ -508,6 +508,9 @@ def _check_watchdog_code() -> dict:
     mine = build_info()
     installed = mine["code_id"]
     running_label = state.get("build") or f"code {running}"
+    # short() already names the code when there is no commit to name.
+    mine_label = short(mine) if installed in short(mine) \
+        else f"{short(mine)}, code {installed}"
     if running is None:
         return {"status": SKIP, "title": "Watchdog code version unknown",
                 "detail": "the watchdog predates this check", "hint":
@@ -515,11 +518,10 @@ def _check_watchdog_code() -> dict:
                 "restart ros-fairy-watchdog`"}
     if running == installed:
         return {"status": OK, "title": "Watchdog runs the installed code",
-                "detail": f"{short(mine)} (code {installed})", "hint": ""}
+                "detail": mine_label, "hint": ""}
     return {"status": WARN, "title": "Watchdog runs different code than this "
                                      "command",
-            "detail": f"watchdog {running_label}, this command {short(mine)} "
-                      f"(code {installed})",
+            "detail": f"watchdog {running_label}; this command {mine_label}",
             "hint": "after installing a new version, restart the watchdog: "
                     "`sudo systemctl restart ros-fairy-watchdog`. If it is "
                     "still different, this command runs from another "

@@ -306,3 +306,17 @@ def test_diff_with_uncaptured_debs_says_so(fairy_dirs):
     rows = diff._diff_software(a, b)
     assert ("ROS debs captured", "yes", "no") in rows
     assert not any(r[0] == "ros-jazzy-rclpy" for r in rows)
+
+
+def test_snapshot_lists_only_topics_others_use():
+    # Its own subscriptions made setup list /robot_description and /tf_static
+    # as live on a robot where nothing publishes them.
+    topics = [("/robot_description", ["std_msgs/msg/String"]),
+              ("/tf_static", ["tf2_msgs/msg/TFMessage"]),
+              ("/fix", ["sensor_msgs/msg/NavSatFix"])]
+    endpoints = {"/robot_description": [ros_snapshot.SELF_NAME],
+                 "/tf_static": [ros_snapshot.SELF_NAME,
+                                "static_transform_publisher"],
+                 "/fix": ["navsat"]}
+    assert [name for name, _ in ros_snapshot._used_by_others(
+        topics, endpoints.__getitem__)] == ["/tf_static", "/fix"]

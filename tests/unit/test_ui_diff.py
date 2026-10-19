@@ -528,3 +528,24 @@ def test_changed_sensor_fields_rendered_one_row_each(fairy_dirs):
     assert len(rows) == 2
     out = _render(a, b)
     assert "Sensors" in out and "/gps/fix" in out
+
+
+
+def test_sections_share_their_columns(fairy_dirs):
+    # A long "node: parameter" label pushed the Parameters values a column
+    # right of the other sections'.
+    def params(value):
+        return {"/controller_server": {"/controller_server": {
+            "ros__parameters": {"FollowPath.max_vel_x": value}}}}
+    h1, c1 = _spool(fairy_dirs)
+    h1["ros_graph"]["parameters"] = params(0.5)
+    a = builder.build(h1, c1)
+    h2, c2 = copy.deepcopy(h1), copy.deepcopy(c1)
+    h2["ros_graph"]["parameters"] = params(0.8)
+    c2["intent"]["goal"] = "Map the pier"
+    b = builder.build(h2, c2)
+
+    lines = _render(a, b).splitlines()
+    goal = next(line for line in lines if "Goal" in line)
+    param = next(line for line in lines if "FollowPath" in line)
+    assert goal.index("Map the pier") == param.index("0.8")

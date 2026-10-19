@@ -52,8 +52,9 @@ def _ask(console: Console, current: dict[str, str | None]
     answers: dict[str, str | None] = {}
     for field, prompt, required in questions.QUESTIONS:
         while True:
-            value = Prompt.ask(prompt.split(" (")[0], console=console,
-                               default=current[field] or "").strip()
+            value = questions.ask(prompt.split(" (")[0], console,
+                                  default=current[field] or "",
+                                  show_default=bool(current[field])).strip()
             if value == CLEAR and not required:
                 answers[field] = None
                 break

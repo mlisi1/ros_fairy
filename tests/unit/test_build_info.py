@@ -58,7 +58,7 @@ def test_short_labels():
     assert build_info.short({"commit": "b" * 40, "dirty": True}) == \
         "bbbbbbb-dirty"
     assert build_info.short({"version": "0.1.0", "code_id": "c0de"}) == \
-        "0.1.0 (code c0de)"
+        "0.1.0, code c0de"
     assert build_info.same_code({"code_id": "x"}, {"code_id": "x"})
     assert not build_info.same_code({"code_id": "x"}, {"code_id": "y"})
     assert not build_info.same_code(None, {"code_id": "y"})
@@ -153,3 +153,15 @@ def test_code_id_ignores_the_generated_build_info(tmp_path):
     assert code_id._hash(tmp_path) == first
     (tmp_path / "a.py").write_text("x = 2\n")
     assert code_id._hash(tmp_path) != first
+
+
+
+@pytest.mark.parametrize("build, label", [
+    ({"commit": "4b6a6ff" + "0" * 33}, "4b6a6ff, code 830e"),
+    ({"version": "0.1.0"}, "0.1.0, code 830e")])
+def test_doctor_label_has_no_nested_parentheses(fairy_dirs, build, label):
+    # doctor prints the detail in parentheses: "(4b6a6ff (code 830e))".
+    paths.watchdog_state_path().write_text(json.dumps({"code_id": "830e"}))
+    with mock.patch.object(build_info, "build_info",
+                           return_value={**build, "code_id": "830e"}):
+        assert doctor._check_watchdog_code()["detail"] == label

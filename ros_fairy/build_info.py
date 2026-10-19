@@ -71,14 +71,15 @@ def build_info() -> dict[str, Any]:
 
 def short(info: dict[str, Any] | None) -> str:
     """One human label: "d3a47db", "v0.2.0-3-gd3a47db-dirty", or the
-    version and code id when no commit is known."""
+    version and code id when no commit is known ("0.1.0, code c0de"; no
+    parentheses, since callers often put the label in some)."""
     if not info:
         return "unknown"
     if info.get("describe"):
         return info["describe"]
     if info.get("commit"):
         return info["commit"][:7] + ("-dirty" if info.get("dirty") else "")
-    return f"{info.get('version', '?')} (code {info.get('code_id', '?')})"
+    return f"{info.get('version', '?')}, code {info.get('code_id', '?')}"
 
 
 def same_code(a: dict[str, Any] | None, b: dict[str, Any] | None) -> bool:

@@ -108,9 +108,15 @@ def show_status(state: dict | None, context: dict | None,
     active = _live_recording(state)
     waiting = [r for r in recording_list() if r["path"] != active]
     if active is not None:
-        size = human_size(fsio.dir_size_bytes(active)) \
-            if active.is_dir() else "?"
-        table.add_row("Recording", f"{active.name} — {size} so far, growing")
+        written = fsio.dir_size_bytes(active) if active.is_dir() else None
+        if written is None:
+            progress = "size unknown"
+        elif written < 1000:
+            # rosbag2 writes in batches: the first one lands after a while.
+            progress = "started, nothing written to disk yet"
+        else:
+            progress = f"{human_size(written)} so far, growing"
+        table.add_row("Recording", f"{active.name} — {progress}")
     if waiting:
         total = sum(fsio.dir_size_bytes(r["path"]) for r in waiting
                     if r["path"].is_dir())

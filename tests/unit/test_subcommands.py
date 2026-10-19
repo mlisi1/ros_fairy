@@ -2262,3 +2262,14 @@ def test_apply_refresh_only_reinstalls_the_service(fairy_dirs):
     install.assert_called_once()
     identity.assert_not_called()
     ops.assert_not_called()
+
+
+def test_mission_abort_colours_the_whole_recording_name(fairy_dirs):
+    # Rich's highlighter coloured the digits inside the red name.
+    _spool(fairy_dirs)
+    console = Console(file=io.StringIO(), width=120, force_terminal=True,
+                      color_system="standard")
+    with mock.patch.object(mission_abort.Confirm, "ask",
+                           side_effect=[True, False]):
+        mission_abort.run(ARGS, console=console)
+    assert "\x1b[31mrosbag2_0\x1b[0m" in console.file.getvalue()

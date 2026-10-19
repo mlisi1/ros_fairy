@@ -1,10 +1,12 @@
 import io
 from unittest import mock
 
+import pytest
 from rich.console import Console
 
 from ros_fairy.manifest import builder
 from ros_fairy.ui import briefing, review, status
+from ros_fairy.utils import paths
 
 
 def _console():
@@ -319,3 +321,28 @@ def test_briefing_asks_again_for_a_too_long_answer():
         assert briefing._ask_one(console, "goal", "Goal?", True, None) == \
             "Map the pier"
     assert "at most 280 characters" in console.file.getvalue()
+
+
+def test_a_question_ends_without_a_colon(monkeypatch):
+    monkeypatch.setattr("builtins.input", lambda *a: "x")
+    console = _console()
+    briefing.ask("What's your name?", console)
+    briefing.ask("What's your name?", console, default="jane")
+    briefing.ask("Where are you? (place name)", console)
+    assert console.file.getvalue() == (
+        "What's your name? What's your name? (jane): "
+        "Where are you? (place name): ")
+
+
+@pytest.mark.parametrize("written, says", [
+    (0, "rosbag2_0 — started, nothing written to disk yet"),
+    (5000, "rosbag2_0 — 5 kB so far, growing")])
+def test_status_before_rosbag2_writes(fairy_dirs, monkeypatch, written, says):
+    bag = paths.bags_dir() / "rosbag2_0"
+    bag.mkdir(parents=True)
+    (bag / "rosbag2_0_0.mcap").write_bytes(b"x" * written)
+    monkeypatch.setattr(status, "watchdog_alive", lambda state: True)
+    console = _console()
+    status.show_status({"state": "RECORDING", "active_bag_dir": str(bag)},
+                       None, console=console)
+    assert says in console.file.getvalue()

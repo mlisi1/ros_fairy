@@ -107,10 +107,10 @@ def _run_locked(args, console: Console) -> int:
         console.print(f"This mission has {n} recording{'s' if n != 1 else ''}:")
         for bag in spool:
             console.print(f"  [red]{bag.name}[/red] ({_size(bag)}) — "
-                          "will be deleted permanently")
+                          "will be deleted permanently", highlight=False)
         for bag in foreign:
             console.print(f"  {bag} ({_size(bag)}) — made outside ros-fairy, "
-                          "stays on disk")
+                          "stays on disk", highlight=False)
         question = (f"Delete {len(spool)} recording"
                     f"{'s' if len(spool) != 1 else ''} and abort?"
                     if spool else "Abort anyway?")
