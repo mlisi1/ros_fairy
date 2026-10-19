@@ -1,5 +1,9 @@
 # Development
 
+How the code is laid out and tested, for anyone changing it. How to propose a
+change (branches, the checks to run, commits) is in
+[CONTRIBUTING.md](https://github.com/mlisi1/ros_fairy/blob/main/CONTRIBUTING.md).
+
 ## Setup
 
 ```bash

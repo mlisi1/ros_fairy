@@ -32,5 +32,14 @@ archive.
 
 - [Architecture](architecture.md): the watchdog's state machine, recorder
   detection, the harvest pipeline, recovery.
-- [Development](development.md): code layout, conventions, tests, the sandbox
-  robot and tools.
+- [Development](development.md): code layout, conventions, tests, changing
+  the record format, the sandbox robot and tools.
+- [Contributing](https://github.com/mlisi1/ros_fairy/blob/main/CONTRIBUTING.md):
+  how to propose a change.
+
+## Citing
+
+If you use ROS F.A.I.R.y in your research, please cite it: the repository's
+"Cite this repository" button (from
+[`CITATION.cff`](https://github.com/mlisi1/ros_fairy/blob/main/CITATION.cff))
+gives the reference in APA and BibTeX.

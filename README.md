@@ -60,7 +60,8 @@ source install/setup.bash
 Removes the watchdog service, `/etc/ros-fairy`, the `ros-fairy` group, and the
 Python package — a clean reverse of `install.sh` + `setup`. It does **not**
 touch your saved missions (`/var/ros-fairy/archive`, `/var/ros-fairy/index.db`);
-it just reminds you where they are.
+it just reminds you where they are. When nothing was ever saved, the empty
+data folder goes too.
 
 ## A mission, start to finish
 
@@ -113,7 +114,7 @@ or move them later with `ros2 fairy move_data DIR`.
 ## Development
 
 ```bash
-pip install -e '.[dev]'
+./install.sh --dev            # also installs pytest, rocrate, ruff and mypy
 pytest                        # unit + integration, no ROS required
 pytest -m ros                 # live smoke tests, on a sourced ROS 2 box
 ruff check . && mypy ros_fairy
@@ -124,6 +125,12 @@ pip install -r requirements-docs.txt && mkdocs serve   # the documentation site
 
 The documentation is published at <https://mlisi1.github.io/ros_fairy/>.
 To contribute, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Citing
+
+If you use ROS F.A.I.R.y in your research, please cite it: GitHub's "Cite
+this repository" button (from [CITATION.cff](CITATION.cff)) gives the
+reference in APA and BibTeX.
 
 ## License
 
