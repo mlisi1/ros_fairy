@@ -5,8 +5,8 @@
 <h1 align="center">ROS F.A.I.R.y</h1>
 
 <p align="center">
-  <strong>Field-mission data for ROS 2 that stays usable years later.</strong><br>
-  Five questions before a run; everything else about the robot is captured on its own.<br>
+  <strong>Field-mission data for ROS 2 that is FAIR compliant and stays usable years later.</strong><br>
+  Five questions before a run; everything else about the robot is captured automatically.<br>
   Every mission is saved as a checksummed <a href="https://www.researchobject.org/ro-crate/">RO-Crate</a> archive.
 </p>
 
@@ -103,9 +103,6 @@ installs the service. It also builds in a colcon workspace; see
 for robots whose ROS runs in Docker, and for `./uninstall.sh` (which keeps your
 saved missions).
 
-**Status:** 0.1.0, the first release. It is in use on a field robot, but the
-command line and the record format may still change before 1.0.
-
 ## Commands
 
 | Command | What it does |
@@ -132,12 +129,6 @@ command line and the record format may still change before 1.0.
 Every option: [Command reference](https://mlisi1.github.io/ros_fairy/commands/).
 
 ## Contributing
-
-```bash
-./install.sh --dev            # also installs pytest, rocrate, ruff and mypy
-pytest                        # no ROS needed
-ruff check . && mypy fairy
-```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), and the
 [Development](https://mlisi1.github.io/ros_fairy/development/) page for the
