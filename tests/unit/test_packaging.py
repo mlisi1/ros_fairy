@@ -52,6 +52,9 @@ def test_unit_files_match_the_package():
     assert f"EnvironmentFile=-{paths.DEFAULT_CONFIG_DIR}/watchdog.env" in unit
     assert f"Group={setup.GROUP_NAME}" in unit
     assert f"ExecStart={setup.SYSTEM_PYTHON} " in unit  # setup replaces it
+    # Root, group ros-fairy, umask 0002: a cache it wrote would be
+    # writable by every operator (found in /opt/ros after a real install).
+    assert "Environment=PYTHONDONTWRITEBYTECODE=1" in unit
 
 
 # setup.py's requirement -> its rosdep key in package.xml.

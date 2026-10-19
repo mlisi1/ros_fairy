@@ -24,6 +24,10 @@ RestartSec=5
 # the spool. Run as root group ros-fairy so operators can read the spool.
 Group=ros-fairy
 UMask=0002
+# With that group and umask, the bytecode Python caches for a module it
+# imports first (/opt/ros/.../__pycache__) would be group-writable: any
+# operator could plant code that root then runs. Write none.
+Environment=PYTHONDONTWRITEBYTECODE=1
 Nice=10
 
 [Install]

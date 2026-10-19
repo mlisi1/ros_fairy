@@ -195,6 +195,7 @@ Any value other than empty or `0` counts.
 | `EnvironmentFile=-/etc/ros-fairy/watchdog.env` | The ROS environment. The `-` lets it start without one. |
 | `ExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog` | The interpreter `setup` ran under, if root owns it and it can load ros_fairy as the service would; otherwise `/usr/bin/python3`. `setup` stops if neither can. |
 | `Group=ros-fairy`, `UMask=0002` | Operators can read and clean up what it writes. |
+| `Environment=PYTHONDONTWRITEBYTECODE=1` | Python writes no bytecode caches. With the group and umask above, a cache it wrote next to a module (`/opt/ros/.../__pycache__`) would be writable by every operator, and root would then run it. |
 | `Restart=always`, `RestartSec=5` | It recovers from crashes on its own ([crash recovery](architecture.md#crash-and-power-loss-recovery)). |
 | `Nice=10` | It yields CPU to the robot's own software. |
 

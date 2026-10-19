@@ -113,6 +113,9 @@ for sub in spool watchdog.state ros_processes.json log; do
     fi
 done
 
+# Nothing was ever saved: no reason to keep the empty folders.
+rmdir "$ARCHIVE_DIR" 2>/dev/null && rmdir "$VAR_DIR" 2>/dev/null || true
+
 if getent group "$GROUP_NAME" >/dev/null 2>&1; then
     echo "Removing the '$GROUP_NAME' group..."
     groupdel "$GROUP_NAME" 2>/dev/null || \
