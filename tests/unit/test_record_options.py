@@ -10,7 +10,7 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.subcommands import mission_record
+from fairy.subcommands import mission_record
 
 
 class FakeRecordVerb:
@@ -31,7 +31,7 @@ class FakeRecordVerb:
 @pytest.fixture
 def configured(monkeypatch):
     """robot_identity.yaml's `recording:` section: /fix, as MCAP."""
-    from ros_fairy.harvest import robot_identity
+    from fairy.harvest import robot_identity
     monkeypatch.setattr(robot_identity, "harvest", lambda: {
         "recording": {"topics": ["/fix"], "storage": "mcap"}})
 
@@ -191,8 +191,8 @@ def test_main_hands_the_typed_options_to_run(monkeypatch):
 
 def test_a_saved_storage_rosbag2_lacks_stops_before_recording(
         fairy_dirs, monkeypatch):
-    from ros_fairy.harvest import robot_identity
-    from ros_fairy.subcommands import doctor
+    from fairy.harvest import robot_identity
+    from fairy.subcommands import doctor
     monkeypatch.setattr(robot_identity, "harvest", lambda: {
         "robot": {}, "recording": {"topics": None, "storage": "bogus"}})
     monkeypatch.setattr(mission_record, "storage_names",

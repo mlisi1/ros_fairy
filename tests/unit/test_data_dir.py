@@ -10,11 +10,11 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.archive import assembler, index
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import doctor, guarded_main, move_data
-from ros_fairy.subcommands import setup as setup_cmd
-from ros_fairy.utils import paths
+from fairy.archive import assembler, index
+from fairy.manifest import builder
+from fairy.subcommands import doctor, guarded_main, move_data
+from fairy.subcommands import setup as setup_cmd
+from fairy.utils import paths
 from tests.unit.test_archive import _spool
 
 
@@ -96,7 +96,7 @@ def test_data_dir_problem(fairy_dirs, tmp_path):
     (busy / "photos").mkdir(parents=True)
     problem = setup_cmd.data_dir_problem(str(busy), current)
     assert "photos" in problem and str(busy / "ros-fairy") in problem
-    # A folder that only holds ros_fairy's own (empty) layout is fine.
+    # A folder that only holds fairy's own (empty) layout is fine.
     old = tmp_path / "old"
     (old / "spool").mkdir(parents=True)
     # Written by a running watchdog, even with no mission.
@@ -306,9 +306,9 @@ def test_same_disk_move_is_undone_when_paths_file_fails(
 @pytest.mark.parametrize("alive, busy", [(True, True), (False, False)])
 def test_finalising_counts_only_while_the_watchdog_lives(
         monkeypatch, alive, busy):
-    from ros_fairy.subcommands import mission_close
-    from ros_fairy.ui import status
-    from ros_fairy.watchdog import watchdog as wd
+    from fairy.subcommands import mission_close
+    from fairy.ui import status
+    from fairy.watchdog import watchdog as wd
     monkeypatch.setattr(mission_close, "_recording_in_progress",
                         lambda: False)
     monkeypatch.setattr(wd, "read_state",
@@ -361,7 +361,7 @@ def test_move_asks_and_uses_sudo_when_not_root(configured, tmp_path):
                              console=console) == 0
     command = run.call_args.args[0]
     assert command[0] == "/usr/bin/sudo"
-    assert command[-3:] == ["ros_fairy.subcommands.move_data",
+    assert command[-3:] == ["fairy.subcommands.move_data",
                             str(tmp_path / "d"), "--confirmed"]
 
 

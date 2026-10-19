@@ -4,10 +4,10 @@ from types import SimpleNamespace
 
 from rich.console import Console
 
-from ros_fairy.archive import assembler, index
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import verify
-from ros_fairy.utils import fsio, paths
+from fairy.archive import assembler, index
+from fairy.manifest import builder
+from fairy.subcommands import verify
+from fairy.utils import fsio, paths
 from tests.unit.test_archive import _spool
 
 FAIL, WARN, OK = verify.FAIL, verify.WARN, verify.OK

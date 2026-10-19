@@ -137,7 +137,7 @@ def ensure_talkers(domain: str | None = None, restart: bool = False) -> None:
 
 def data_dir() -> Path:
     """Where the robot keeps its missions (/etc/ros-fairy/paths.yaml, as
-    ros_fairy reads it)."""
+    fairy reads it)."""
     paths_file = Path("/etc/ros-fairy/paths.yaml")
     if paths_file.is_file():
         for line in paths_file.read_text().splitlines():

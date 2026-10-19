@@ -10,8 +10,8 @@ from types import SimpleNamespace
 import pytest
 from rich.console import Console
 
-from ros_fairy.archive import bundle
-from ros_fairy.subcommands import export, verify
+from fairy.archive import bundle
+from fairy.subcommands import export, verify
 from tests.unit.test_subcommands import _make_archive
 
 

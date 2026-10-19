@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Re-stamp a rosbag2 bag (MCAP or sqlite3) whose recording clock was broken.
 
-Standalone wrapper around ``ros_fairy.utils.bag_repair`` for use outside a ROS
+Standalone wrapper around ``fairy.utils.bag_repair`` for use outside a ROS
 environment. Prefer ``ros2 fairy repair`` when ros-fairy is installed and sourced;
 this script is handy for a bare bag directory on any machine with the package
 importable.
@@ -15,7 +15,7 @@ import argparse
 import sys
 from pathlib import Path
 
-from ros_fairy.utils import bag_repair
+from fairy.utils import bag_repair
 
 
 def main() -> int:

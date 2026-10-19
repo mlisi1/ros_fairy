@@ -34,7 +34,7 @@ def pytest_collection_modifyitems(config, items):
 def _no_host_processes(monkeypatch, tmp_path_factory):
     """Keep this machine's processes out of the watchdog's ROS-process scan
     (tests/unit/test_ros_processes.py fabricates a /proc of its own)."""
-    from ros_fairy.watchdog import ros_processes
+    from fairy.watchdog import ros_processes
     monkeypatch.setattr(ros_processes, "PROC",
                         tmp_path_factory.mktemp("empty-proc"))
 
@@ -44,7 +44,7 @@ def _no_host_containers(monkeypatch):
     """Keep this machine's Docker containers out of the unit tests (doctor
     and setup compare them with the service). tests/unit/test_containers.py
     fakes the docker command instead."""
-    from ros_fairy.harvest import docker_info
+    from fairy.harvest import docker_info
 
     def unavailable(*args, **kwargs):
         raise docker_info.DockerUnavailable("no Docker in the unit tests")
@@ -58,7 +58,7 @@ def _no_host_udev(request, monkeypatch):
     itself are marked ``real_usb_udev`` and fake sysfs instead."""
     if "real_usb_udev" in request.keywords:
         return
-    from ros_fairy.harvest import usb_udev
+    from fairy.harvest import usb_udev
     monkeypatch.setattr(usb_udev, "harvest", lambda: {
         "usb": None, "udev_rules": None, "rule_files": {}, "trace": [],
         "partial": False})

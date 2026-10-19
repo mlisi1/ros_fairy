@@ -10,7 +10,7 @@ change (branches, the checks to run, commits) is in
 ./install.sh --dev           # also installs pytest, rocrate, ruff and mypy
 pytest                       # unit + integration, no ROS needed
 pytest -m ros -v             # live smoke tests, on a box with ROS 2 sourced
-ruff check . && mypy ros_fairy
+ruff check . && mypy fairy
 ```
 
 `pytest`, `ruff` and `mypy` run against the checkout, so they see your changes
@@ -22,7 +22,7 @@ the watchdog runs different code.
 
 **Continuous integration** (`.github/workflows/ci.yml`) runs the same checks
 on every push to `main` and `devel` and on every pull request: `pytest`,
-`ruff check .`, `mypy ros_fairy` and `mkdocs build --strict`, on Python 3.12
+`ruff check .`, `mypy fairy` and `mkdocs build --strict`, on Python 3.12
 (as on Jazzy / Ubuntu 24.04), with no ROS installed. All four must pass, so
 run them before pushing. A test that needs something of this machine (a
 sourced ROS, the `ros-fairy` group, a real tool) fails there: fake it as
@@ -31,7 +31,7 @@ in [Tests](#tests).
 ## Layout
 
 ```
-ros_fairy/
+fairy/
 ├── command/fairy.py         the `ros2 fairy` command (ros2cli extension)
 ├── subcommands/             one module per verb; shared helpers in __init__.py
 ├── watchdog/                the service: state machine, /proc recorder scan, the
@@ -46,7 +46,7 @@ ros_fairy/
 ├── utils/                   paths (and paths.yaml), atomic file IO, ROS env
 │                            handling, clock, bag readers, topic health, bag
 │                            repair, operator accounts, the harvest's tools
-└── build_info.py            which ros_fairy build is running
+└── build_info.py            which ROS F.A.I.R.y build is running
 tools/sandbox/               a throwaway robot in Docker, scenarios to run on it,
                              and the docs' screenshots (screenshots/)
 ```
@@ -73,14 +73,14 @@ unexpected errors get the standard messages and exit codes.
 - **The record format is versioned.** Adding fields to `manifest/schema.py`
   is a minor bump of `SCHEMA_VERSION`; changing or removing them is a major
   bump. See [Changing the record format](#changing-the-record-format).
-- **The version** lives in `package.xml`, `setup.py`, `ros_fairy/__init__.py`
+- **The version** lives in `package.xml`, `setup.py`, `fairy/__init__.py`
   and `CITATION.cff`; `tests/unit/test_packaging.py` checks they agree.
   The same test checks the service name, group and default paths written out
   in `uninstall.sh` and the systemd unit against the package.
 
 ## Changing the record format
 
-`SCHEMA_VERSION` in `ros_fairy/__init__.py` versions `mission_record.json` as
+`SCHEMA_VERSION` in `fairy/__init__.py` versions `mission_record.json` as
 `MAJOR.MINOR` ([Versioning](archive-format.md#versioning)). Saved missions
 outlive the version that wrote them, so every version keeps reading the older
 records, and reads a newer minor one by setting aside the fields it doesn't
@@ -101,7 +101,7 @@ To add a field (a minor bump):
    version (without it) still reads.
 
 Changing or removing a field is a major bump: older versions refuse the
-record and tell the user to update ros_fairy, and records already saved must
+record and tell the user to update ROS F.A.I.R.y, and records already saved must
 still read. Open an issue to discuss it first. A minor bump is almost always
 possible instead: add the new field and keep the old one.
 
@@ -226,4 +226,4 @@ request only builds it, so a broken link fails there before the merge.
   (run with `sudo`) and network access.
 - **`tools/restamp_bag.py <in_bag> <out_bag> [--duration S]`** is the bag-repair
   logic of `ros2 fairy repair`, for one bag, without the CLI. It needs
-  `ros_fairy` importable but not ROS.
+  `fairy` importable but not ROS.

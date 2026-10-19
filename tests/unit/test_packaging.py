@@ -2,8 +2,8 @@
 
 setup.py and package.xml both need a version literal (ament_python requires
 the package.xml one), so instead of build-time machinery this test pins them
-to ``ros_fairy.__version__``. uninstall.sh and the systemd unit can't import
-ros_fairy either (uninstall.sh must work on a broken install), so their names
+to ``fairy.__version__``. uninstall.sh and the systemd unit can't import
+fairy either (uninstall.sh must work on a broken install), so their names
 and paths are checked against the package here.
 """
 
@@ -11,25 +11,25 @@ import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-import ros_fairy
-from ros_fairy.subcommands import setup
-from ros_fairy.utils import paths
+import fairy
+from fairy.subcommands import setup
+from fairy.utils import paths
 
 REPO = Path(__file__).resolve().parents[2]
 
 
 def test_version_declarations_agree():
     package_xml = ET.parse(REPO / "package.xml").getroot()
-    assert package_xml.findtext("version") == ros_fairy.__version__
+    assert package_xml.findtext("version") == fairy.__version__
 
     setup_py = (REPO / "setup.py").read_text()
     match = re.search(r"version=\"([^\"]+)\"", setup_py)
     assert match is not None, "setup.py has no version= literal"
-    assert match.group(1) == ros_fairy.__version__
+    assert match.group(1) == fairy.__version__
 
     citation = (REPO / "CITATION.cff").read_text()
     assert re.search(r"^version: (\S+)$", citation, re.M).group(1) == \
-        ros_fairy.__version__
+        fairy.__version__
 
 
 def _shell_default(script: str, name: str) -> str:
@@ -46,11 +46,16 @@ def test_uninstall_script_matches_the_package():
     assert _shell_default(script, "CONFIG_DIR") == paths.DEFAULT_CONFIG_DIR
     assert _shell_default(script, "DEFAULT_VAR_DIR") == paths.DEFAULT_VAR_DIR
     assert f'"$CONFIG_DIR/{paths.paths_file().name}"' in script
+    # The distribution it uninstalls is the one setup.py builds.
+    name = re.search(r'^package_name = "([^"]+)"',
+                     (REPO / "setup.py").read_text(), re.M).group(1)
+    assert f"pip uninstall -y --break-system-packages {name} " in script
+    assert "ours fairy" in script and name == "fairy"
 
 
 def test_unit_files_match_the_package():
     shipped = REPO / "systemd" / setup.SERVICE_NAME
-    packaged = REPO / "ros_fairy" / "watchdog" / setup.SERVICE_NAME
+    packaged = REPO / "fairy" / "watchdog" / setup.SERVICE_NAME
     assert shipped.read_text() == packaged.read_text()
     unit = packaged.read_text()
     assert f"EnvironmentFile=-{paths.DEFAULT_CONFIG_DIR}/watchdog.env" in unit

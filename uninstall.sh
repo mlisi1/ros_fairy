@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Cleanly removes ros_fairy from this system: the systemd watchdog service,
+# Cleanly removes ROS F.A.I.R.y from this system: the systemd watchdog service,
 # /etc/ros-fairy, the ros-fairy group, the ephemeral parts of /var/ros-fairy
-# (spool/state/log), and the ros_fairy Python package itself — the reverse of
+# (spool/state/log), and the fairy Python package itself — the reverse of
 # install.sh + `ros2 fairy setup`.
 #
 # Deliberately NOT removed: your saved missions. /var/ros-fairy/archive (the
@@ -14,18 +14,18 @@
 set -euo pipefail
 
 # Deliberately not looked up from the installed package (e.g. `python3 -c
-# "from ros_fairy.subcommands.setup import SERVICE_NAME"`): this script must
+# "from fairy.subcommands.setup import SERVICE_NAME"`): this script must
 # keep working to clean up a broken/partial install, which is exactly when
-# importing ros_fairy might not. tests/unit/test_packaging.py checks these
-# against ros_fairy/subcommands/setup.py's SERVICE_NAME/GROUP_NAME and
-# ros_fairy/utils/paths.py's DEFAULT_CONFIG_DIR/DEFAULT_VAR_DIR and the
+# importing fairy might not. tests/unit/test_packaging.py checks these
+# against fairy/subcommands/setup.py's SERVICE_NAME/GROUP_NAME and
+# fairy/utils/paths.py's DEFAULT_CONFIG_DIR/DEFAULT_VAR_DIR and the
 # name of paths.yaml.
 SERVICE_NAME="ros-fairy-watchdog.service"
 GROUP_NAME="ros-fairy"
 CONFIG_DIR="${ROS_FAIRY_CONFIG_DIR:-/etc/ros-fairy}"
 # The data folder: ROS_FAIRY_VAR_DIR, else what `setup --var-dir` or
-# `move_data` recorded in paths.yaml (read here without ros_fairy), else the
-# default — the same order as ros_fairy/utils/paths.py.
+# `move_data` recorded in paths.yaml (read here without fairy), else the
+# default — the same order as fairy/utils/paths.py.
 DEFAULT_VAR_DIR="/var/ros-fairy"
 CONFIGURED_VAR_DIR=""
 if [ -f "$CONFIG_DIR/paths.yaml" ]; then
@@ -52,7 +52,7 @@ echo "  - the $SERVICE_NAME systemd service"
 echo "  - $CONFIG_DIR (robot identity, watchdog environment)"
 echo "  - the '$GROUP_NAME' system group"
 echo "  - $VAR_DIR/spool, $VAR_DIR/watchdog.state, $VAR_DIR/ros_processes.json, $VAR_DIR/log"
-echo "  - the ros_fairy Python package"
+echo "  - the fairy Python package"
 echo
 echo "It will NOT remove your saved missions:"
 echo "  - $ARCHIVE_DIR"
@@ -122,14 +122,30 @@ if getent group "$GROUP_NAME" >/dev/null 2>&1; then
         echo "Warning: couldn't remove group '$GROUP_NAME' (still someone's primary group?)." >&2
 fi
 
-echo "Uninstalling the ros_fairy Python package..."
-if ! "$PYTHON" -m pip uninstall -y --break-system-packages ros_fairy 2>/dev/null; then
-    "$PYTHON" -m pip uninstall -y ros_fairy || \
-        echo "Warning: pip uninstall reported an issue (already uninstalled?)." >&2
+# Only ours: a package called fairy that doesn't provide `ros2 fairy`'s verbs
+# is someone else's (PyPI has an unrelated one).
+ours() {
+    "$PYTHON" -c "import importlib.metadata as m, sys
+sys.exit(not any(e.group == 'fairy.verb' for e in m.distribution('$1').entry_points))" \
+        2>/dev/null
+}
+echo "Uninstalling the fairy Python package..."
+if ours fairy; then
+    if ! "$PYTHON" -m pip uninstall -y --break-system-packages fairy 2>/dev/null; then
+        "$PYTHON" -m pip uninstall -y fairy || \
+            echo "Warning: pip uninstall reported an issue." >&2
+    fi
+else
+    echo "(not installed)"
+fi
+# Its name before 0.1.0.
+if ours ros_fairy; then
+    "$PYTHON" -m pip uninstall -y --break-system-packages ros_fairy >/dev/null 2>&1 || \
+        "$PYTHON" -m pip uninstall -y ros_fairy >/dev/null 2>&1 || true
 fi
 
 echo
-echo "Done. ros_fairy has been removed from this system."
+echo "Done. ROS F.A.I.R.y has been removed from this system."
 if [ -d "$ARCHIVE_DIR" ] || [ -f "$INDEX_DB" ]; then
     echo
     echo "Your saved missions were left untouched:"

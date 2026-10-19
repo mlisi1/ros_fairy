@@ -42,7 +42,7 @@ jobs:
           cache-dependency-path: setup.py
       - run: pip install -e '.[dev]'
       - run: ruff check .
-      - run: mypy ros_fairy
+      - run: mypy fairy
 
   docs:
     runs-on: ubuntu-24.04

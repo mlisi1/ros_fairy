@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs ros_fairy for whichever ROS 2 install is (or isn't) sourced in this
+# Installs ROS F.A.I.R.y (the fairy package) for whichever ROS 2 install is (or isn't) sourced in this
 # shell right now.
 #
 # No colcon workspace needed: an ament_python package is really just a
@@ -15,7 +15,7 @@
 # ever appears.
 #
 # Then it offers to install the optional tools the harvest uses (lsusb,
-# lspci, v4l2-ctl, ...; the list is ros_fairy/utils/harvest_tools.py).
+# lspci, v4l2-ctl, ...; the list is fairy/utils/harvest_tools.py).
 #
 # Usage: ./install.sh [--dev] [--with-deps | --no-deps]
 #   --dev         also install the dev/test extras (pytest, ruff, mypy, rocrate)
@@ -104,25 +104,47 @@ if ! rm -rf "${STALE[@]}" 2>/dev/null; then
     fi
 fi
 
-echo "Installing ros_fairy..."
+# The package was called ros_fairy before 0.1.0. Left installed, it would
+# claim `ros2 fairy` too: remove it first, wherever it is.
+LEGACY="$(cd / && python3 -c 'import importlib.metadata as m
+for d in m.distributions():
+    if (d.metadata["Name"] or "").lower().replace("-", "_") == "ros_fairy":
+        print(d.locate_file(""))' 2>/dev/null || true)"
+for location in $LEGACY; do
+    echo "Removing the old ros_fairy package (now called fairy) from $location..."
+    case "$location" in
+        "$HOME"/*) python3 -m pip uninstall -y ros_fairy >/dev/null ;;
+        *) as_root python3 -m pip uninstall -y --break-system-packages \
+               ros_fairy >/dev/null ;;
+    esac || echo "Couldn't remove it: run \`python3 -m pip uninstall ros_fairy\`." >&2
+done
+
+echo "Installing ROS F.A.I.R.y (the fairy package)..."
 pip_install "$TARGET" || exit 1
+
+# A service set up before the rename still starts the old module.
+if grep -qs -- "-m ros_fairy\." /etc/systemd/system/ros-fairy-watchdog.service; then
+    echo "" >&2
+    echo "The watchdog service still starts the old ros_fairy module. With ROS" >&2
+    echo "sourced, update it with: ros2 fairy setup --refresh-env" >&2
+fi
 
 # A copy in ~/.local (left by an older install.sh) would shadow this one in
 # this account's shell, while the service runs the new one.
-SHADOW="$(cd / && python3 -c 'import os, ros_fairy; print(os.path.dirname(ros_fairy.__file__))' 2>/dev/null || true)"
+SHADOW="$(cd / && python3 -c 'import os, fairy; print(os.path.dirname(fairy.__file__))' 2>/dev/null || true)"
 case "$SHADOW" in
     "$HOME"/*)
         echo "" >&2
-        echo "Warning: an older ros_fairy in $SHADOW is used in your shell" >&2
+        echo "Warning: an older fairy package in $SHADOW is used in your shell" >&2
         echo "instead of the one just installed. Remove it (as $(id -un)," >&2
         echo "without sudo) with:" >&2
-        echo "    python3 -m pip uninstall ros_fairy" >&2
+        echo "    python3 -m pip uninstall fairy" >&2
         ;;
 esac
 
 # The optional tools the harvest uses. Asked about after the package itself,
 # whose list of them this reads.
-tools() { (cd / && python3 -m ros_fairy.utils.harvest_tools "$1"); }
+tools() { (cd / && python3 -m fairy.utils.harvest_tools "$1"); }
 MISSING_APT="$(tools apt)"
 MISSING_PIP="$(tools pip)"
 if [ -n "$MISSING_APT$MISSING_PIP" ]; then
@@ -153,13 +175,13 @@ if [ -n "$MISSING_APT$MISSING_PIP" ]; then
                 echo "Retrying after refreshing the package lists..." >&2
                 # shellcheck disable=SC2086
                 as_root apt-get update && as_root apt-get install -y $MISSING_APT \
-                    || echo "Couldn't install $MISSING_APT; ros_fairy works without them." >&2
+                    || echo "Couldn't install $MISSING_APT; ROS F.A.I.R.y works without them." >&2
             fi
         fi
         if [ -n "$MISSING_PIP" ]; then
             # shellcheck disable=SC2086
             pip_install $MISSING_PIP \
-                || echo "Couldn't install $MISSING_PIP; ros_fairy works without it." >&2
+                || echo "Couldn't install $MISSING_PIP; ROS F.A.I.R.y works without it." >&2
         fi
     else
         echo "Skipped. Install them later with ./install.sh --with-deps;"

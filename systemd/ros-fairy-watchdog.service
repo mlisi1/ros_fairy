@@ -16,8 +16,8 @@ Type=simple
 # graph. Loader paths from that group-writable file are never trusted.
 EnvironmentFile=-/etc/ros-fairy/watchdog.env
 # `ros2 fairy setup` replaces /usr/bin/python3 with the interpreter it ran
-# under when that one is root-owned and can import ros_fairy.
-ExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog
+# under when that one is root-owned and can import fairy.
+ExecStart=/usr/bin/python3 -m fairy.watchdog.watchdog
 Restart=always
 RestartSec=5
 # The watchdog must keep working when ROS 2 / Docker are down; it only needs

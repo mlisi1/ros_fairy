@@ -13,11 +13,11 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.archive import assembler, duplicates, index
-from ros_fairy.archive.assembler import AssemblyError
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import mission_close
-from ros_fairy.utils import fsio, paths
+from fairy.archive import assembler, duplicates, index
+from fairy.archive.assembler import AssemblyError
+from fairy.manifest import builder
+from fairy.subcommands import mission_close
+from fairy.utils import fsio, paths
 from tests.conftest import make_bag
 from tests.unit.test_archive import T0, _spool
 
@@ -626,8 +626,8 @@ def test_a_calibration_file_shared_by_two_sensors_is_listed_once(
 
 
 def test_checksums_file_is_part_of_the_crate(fairy_dirs):
-    from ros_fairy.archive import edit
-    from ros_fairy.subcommands import verify
+    from fairy.archive import edit
+    from fairy.subcommands import verify
     harvest, context = _spool(fairy_dirs)
     final = assembler.assemble(builder.build(harvest, context), harvest)
 

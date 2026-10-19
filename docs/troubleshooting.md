@@ -17,16 +17,16 @@ shell you run it from, start the robot's nodes, and check that `ros2 node list`
 shows them. Running as root? Use `--ros-setup /opt/ros/<distro>/setup.bash` if
 several distros are installed.
 
-**`setup`: "The watchdog service runs as root and can only load ros_fairy from
+**`setup`: "The watchdog service runs as root and can only load the `fairy` package from
 directories that only root can change".**
-ros_fairy was built in a colcon workspace, or installed in a venv, in your
+The `fairy` package was built in a colcon workspace, or installed in a venv, in your
 home directory. Install it with `./install.sh` from the checkout, then run
 `ros2 fairy setup` again.
 
 **Every `ros2 fairy` command fails with "cannot import name 'AfterValidator'
 from 'pydantic'".**
 Ubuntu's `python3-pydantic` (version 1) is installed, often by `rosdep`, and
-ros_fairy needs version 2.5 or newer:
+ROS F.A.I.R.y needs version 2.5 or newer:
 
 ```bash
 sudo python3 -m pip install --break-system-packages \
@@ -40,14 +40,14 @@ there is nowhere to record or save missions. An engineer runs it once; see
 
 **"Recording assistant is not running".**
 `systemctl status ros-fairy-watchdog` and `journalctl -u ros-fairy-watchdog`
-show why. If `doctor` also says "Background service can't load ros_fairy",
+show why. If `doctor` also says "Background service can't load the `fairy` package",
 it is only installed in a home directory, where the service (running as root)
 won't load it from: install it with `./install.sh` (see
 [Install the package](getting-started.md#1-install-the-package)) and re-run
 `ros2 fairy setup`.
 
 **"Watchdog runs different code than this command".**
-ros_fairy was updated but the service still runs the old code:
+ROS F.A.I.R.y was updated but the service still runs the old code:
 `sudo systemctl restart ros-fairy-watchdog`.
 
 **"... paths.yaml says where the missions are kept, but ...".**
@@ -141,7 +141,7 @@ The account running `doctor` may not use Docker. Run it from an account in the
 **A `ros2 bag record` I didn't want ended up in the mission.**
 The watchdog attaches any recording it sees on the machine. Take it out with
 `ros2 fairy drop <#>`, with the number `mission_status` shows for it (it stays
-on disk, since ros_fairy didn't make it).
+on disk, since ROS F.A.I.R.y didn't make it).
 Start throw-away recordings with `ROS_FAIRY_IGNORE=1` so they aren't attached
 in the first place.
 

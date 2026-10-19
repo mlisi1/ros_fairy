@@ -4,9 +4,9 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.manifest import builder
-from ros_fairy.ui import briefing, review, status
-from ros_fairy.utils import paths
+from fairy.manifest import builder
+from fairy.ui import briefing, review, status
+from fairy.utils import paths
 
 
 def _console():
@@ -154,7 +154,7 @@ def test_summary_renders_compressed_transport_as_a_note_not_a_warning():
     """A compressed_transport health_warning is informational: rendered
     with 'ℹ' (not '⚠'), and the sensor still shows as OK in the Sensors
     list — it did publish, just not on the exact declared topic."""
-    from ros_fairy.manifest import quality as quality_mod
+    from fairy.manifest import quality as quality_mod
     harvest = builder.compose_harvest(
         identity={
             "robot": {"name": "Heron-02", "platform": "Heron USV",
@@ -315,7 +315,7 @@ def test_briefing_asks_again_for_a_too_long_answer():
 
     from rich.console import Console
 
-    from ros_fairy.ui import briefing
+    from fairy.ui import briefing
     console = Console(file=io.StringIO(), width=200)
     with mock.patch.object(briefing.Prompt, "ask",
                            side_effect=["x" * 281, "Map the pier"]):

@@ -230,7 +230,7 @@ ros2 fairy mission_abort
 
 Abandons the open mission without saving. It asks twice: once to abort, and
 again before deleting recordings. Recordings in the spool are deleted.
-Recordings made outside ros_fairy stay where they are on disk.
+Recordings made outside ROS F.A.I.R.y stay where they are on disk.
 
 ### One recording too many: `drop`
 

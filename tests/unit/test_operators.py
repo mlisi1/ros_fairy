@@ -6,8 +6,8 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.subcommands import add_operator
-from ros_fairy.utils import operators
+from fairy.subcommands import add_operator
+from fairy.utils import operators
 
 ACCOUNTS = {"ana": 1000, "ben": 1001, "cleo": 1002, "svc": 990}
 GID = 990
@@ -172,7 +172,7 @@ def test_access_problem_added_after_login(fairy_dirs, monkeypatch):
 
 
 def test_verbs_refuse_before_asking_anything(fairy_dirs, monkeypatch):
-    from ros_fairy.subcommands import (
+    from fairy.subcommands import (
         adopt,
         mission_abort,
         mission_close,

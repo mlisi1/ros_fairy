@@ -20,7 +20,7 @@ robot, the sandbox robot, the documentation site).
 ```bash
 ./install.sh --dev                 # once: also installs pytest, rocrate, ruff, mypy
 pytest                             # unit + integration, no ROS needed
-ruff check . && mypy ros_fairy
+ruff check . && mypy fairy
 mkdocs build --strict              # if you touched docs/ (pip install -r requirements-docs.txt)
 ```
 
@@ -41,7 +41,7 @@ tools/sandbox/sandbox.sh down            # when you're done
   against one failure case (a crash mid-save, a full disk, a hung harvest);
   name yours after the case it guards.
 - **Tests must not depend on the machine.** CI has no ROS, no `ros-fairy`
-  group, no system-wide ros_fairy and no recorders running. Fake what the
+  group, no system-wide `fairy` package and no recorders running. Fake what the
   test needs (the paths, `/proc`, subprocesses, the clock) as the existing
   tests do; the table in
   [How things are faked](https://mlisi1.github.io/ros_fairy/development/#tests)
@@ -68,7 +68,7 @@ in short:
 ## Changing the mission record format
 
 The record (`mission_record.json`) is versioned by `SCHEMA_VERSION` in
-`ros_fairy/__init__.py`. Saved missions live for years, so every version must
+`fairy/__init__.py`. Saved missions live for years, so every version must
 keep reading the older ones. The steps are in
 [Changing the record format](https://mlisi1.github.io/ros_fairy/development/#changing-the-record-format).
 In short: adding a field is a minor bump, changing or removing one is a major

@@ -7,7 +7,7 @@ import pytest
 import yaml
 from rich.console import Console
 
-from ros_fairy.subcommands import doctor, setup, setup_edit
+from fairy.subcommands import doctor, setup, setup_edit
 
 
 def _args(*argv: str) -> argparse.Namespace:

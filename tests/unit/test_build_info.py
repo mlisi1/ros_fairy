@@ -9,12 +9,12 @@ from unittest import mock
 
 import pytest
 
-from ros_fairy import build_info
-from ros_fairy.archive import assembler
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import doctor, verify
-from ros_fairy.ui import diff
-from ros_fairy.utils import paths
+from fairy import build_info
+from fairy.archive import assembler
+from fairy.manifest import builder
+from fairy.subcommands import doctor, verify
+from fairy.ui import diff
+from fairy.utils import paths
 from tests.unit.test_archive import _spool
 
 REPO = Path(__file__).resolve().parents[2]
@@ -43,11 +43,11 @@ def test_checkout_reports_its_commit():
 
 
 def test_install_reports_what_setup_wrote(monkeypatch):
-    fake = types.ModuleType("ros_fairy._build_info")
+    fake = types.ModuleType("fairy._build_info")
     fake.BUILD = {"commit": "a" * 40, "describe": "v1.0-2-gaaaaaaa",
                   "branch": "main", "dirty": False,
                   "built_at": "2026-10-06T10:00:00+00:00"}
-    monkeypatch.setitem(sys.modules, "ros_fairy._build_info", fake)
+    monkeypatch.setitem(sys.modules, "fairy._build_info", fake)
     info = build_info.build_info()
     assert info["source"] == "install" and info["commit"] == "a" * 40
     assert build_info.short(info) == "v1.0-2-gaaaaaaa"
@@ -145,7 +145,7 @@ def test_doctor_names_the_builds(fairy_dirs):
 def test_code_id_ignores_the_generated_build_info(tmp_path):
     # _build_info.py holds the build's date: the same code installed twice
     # must keep one id, or doctor says the watchdog runs different code.
-    from ros_fairy.utils import code_id
+    from fairy.utils import code_id
     (tmp_path / "a.py").write_text("x = 1\n")
     (tmp_path / "_build_info.py").write_text("BUILT_AT = 'monday'\n")
     first = code_id._hash(tmp_path)

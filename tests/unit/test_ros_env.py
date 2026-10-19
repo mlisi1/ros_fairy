@@ -2,7 +2,7 @@
 
 import pytest
 
-from ros_fairy.utils import ros_env
+from fairy.utils import ros_env
 
 
 def test_capture_excludes_ros_fairys_own_override_vars():

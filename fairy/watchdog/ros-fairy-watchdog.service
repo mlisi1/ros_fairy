@@ -1,0 +1,34 @@
+[Unit]
+Description=ros-fairy recording assistant (mission context watchdog)
+Documentation=https://github.com/mlisi1/ros_fairy
+After=local-fs.target
+
+[Service]
+Type=simple
+# ROS 2 environment captured at `ros2 fairy setup` (PATH, AMENT_PREFIX_PATH,
+# ROS_DOMAIN_ID, RMW_IMPLEMENTATION, ...). Without it the service has no ROS on
+# PATH and the graph/description harvest fails. `-` makes it optional so the
+# watchdog still starts (and watches the spool) on a robot set up before this
+# file existed. Re-run `ros2 fairy setup` to (re)generate it. At mission time the
+# watchdog also adopts the recording shell's DDS discovery settings (domain,
+# RMW) from <spool>/session.env (written by mission_start/mission_record), so a
+# domain or RMW that drifted from this frozen snapshot still harvests the right
+# graph. Loader paths from that group-writable file are never trusted.
+EnvironmentFile=-/etc/ros-fairy/watchdog.env
+# `ros2 fairy setup` replaces /usr/bin/python3 with the interpreter it ran
+# under when that one is root-owned and can import fairy.
+ExecStart=/usr/bin/python3 -m fairy.watchdog.watchdog
+Restart=always
+RestartSec=5
+# The watchdog must keep working when ROS 2 / Docker are down; it only needs
+# the spool. Run as root group ros-fairy so operators can read the spool.
+Group=ros-fairy
+UMask=0002
+# With that group and umask, the bytecode Python caches for a module it
+# imports first (/opt/ros/.../__pycache__) would be group-writable: any
+# operator could plant code that root then runs. Write none.
+Environment=PYTHONDONTWRITEBYTECODE=1
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

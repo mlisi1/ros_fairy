@@ -4,10 +4,10 @@ import sqlite3
 
 import pytest
 
-from ros_fairy.archive import assembler, index
-from ros_fairy.archive.assembler import AssemblyError
-from ros_fairy.manifest import builder
-from ros_fairy.utils import fsio, paths
+from fairy.archive import assembler, index
+from fairy.archive.assembler import AssemblyError
+from fairy.manifest import builder
+from fairy.utils import fsio, paths
 from tests.conftest import make_bag
 
 T0 = 1_750_000_000.0
@@ -111,7 +111,7 @@ def test_sanitise():
 
 def test_assemble_full_crate(fairy_dirs):
     harvest, context = _spool(fairy_dirs)
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     ros_env.write_file(paths.session_env_path(), {"ROS_DOMAIN_ID": "7"})
     record = builder.build(harvest, context)
     final = assembler.assemble(record, harvest)
@@ -235,7 +235,7 @@ def test_ro_crate_document(fairy_dirs):
 def test_readme_flags_identifying_serials():
     from datetime import datetime, timezone
 
-    from ros_fairy.manifest.schema import (
+    from fairy.manifest.schema import (
         HardwareDevice,
         Identity,
         Intent,
@@ -567,7 +567,7 @@ def test_reindex_rebuilds(fairy_dirs):
 
 
 def test_find_similar_flags_mistyped_location(fairy_dirs):
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     # Save a "Crosslab" mission.
     harvest, context = _spool(fairy_dirs)
     context["intent"]["location_name"] = "Crosslab"
@@ -590,7 +590,7 @@ def test_duplicate_warning_is_one_line_however_many_matches(fairy_dirs):
     identical "Possible duplicate" warnings; the operator gets one."""
     from datetime import timedelta
 
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     now = record.identity.created_at
@@ -606,7 +606,7 @@ def test_duplicate_warning_is_one_line_however_many_matches(fairy_dirs):
 
 
 def test_find_similar_ignores_unrelated(fairy_dirs):
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     context["intent"]["location_name"] = "Crosslab"
     assembler.assemble(builder.build(harvest, context), harvest)
@@ -620,7 +620,7 @@ def test_find_similar_ignores_unrelated(fairy_dirs):
 def test_find_similar_respects_time_window(fairy_dirs):
     from datetime import timedelta
 
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     context["intent"]["location_name"] = "Crosslab"
     saved = builder.build(harvest, context)
@@ -641,7 +641,7 @@ def test_find_similar_does_not_flag_routine_same_day_revisits(fairy_dirs):
     mistake), not against visiting one site more than once."""
     from datetime import timedelta
 
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     context["intent"]["location_name"] = "Crosslab"
     saved = builder.build(harvest, context)
@@ -660,7 +660,7 @@ def test_find_similar_still_flags_within_the_new_window(fairy_dirs):
     accidental same-sitting re-save minutes later."""
     from datetime import timedelta
 
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     context["intent"]["location_name"] = "Crosslab"
     saved = builder.build(harvest, context)
@@ -723,7 +723,7 @@ def test_index_migrates_pre_v3_database_gets_mission_bags_table(fairy_dirs):
 
 
 def test_insert_populates_bag_fingerprints(fairy_dirs):
-    from ros_fairy.utils.topic_health import bag_fingerprint
+    from fairy.utils.topic_health import bag_fingerprint
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     index.insert(record, paths.archive_dir() / "x")
@@ -733,7 +733,7 @@ def test_insert_populates_bag_fingerprints(fairy_dirs):
 
 
 def test_find_bag_duplicate_excludes_named_mission(fairy_dirs):
-    from ros_fairy.utils.topic_health import bag_fingerprint
+    from fairy.utils.topic_health import bag_fingerprint
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     index.insert(record, paths.archive_dir() / "x")
@@ -751,7 +751,7 @@ def test_find_bag_duplicate_no_match_for_different_content(fairy_dirs):
 
 
 def test_reindex_repopulates_bag_fingerprints(fairy_dirs):
-    from ros_fairy.utils.topic_health import bag_fingerprint
+    from fairy.utils.topic_health import bag_fingerprint
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     final = paths.archive_dir() / "x"
@@ -766,7 +766,7 @@ def test_reindex_repopulates_bag_fingerprints(fairy_dirs):
 
 
 def test_find_exact_duplicate_flags_matching_content(fairy_dirs):
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     saved = builder.build(harvest, context)
     assembler.assemble(saved, harvest)
@@ -784,7 +784,7 @@ def test_find_exact_duplicate_flags_matching_content(fairy_dirs):
 
 
 def test_find_exact_duplicate_no_match_for_different_recording(fairy_dirs):
-    from ros_fairy.archive import duplicates
+    from fairy.archive import duplicates
     harvest, context = _spool(fairy_dirs)
     saved = builder.build(harvest, context)
     assembler.assemble(saved, harvest)

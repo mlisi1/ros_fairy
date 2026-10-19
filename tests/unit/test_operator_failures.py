@@ -13,9 +13,9 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.archive import assembler, index
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import (
+from fairy.archive import assembler, index
+from fairy.manifest import builder
+from fairy.subcommands import (
     adopt,
     doctor,
     export,
@@ -31,9 +31,9 @@ from ros_fairy.subcommands import (
     repair,
     verify,
 )
-from ros_fairy.subcommands import setup as setup_cmd
-from ros_fairy.ui import diff, status
-from ros_fairy.utils import fsio, paths
+from fairy.subcommands import setup as setup_cmd
+from fairy.ui import diff, status
+from fairy.utils import fsio, paths
 from tests.conftest import make_bag
 from tests.unit.test_archive import T0, _spool
 
@@ -389,7 +389,7 @@ def test_setup_checks_ros_with_one_participant(monkeypatch):
     setup_cmd._graph_cache.clear()
     take = mock.Mock(return_value={"nodes": ["/a"],
                                    "topics": [{"name": "/t"}]})
-    monkeypatch.setattr("ros_fairy.harvest.ros_snapshot.take", take)
+    monkeypatch.setattr("fairy.harvest.ros_snapshot.take", take)
     run = mock.Mock()
     monkeypatch.setattr(setup_cmd.subprocess, "run", run)
     assert setup_cmd._ros2_list("node") == ["/a"]
@@ -420,7 +420,7 @@ def test_diff_unknown_values(fairy_dirs):
 # -- S15: doctor --------------------------------------------------------------
 
 def test_doctor_spots_a_watchdog_on_old_code(fairy_dirs):
-    from ros_fairy.utils import code_id
+    from fairy.utils import code_id
     paths.watchdog_state_path().write_text(json.dumps({"code_id": "0ld"}))
     assert doctor._check_watchdog_code()["status"] == doctor.WARN
     paths.watchdog_state_path().write_text(

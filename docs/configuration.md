@@ -1,6 +1,6 @@
 # Configuration
 
-ros_fairy has very little to configure. Everything lives in two places, and
+ROS F.A.I.R.y has very little to configure. Everything lives in two places, and
 both are written by `ros2 fairy setup`.
 
 ## Paths
@@ -174,7 +174,7 @@ ROS_AUTOMATIC_DISCOVERY_RANGE  ROS_STATIC_PEERS
 ## ROS_FAIRY_IGNORE
 
 The watchdog notices **any** `ros2 bag record` on the machine, not just
-`mission_record` (see [Recordings made outside ros_fairy](architecture.md#recordings-made-outside-ros_fairy)),
+`mission_record` (see [Recordings made outside ROS F.A.I.R.y](architecture.md#recordings-made-outside-ros-fairy)),
 and attaches it to the current mission. To keep a recording out, start it with
 the variable set:
 
@@ -193,7 +193,7 @@ Any value other than empty or `0` counts.
 | --- | --- |
 | `After=local-fs.target` only | It must keep working when ROS, the network or Docker are down. It only needs the spool. |
 | `EnvironmentFile=-/etc/ros-fairy/watchdog.env` | The ROS environment. The `-` lets it start without one. |
-| `ExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog` | The interpreter `setup` ran under, if root owns it and it can load ros_fairy as the service would; otherwise `/usr/bin/python3`. `setup` stops if neither can. |
+| `ExecStart=/usr/bin/python3 -m fairy.watchdog.watchdog` | The interpreter `setup` ran under, if root owns it and it can load the `fairy` package as the service would; otherwise `/usr/bin/python3`. `setup` stops if neither can. |
 | `Group=ros-fairy`, `UMask=0002` | Operators can read and clean up what it writes. |
 | `Environment=PYTHONDONTWRITEBYTECODE=1` | Python writes no bytecode caches. With the group and umask above, a cache it wrote next to a module (`/opt/ros/.../__pycache__`) would be writable by every operator, and root would then run it. |
 | `Restart=always`, `RestartSec=5` | It recovers from crashes on its own ([crash recovery](architecture.md#crash-and-power-loss-recovery)). |
@@ -204,5 +204,5 @@ Useful commands:
 ```bash
 systemctl status ros-fairy-watchdog
 journalctl -u ros-fairy-watchdog -f
-sudo systemctl restart ros-fairy-watchdog    # after updating ros_fairy
+sudo systemctl restart ros-fairy-watchdog    # after updating ROS F.A.I.R.y
 ```

@@ -3,10 +3,10 @@ import json
 import pytest
 from inotify_simple import Event, flags
 
-from ros_fairy.manifest import builder
-from ros_fairy.utils import paths
-from ros_fairy.watchdog import watchdog as wd_mod
-from ros_fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
+from fairy.manifest import builder
+from fairy.utils import paths
+from fairy.watchdog import watchdog as wd_mod
+from fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
 from tests.conftest import make_bag
 
 T0 = 1_750_000_000.0
@@ -266,7 +266,7 @@ def test_unreliable_clock_bag_records_unknown_duration(fairy_dirs):
     assert any(w["kind"] == "unreliable_clock" for w in rec["health_warnings"])
     # the record still validates against the schema (timing fields optional),
     # as builder.build passes it: without the open mission's recording number.
-    from ros_fairy.manifest.schema import Bag
+    from fairy.manifest.schema import Bag
     assert rec.pop("recording_id") == 1
     Bag.model_validate(rec)
 
@@ -370,7 +370,7 @@ def test_apply_session_env_adopts_recording_shell(fairy_dirs):
     same DDS partition as the session actually recording (issue #29)."""
     from unittest import mock
 
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     paths.spool_dir().mkdir(parents=True, exist_ok=True)
     ros_env.write_file(paths.session_env_path(),
                        {"ROS_DOMAIN_ID": "42", "RMW_IMPLEMENTATION": "rmw_x"})
@@ -388,7 +388,7 @@ def test_apply_session_env_ignores_loader_paths(fairy_dirs):
     root watchdog process (privilege escalation)."""
     from unittest import mock
 
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     paths.spool_dir().mkdir(parents=True, exist_ok=True)
     ros_env.write_file(paths.session_env_path(),
                        {"ROS_DOMAIN_ID": "42", "PYTHONPATH": "/tmp/evil",
@@ -411,7 +411,7 @@ def test_apply_session_env_unsets_keys_absent_from_session(fairy_dirs):
     neither a previous session's value nor watchdog.env's (#29 review #3)."""
     from unittest import mock
 
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     paths.spool_dir().mkdir(parents=True, exist_ok=True)
     ros_env.write_file(paths.session_env_path(), {"ROS_DOMAIN_ID": "42"})
     with mock.patch.dict(wd_mod.os.environ,
@@ -507,7 +507,7 @@ def test_run_pipeline_marks_ros_graph_partial_when_incomplete(fairy_dirs,
     out — it returns complete=False instead. run_pipeline must not report
     that as a plain "ok", or the gap becomes invisible everywhere that reads
     harvest_status (status display, doctor, diff)."""
-    from ros_fairy.harvest import (
+    from fairy.harvest import (
         docker_info,
         hardware_devices,
         python_env,
@@ -633,7 +633,7 @@ def test_recording_start_supersedes_a_pending_retry(fairy_dirs):
 
 def test_run_pipeline_keeps_packages_when_graph_discovery_fails(fairy_dirs,
                                                                  monkeypatch):
-    from ros_fairy.harvest import (
+    from fairy.harvest import (
         docker_info,
         hardware_devices,
         python_env,
@@ -673,7 +673,7 @@ def test_spool_log_handler_mirrors_and_caps(fairy_dirs, monkeypatch):
     paths.spool_dir().mkdir(parents=True, exist_ok=True)
     handler = wd_mod.SpoolLogHandler()
     handler.setFormatter(logging.Formatter("%(levelname)s %(message)s"))
-    logger = logging.getLogger("ros_fairy.test_spool_log")
+    logger = logging.getLogger("fairy.test_spool_log")
     logger.addHandler(handler)
     logger.setLevel(logging.INFO)
     try:

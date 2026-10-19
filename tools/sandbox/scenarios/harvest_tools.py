@@ -11,7 +11,7 @@ INSTALL = "cd ~/ros_fairy && ./install.sh"
 
 
 def missing() -> str:
-    return sh("ana", "cd / && python3 -m ros_fairy.utils.harvest_tools list",
+    return sh("ana", "cd / && python3 -m fairy.utils.harvest_tools list",
               quiet=True).stdout
 
 

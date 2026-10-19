@@ -6,8 +6,8 @@ from unittest import mock
 
 import pytest
 
-from ros_fairy.harvest import docker_info, ros_graph, system_info
-from ros_fairy.harvest.ros_graph import RosGraphError
+from fairy.harvest import docker_info, ros_graph, system_info
+from fairy.harvest.ros_graph import RosGraphError
 
 
 def _completed(stdout="", returncode=0, stderr=""):
@@ -21,7 +21,7 @@ def _child(stdout="", returncode=0, stderr=""):
 
 # --- ros_graph (wraps the single-participant snapshot) -----------------------
 
-from ros_fairy.harvest import ros_snapshot  # noqa: E402
+from fairy.harvest import ros_snapshot  # noqa: E402
 
 PKG_LIST = "rclpy\nnav2_core\n"
 SNAP = {
@@ -83,7 +83,7 @@ def test_ros_graph_missing_parameters_degrade_and_are_logged():
 
     snap = {**SNAP, "parameters": {"/navsat": SNAP["parameters"]["/navsat"]},
             "params_missing": ["/controller"]}
-    logger = logging.getLogger("ros_fairy.harvest.ros_graph")
+    logger = logging.getLogger("fairy.harvest.ros_graph")
     collect, old_level = Collect(), logger.level
     logger.addHandler(collect)
     logger.setLevel(logging.INFO)
@@ -146,7 +146,7 @@ def test_snapshot_take_parses_child_output():
     with mock.patch("subprocess.run", return_value=_child(out)) as run:
         assert ros_snapshot.take(nodes_only=True)["nodes"] == SNAP["nodes"]
     cmd = run.call_args.args[0]
-    assert cmd[1:3] == ["-m", "ros_fairy.harvest.ros_snapshot"]
+    assert cmd[1:3] == ["-m", "fairy.harvest.ros_snapshot"]
     assert "--nodes-only" in cmd
     assert "ParticipantIndex" in run.call_args.kwargs["env"]["CYCLONEDDS_URI"]
 

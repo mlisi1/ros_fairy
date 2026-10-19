@@ -11,13 +11,13 @@ from unittest import mock
 import pytest
 from inotify_simple import flags
 
-from ros_fairy.archive import assembler
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import adopt
-from ros_fairy.utils import fsio, paths
-from ros_fairy.watchdog import recorder_scan
-from ros_fairy.watchdog import watchdog as wd_mod
-from ros_fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
+from fairy.archive import assembler
+from fairy.manifest import builder
+from fairy.subcommands import adopt
+from fairy.utils import fsio, paths
+from fairy.watchdog import recorder_scan
+from fairy.watchdog import watchdog as wd_mod
+from fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
 from tests.conftest import make_bag
 from tests.unit.test_watchdog import (
     T0,

@@ -1,6 +1,6 @@
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Changelog for package ros_fairy
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Changelog for package fairy
+^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Forthcoming
 -----------
@@ -27,7 +27,7 @@ before 1.0.
   every node's parameters, the URDF and ``/tf_static``, the sensors seen
   publishing, ROS and Python packages, Docker containers and their
   packages, hardware devices, USB power management and the udev rules that
-  apply, system information, and the exact ros_fairy build that captured
+  apply, system information, and the exact ROS F.A.I.R.y build that captured
   and saved each mission.
 * Recording health: gaps, low data rates, clock jumps, cut-off recordings
   and declared sensors that never published, in plain language. Each

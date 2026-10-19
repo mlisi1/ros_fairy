@@ -56,13 +56,13 @@ cd ros_fairy
    | `rocrate` | Python package | the full RO-Crate check in `verify` |
 
    The apt packages are installed with `apt-get` (refreshing the package lists
-   if needed), `rocrate` with pip like ros_fairy itself. With no terminal to
+   if needed), `rocrate` with pip like the `fairy` package itself. With no terminal to
    ask on, it skips them and says so. Docker is never installed: whether the
    robot runs containers is your choice. `ros2 fairy doctor` lists whatever is
    still missing.
 
 If `ros2` isn't on your `PATH`, the script only prints a reminder: ROS is
-needed to *use* ros_fairy, not to install it.
+needed to *use* ROS F.A.I.R.y, not to install it.
 
 ### Or build it in a colcon workspace
 
@@ -70,7 +70,7 @@ The package is `ament_python`, so this works as well:
 
 ```bash
 cd ~/ros2_ws/src && git clone https://github.com/mlisi1/ros_fairy.git
-cd ~/ros2_ws && colcon build --packages-select ros_fairy
+cd ~/ros2_ws && colcon build --packages-select fairy
 source install/setup.bash
 ```
 
@@ -82,7 +82,7 @@ sudo python3 -m pip install --break-system-packages \
     "pydantic>=2.5" "rich>=13" "PyYAML>=6" "inotify_simple>=1.3" mcap zstandard
 ```
 
-Don't use `rosdep install` for ros_fairy: on Jazzy it can't resolve all of
+Don't use `rosdep install` for ROS F.A.I.R.y: on Jazzy it can't resolve all of
 its dependencies, and it installs Ubuntu's `python3-pydantic`, version 1,
 with which no `ros2 fairy` command loads. If that package is already
 installed, add `--ignore-installed typing_extensions` to the command above.
@@ -271,7 +271,7 @@ ros2 fairy doctor
 ```
 
 `doctor` runs sixteen read-only checks: identity, where missions are kept,
-watchdog alive, up to date and able to load ros_fairy, ROS reachable, service
+watchdog alive, up to date and able to load the `fairy` package, ROS reachable, service
 environment matching your shell and the robot's ROS containers, last harvest,
 clock synchronisation, MCAP support, the harvest's optional tools, disk space,
 Docker and incomplete saves. It ends

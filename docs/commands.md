@@ -73,7 +73,7 @@ on stdin.
 | `--ros-setup PATH` | Only when running setup directly as root (`sudo ros-fairy-setup`): the ROS 2 `setup.bash` to source. Auto-detected when there is exactly one `/opt/ros/*/setup.bash`. |
 
 It refuses (exit 1) if ROS isn't sourced, no ROS nodes are visible, or the
-service (which runs as root) couldn't load ros_fairy, e.g. when it is only
+service (which runs as root) couldn't load the `fairy` package, e.g. when it is only
 installed in a home directory. It also fails if `sudo` isn't available, or the
 service fails or keeps restarting in its first 10 s (then check
 `journalctl -u ros-fairy-watchdog`). Declining the review writes nothing and
@@ -143,7 +143,7 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | Robot identity | `robot_identity.yaml` is missing ("Robot is not set up") or has a mistake ("The robot configuration has a mistake", with what's wrong; fix it with [`setup`'s flags](#changing-one-part-of-the-configuration)) |
 | Data folder | says where missions are kept; fails if `paths.yaml` can't be used, warns if this shell's `ROS_FAIRY_VAR_DIR` points elsewhere than the service, or missions were left behind in `/var/ros-fairy` |
 | Recording assistant | the watchdog isn't installed yet ("Recording assistant is not installed": run `setup`; the service checks below are left out until then), isn't running, or has been recording with no heartbeat for 5 minutes |
-| Service interpreter | the installed service's interpreter can't load ros_fairy (only installed in a home directory) |
+| Service interpreter | the installed service's interpreter can't load the `fairy` package (only installed in a home directory), or the service starts an old module (`ros_fairy`, from before the package was renamed; `setup --refresh-env` updates it) |
 | Watchdog code | the running watchdog's code differs from the installed code (restart it) |
 | ROS graph | `ros2` isn't on `PATH`, ROS isn't reachable, or no nodes are running |
 | ROS environment | `ROS_DISTRO` isn't set in this shell |
@@ -308,7 +308,7 @@ ros2 fairy mission_abort [--yes] [--debug]
 ![ros2 fairy mission_abort asking to confirm, listing the recording it would delete, then asking Delete 1 recording and abort](assets/screenshots/mission_abort.png)
 
 Abandons the open mission. It asks to confirm, and again before deleting
-spool recordings. Recordings made outside ros_fairy are never deleted.
+spool recordings. Recordings made outside ROS F.A.I.R.y are never deleted.
 `--yes` skips both questions. It refuses (exit 1) while a recording is in
 progress, while `mission_close` runs, or while an interrupted save is
 unfinished (run `mission_close` to finish it first). If a recording was
@@ -392,7 +392,7 @@ change, so paths to the mission still work.
   once all are complete. If it's interrupted, `verify` says so and the next
   `mission_edit` of that mission finishes the swap (or throws away a
   half-written edit, leaving the mission as it was).
-- **Newer records** (saved by a newer ros_fairy, with fields this version
+- **Newer records** (saved by a newer ROS F.A.I.R.y, with fields this version
   doesn't know) are refused: rewriting them would lose those fields.
 
 **Redacting.** A normal edit keeps the old values in the mission's history
@@ -482,11 +482,11 @@ With no arguments, compares the two most recent missions (`2` and `1`). Give
 both or neither.
 
 It only shows sections that differ: mission context, software (packages, the
-Python packages of ros_fairy's interpreter and of each container, containers),
+Python packages of ROS F.A.I.R.y's interpreter and of each container, containers),
 sensors (added, removed, or with another model, type, topic, frame or
 calibration), ROS graph, parameters, robot description (URDF),
 `/tf_static`, USB and udev, and recordings. tf2's randomly-named internal nodes
-are ignored. If a mission was saved by a newer ros_fairy, it says what it
+are ignored. If a mission was saved by a newer ROS F.A.I.R.y, it says what it
 couldn't compare.
 
 ## verify

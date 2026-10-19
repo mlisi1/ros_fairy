@@ -8,9 +8,9 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import guarded_main, mission_start
-from ros_fairy.utils import fsio, paths
+from fairy.manifest import builder
+from fairy.subcommands import guarded_main, mission_start
+from fairy.utils import fsio, paths
 from tests.conftest import make_bag
 from tests.unit.test_operator_failures import _orphan_harvest
 

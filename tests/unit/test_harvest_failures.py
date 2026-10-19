@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from ros_fairy.harvest import (
+from fairy.harvest import (
     docker_info,
     hardware_devices,
     python_env,
@@ -18,8 +18,8 @@ from ros_fairy.harvest import (
     ros_snapshot,
     system_info,
 )
-from ros_fairy.manifest import builder
-from ros_fairy.watchdog import watchdog as wd_mod
+from fairy.manifest import builder
+from fairy.watchdog import watchdog as wd_mod
 
 # -- H13 / H11: the snapshot child's output ------------------------------------
 
@@ -104,7 +104,7 @@ def test_partial_node_is_incomplete_and_lists_what_is_missing():
 
 
 def test_diff_does_not_call_a_not_captured_parameter_removed(fairy_dirs):
-    from ros_fairy.ui import diff
+    from fairy.ui import diff
     from tests.unit.test_archive import _spool
     harvest, context = _spool(fairy_dirs)
     a = builder.build(harvest, context)
@@ -296,7 +296,7 @@ def test_identity_not_utf8_is_a_plain_error(fairy_dirs):
 # -- H18: not captured vs none, in the diff --------------------------------------
 
 def test_diff_with_uncaptured_debs_says_so(fairy_dirs):
-    from ros_fairy.ui import diff
+    from fairy.ui import diff
     from tests.unit.test_archive import _spool
     harvest, context = _spool(fairy_dirs)
     a = builder.build(harvest, context)

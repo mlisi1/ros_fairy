@@ -1,4 +1,4 @@
-"""Unit tests for ros_fairy.harvest.python_env.
+"""Unit tests for fairy.harvest.python_env.
 
 All subprocess and importlib.metadata calls are monkeypatched; no pip or
 real package index required.
@@ -6,17 +6,21 @@ real package index required.
 
 import json
 import sys
+from types import SimpleNamespace
 from unittest.mock import MagicMock
 
-import ros_fairy.harvest.python_env as pe
+import fairy.harvest.python_env as pe
 
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
 
 def _fake_dist(name: str, version: str, installer: str | None = "pip",
-               direct_url: dict | None = None) -> MagicMock:
+               direct_url: dict | None = None,
+               verbs: bool = True) -> MagicMock:
     dist = MagicMock()
+    # Ours provides `ros2 fairy`'s verbs; PyPI's unrelated fairy doesn't.
+    dist.entry_points = [SimpleNamespace(group="fairy.verb")] if verbs else []
     # Mirror importlib.metadata.Distribution: .name/.version are properties
     # backed by the metadata mapping. The harvest reads the properties.
     dist.metadata = {"Name": name, "Version": version}
@@ -89,7 +93,7 @@ def test_venv_none_when_system_interpreter(monkeypatch):
 
 def test_ros_fairy_editable_true(monkeypatch):
     dists = [_fake_dist(
-        "ros_fairy", "0.1.0",
+        "fairy", "0.1.0",
         direct_url={"url": "file:///home/dev/ros_fairy",
                     "dir_info": {"editable": True}})]
     monkeypatch.setattr(pe, "distributions", lambda: iter(dists))
@@ -102,11 +106,20 @@ def test_ros_fairy_editable_true(monkeypatch):
 
 
 def test_ros_fairy_editable_false(monkeypatch):
-    dists = [_fake_dist("ros_fairy", "0.1.0")]  # no direct_url.json
+    dists = [_fake_dist("fairy", "0.1.0")]  # no direct_url.json
     monkeypatch.setattr(pe, "distributions", lambda: iter(dists))
     monkeypatch.setattr("subprocess.run", lambda *a, **kw: _completed())
     result = pe.harvest()
     assert result["python_env"]["ros_fairy_editable"] is False
+
+
+def test_an_unrelated_fairy_is_not_taken_for_ours(monkeypatch):
+    dists = [_fake_dist("fairy", "0.1.0", verbs=False,
+                        direct_url={"url": "file:///x",
+                                    "dir_info": {"editable": True}})]
+    monkeypatch.setattr(pe, "distributions", lambda: iter(dists))
+    monkeypatch.setattr("subprocess.run", lambda *a, **kw: _completed())
+    assert pe.harvest()["python_env"]["ros_fairy_editable"] is False
 
 
 def test_pip_unavailable(monkeypatch):

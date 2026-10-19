@@ -13,4 +13,4 @@ dist/
 site/
 test_data
 # generated at build time by setup.py
-ros_fairy/_build_info.py
+fairy/_build_info.py

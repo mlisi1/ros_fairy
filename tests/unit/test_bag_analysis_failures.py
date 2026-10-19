@@ -8,7 +8,7 @@ from unittest import mock
 import pytest
 import yaml
 
-from ros_fairy.utils import bag_repair, bag_storage, topic_health
+from fairy.utils import bag_repair, bag_storage, topic_health
 from tests.conftest import make_bag, make_mcap_bag
 
 T0 = 1_790_000_000.0
@@ -221,7 +221,7 @@ def test_odd_metadata_does_not_raise(tmp_path, info):
 
 
 def test_bag_without_metadata_is_timed_from_its_storage(fairy_dirs, tmp_path):
-    from ros_fairy.watchdog import watchdog as wd
+    from fairy.watchdog import watchdog as wd
     bag = _mcap(tmp_path / "killed", STREAMS, 90)
     (bag / "metadata.yaml").unlink()  # recorder killed before closing
     rec = wd._bag_record(bag, "detected", [])

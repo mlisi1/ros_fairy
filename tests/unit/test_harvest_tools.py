@@ -1,7 +1,7 @@
 import pytest
 
-from ros_fairy.subcommands import doctor
-from ros_fairy.utils import harvest_tools
+from fairy.subcommands import doctor
+from fairy.utils import harvest_tools
 
 
 @pytest.fixture

@@ -1,8 +1,8 @@
 import pytest
 
-import ros_fairy
-from ros_fairy.manifest import builder, validator
-from ros_fairy.manifest.builder import ManifestError
+import fairy
+from fairy.manifest import builder, validator
+from fairy.manifest.builder import ManifestError
 
 GRAPH = {
     "captured_at": "2026-06-12T14:03:00+00:00",
@@ -57,7 +57,7 @@ def test_compose_harvest_sensor_liveness():
     by_id = {s["sensor_id"]: s for s in h["sensors"]}
     assert by_id["gps0"]["detected_at_start"] is True
     assert by_id["sonar0"]["detected_at_start"] is False
-    assert h["software"]["ros_fairy_version"] == ros_fairy.__version__
+    assert h["software"]["ros_fairy_version"] == fairy.__version__
     assert h["provenance"]["harvest_status"] == STATUS
 
 
@@ -140,7 +140,7 @@ def test_build_record_and_confidence():
     assert fc["ros_graph.parameters"] == "auto"
     assert "ros_graph.parameters./navsat" not in fc
     # round-trips through json mode
-    from ros_fairy import SCHEMA_VERSION
+    from fairy import SCHEMA_VERSION
     assert record.model_dump(mode="json")["schema_version"] == SCHEMA_VERSION
 
 
@@ -209,7 +209,7 @@ def test_harvest_level_warnings_does_not_double_report_a_silent_sensor():
 def test_load_spool(fairy_dirs):
     import json
 
-    from ros_fairy.utils import paths
+    from fairy.utils import paths
     assert builder.load_spool() == (None, None)
     paths.harvest_json_path().write_text(json.dumps(_harvest()))
     paths.mission_context_path().write_text(json.dumps(_context()))

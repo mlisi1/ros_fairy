@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from ros_fairy.utils import bag_storage
+from fairy.utils import bag_storage
 from tests.conftest import make_bag, make_mcap_bag
 
 T0 = 1_750_000_000.0

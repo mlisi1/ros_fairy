@@ -2,7 +2,7 @@ import importlib.util
 
 import pytest
 
-from ros_fairy.utils import topic_health
+from fairy.utils import topic_health
 from tests.conftest import make_bag, make_mcap_bag
 
 _MCAP_PRESENT = importlib.util.find_spec("mcap") is not None
@@ -404,7 +404,7 @@ def test_bag_fingerprint_ignores_topic_order():
 
 
 def test_bag_fingerprint_accepts_pydantic_bag_model():
-    from ros_fairy.manifest.schema import Bag, BagTopic
+    from fairy.manifest.schema import Bag, BagTopic
     bag = Bag(path="bags/x", storage_format="sqlite3", size_bytes=1_048_576,
              duration_s=600.0, message_count=6001,
              topics=[BagTopic(name="/fix", type="t", message_count=6001)])

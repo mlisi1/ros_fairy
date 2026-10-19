@@ -11,8 +11,8 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import (
+from fairy.manifest import builder
+from fairy.subcommands import (
     doctor,
     export,
     list_missions,
@@ -25,8 +25,8 @@ from ros_fairy.subcommands import (
     mission_status,
     repair,
 )
-from ros_fairy.subcommands import setup as setup_cmd
-from ros_fairy.utils import clock, fsio, paths
+from fairy.subcommands import setup as setup_cmd
+from fairy.utils import clock, fsio, paths
 from tests.unit.test_archive import _spool
 
 
@@ -55,7 +55,7 @@ def test_mission_start_writes_context(fairy_dirs):
 
 def test_mission_start_snapshots_session_ros_env(fairy_dirs):
     """The recording shell's ROS env is handed to the watchdog (issue #29)."""
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     answers = {"operator_name": "Jane", "goal": "g", "location_name": "L",
                "environment": None, "notes": None}
     with mock.patch.object(mission_start.briefing, "ask_briefing",
@@ -69,7 +69,7 @@ def test_mission_start_snapshots_session_ros_env(fairy_dirs):
 
 def test_mission_record_snapshots_session_ros_env(fairy_dirs):
     _spool(fairy_dirs)
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     with mock.patch.object(mission_record.shutil, "which",
                            return_value="/usr/bin/ros2"), \
             mock.patch.object(mission_record.clock, "is_synchronized",
@@ -440,7 +440,7 @@ def test_mission_close_discard_flow(fairy_dirs):
 
 def test_mission_close_discard_clears_session_env(fairy_dirs):
     _spool(fairy_dirs)
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     ros_env.write_file(paths.session_env_path(), {"ROS_DOMAIN_ID": "7"})
     with mock.patch.object(mission_close.review, "confirm_save",
                            return_value="discard"):
@@ -515,7 +515,7 @@ def test_list_no_index(fairy_dirs):
 def test_list_shows_missions(fairy_dirs):
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     assembler.assemble(record, harvest)
 
     # Wide enough that the added Mission ID column (fixed-width, no_wrap)
@@ -549,7 +549,7 @@ def test_list_shows_missions(fairy_dirs):
 
 def test_list_flags_incomplete_saves(fairy_dirs):
     harvest, context = _spool(fairy_dirs)
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     assembler.assemble(builder.build(harvest, context), harvest)
     (paths.archive_dir() / "2026-09-29_17-04-31_cut-off").mkdir()
     console = Console(file=io.StringIO(), width=160, force_terminal=False)
@@ -589,7 +589,7 @@ def test_list_divides_different_days_with_a_rule(fairy_dirs):
 
 
 def test_list_prints_latest_last_and_all_lifts_limit(fairy_dirs):
-    from ros_fairy.archive import index
+    from fairy.archive import index
     for day in range(3):
         _make_archive(fairy_dirs, created_at=f"2026-06-1{day}T09:00:00+00:00")
     oldest, middle, newest = [r["mission_id"] for r in index.query()[0]][::-1]
@@ -616,7 +616,7 @@ def test_list_prints_latest_last_and_all_lifts_limit(fairy_dirs):
 
 
 def test_list_json(fairy_dirs, capsys):
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     harvest, context = _spool(fairy_dirs)
     assembler.assemble(builder.build(harvest, context), harvest)
 
@@ -632,7 +632,7 @@ def test_list_json(fairy_dirs, capsys):
 
 def _two_missions_one_exported(fairy_dirs):
     """Two indexed missions; the first has an export record."""
-    from ros_fairy.archive import index
+    from fairy.archive import index
     a = _indexed_mission(fairy_dirs, "a")
     b = _indexed_mission(fairy_dirs, "b")
     index.mark_exported(a, Path("/media/usb/a.tar.zst"), "tar.zst", "f00d")
@@ -640,7 +640,7 @@ def _two_missions_one_exported(fairy_dirs):
 
 
 def _indexed_mission(fairy_dirs, suffix: str) -> str:
-    from ros_fairy.archive import index
+    from fairy.archive import index
     if not paths.mission_context_path().exists():
         _spool(fairy_dirs)
     harvest, context = builder.load_spool()
@@ -688,7 +688,7 @@ def test_list_exported_flags_parse(fairy_dirs):
 
 
 def test_list_forgotten_export_is_unmarked(fairy_dirs):
-    from ros_fairy.archive import index
+    from fairy.archive import index
     a, _b = _two_missions_one_exported(fairy_dirs)
     index.forget_export(a)
     assert index.query(exported=True) == ([], 0)
@@ -699,7 +699,7 @@ def test_list_reads_an_index_older_than_exports(fairy_dirs, monkeypatch):
     exports table means nothing was exported, not an empty list."""
     import sqlite3
 
-    from ros_fairy.archive import index
+    from fairy.archive import index
     a, b = _two_missions_one_exported(fairy_dirs)
     con = sqlite3.connect(paths.index_db_path())
     con.execute("DROP TABLE exports")
@@ -723,7 +723,7 @@ def test_list_json_no_index(fairy_dirs, capsys):
 
 
 def test_diff_json(fairy_dirs, capsys):
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     h1, c1 = _spool(fairy_dirs)
     assembler.assemble(builder.build(h1, c1), h1)
     h2, c2 = _spool(fairy_dirs)
@@ -847,7 +847,7 @@ def test_apply_via_sudo_pipes_payload_over_stdin(fairy_dirs):
 
 def test_apply_via_sudo_preserves_dir_overrides_and_pythonpath(fairy_dirs):
     """sudo's env_reset must not silently drop a relocated install's
-    ROS_FAIRY_CONFIG_DIR/VAR_DIR, nor break `import ros_fairy` for a
+    ROS_FAIRY_CONFIG_DIR/VAR_DIR, nor break `import fairy` for a
     colcon-workspace install that relies on PYTHONPATH."""
     console = _console()
     with mock.patch.object(setup_cmd.shutil, "which",
@@ -861,7 +861,7 @@ def test_apply_via_sudo_preserves_dir_overrides_and_pythonpath(fairy_dirs):
     assert "ROS_FAIRY_VAR_DIR" in preserve
     assert "PYTHONPATH" in preserve
     # The PYTHONPATH handed to sudo's own process (for --preserve-env to
-    # forward) must point at the directory containing the ros_fairy package,
+    # forward) must point at the directory containing the fairy package,
     # not whatever the unprivileged shell's PYTHONPATH happened to be.
     assert kwargs["env"]["PYTHONPATH"] == \
         str(Path(setup_cmd.__file__).resolve().parents[2])
@@ -999,7 +999,7 @@ def test_install_service_writes_the_chosen_interpreter(fairy_dirs):
                               side_effect=fake_run):
         setup_cmd.install_service(_console(), {}, "/opt/py/bin/python3")
     unit = (fairy_dirs["cfg"] / setup_cmd.SERVICE_NAME).read_text()
-    assert "ExecStart=/opt/py/bin/python3 -m ros_fairy.watchdog.watchdog" \
+    assert "ExecStart=/opt/py/bin/python3 -m fairy.watchdog.watchdog" \
         in unit
     assert "ExecStart=/usr/bin/python3" not in unit
 
@@ -1018,8 +1018,8 @@ def test_service_import_location_sees_only_what_the_service_sees(fairy_dirs):
     """A home-directory copy on PYTHONPATH (colcon workspace) is dropped, as
     the service drops it, so the check fails instead of the service."""
     user_dir = fairy_dirs["cfg"] / "ws"
-    (user_dir / "ros_fairy").mkdir(parents=True)
-    (user_dir / "ros_fairy" / "__init__.py").write_text("")
+    (user_dir / "fairy").mkdir(parents=True)
+    (user_dir / "fairy" / "__init__.py").write_text("")
     env = {"PYTHONPATH": str(user_dir), "PATH": "/usr/bin:/bin"}
     # None, or a system-wide install when this machine has one.
     found = setup_cmd.service_import_location("/usr/bin/python3", env)
@@ -1030,11 +1030,11 @@ def test_service_import_location_reports_where_it_imports_from(fairy_dirs):
     def fake_run(cmd, **kwargs):
         assert kwargs["cwd"] == "/"
         assert kwargs["env"]["PYTHONNOUSERSITE"] == "1"
-        return SimpleNamespace(returncode=0, stdout="/usr/lib/x/ros_fairy\n")
+        return SimpleNamespace(returncode=0, stdout="/usr/lib/x/fairy\n")
 
     with mock.patch.object(setup_cmd.subprocess, "run", side_effect=fake_run):
         assert setup_cmd.service_import_location("/usr/bin/python3", {}) == \
-            "/usr/lib/x/ros_fairy"
+            "/usr/lib/x/fairy"
 
 
 def test_choose_service_python_refuses_when_nothing_can_import(fairy_dirs):
@@ -1295,7 +1295,7 @@ def test_repair_command_unknown_target(fairy_dirs):
 # --- data quality / degradation gate -----------------------------------------
 
 def test_quality_ok_for_healthy_mission(fairy_dirs):
-    from ros_fairy.manifest import quality
+    from fairy.manifest import quality
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     assert quality.assess(record, harvest).level == quality.OK
@@ -1304,8 +1304,8 @@ def test_quality_ok_for_healthy_mission(fairy_dirs):
 def test_sensor_silent_in_one_recording_only_is_not_silent(fairy_dirs):
     """2026-10-02: an unrelated recording without sensor topics made every
     sensor of the mission count as 'produced no data at all'."""
-    from ros_fairy.manifest import quality
-    from ros_fairy.manifest.schema import HealthWarning
+    from fairy.manifest import quality
+    from fairy.manifest.schema import HealthWarning
     harvest, context = _spool(fairy_dirs, n_bags=2)
     record = builder.build(harvest, context)
     silent = HealthWarning(topic="/fix", sensor_id="gps0",
@@ -1320,7 +1320,7 @@ def test_sensor_silent_in_one_recording_only_is_not_silent(fairy_dirs):
 
 
 def test_quality_poor_without_ros_context(fairy_dirs):
-    from ros_fairy.manifest import quality
+    from fairy.manifest import quality
     harvest, context = _spool(fairy_dirs)
     harvest["ros_graph"]["nodes"] = []
     harvest["provenance"]["harvest_status"]["ros_graph"] = "failed"
@@ -1330,7 +1330,7 @@ def test_quality_poor_without_ros_context(fairy_dirs):
 
 
 def test_quality_poor_when_all_bags_unusable(fairy_dirs):
-    from ros_fairy.manifest import quality
+    from fairy.manifest import quality
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     for b in record.bags:
@@ -1339,7 +1339,7 @@ def test_quality_poor_when_all_bags_unusable(fairy_dirs):
 
 
 def test_quality_degraded_when_sensor_not_detected(fairy_dirs):
-    from ros_fairy.manifest import quality
+    from fairy.manifest import quality
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
     for s in record.sensors:
@@ -1366,7 +1366,7 @@ def test_mission_close_gates_poor_mission(fairy_dirs):
 
 
 def test_mission_close_warns_on_likely_duplicate(fairy_dirs):
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
 
     # 1) Save a "Crosslab" mission.
     harvest, context = _spool(fairy_dirs)
@@ -1401,7 +1401,7 @@ def test_mission_close_does_not_gate_healthy_mission(fairy_dirs):
 # --- export ------------------------------------------------------------------
 
 def _make_archive(fairy_dirs, created_at: str | None = None):
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     harvest, context = _spool(fairy_dirs)
     if created_at:
         context["identity"]["created_at"] = created_at
@@ -1533,7 +1533,7 @@ def test_export_compressed_tar_is_zstd(fairy_dirs, tmp_path, capsys):
         lambda p: zstandard.ZstdDecompressor().stream_reader(open(p, "rb")))
     assert content == (crate / "mission_record.json").read_bytes()
     assert not list(tmp_path.glob("*.part"))
-    from ros_fairy.archive import index
+    from fairy.archive import index
     con = index._connect()
     assert con.execute("SELECT format FROM exports").fetchone()[0] == \
         "tar.zst"
@@ -1678,15 +1678,30 @@ def test_doctor_service_python_reads_the_installed_unit(fairy_dirs):
     with mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]):
         assert doctor._check_service_python()["status"] == doctor.SKIP
         (fairy_dirs["cfg"] / setup_cmd.SERVICE_NAME).write_text(
-            "[Service]\nExecStart=/opt/py/bin/python3 -m x\n")
+            "[Service]\nExecStart=/opt/py/bin/python3 -m "
+            "fairy.watchdog.watchdog\n")
         with mock.patch.object(setup_cmd, "service_import_location",
                                return_value=None) as loc:
             c = doctor._check_service_python()
         assert c["status"] == doctor.FAIL and "install.sh" in c["hint"]
         assert loc.call_args[0][0] == "/opt/py/bin/python3"
         with mock.patch.object(setup_cmd, "service_import_location",
-                               return_value="/usr/lib/ros_fairy"):
+                               return_value="/usr/lib/fairy"):
             assert doctor._check_service_python()["status"] == doctor.OK
+
+
+def test_doctor_sees_a_service_set_up_before_the_rename(fairy_dirs):
+    # Its unit starts ros_fairy's watchdog; "can load the fairy package"
+    # was all doctor checked.
+    (fairy_dirs["cfg"] / setup_cmd.SERVICE_NAME).write_text(
+        "[Service]\nExecStart=/usr/bin/python3 -m ros_fairy.watchdog.watchdog\n")
+    with mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]), \
+            mock.patch.object(setup_cmd, "service_import_location",
+                              return_value="/usr/lib/fairy"):
+        c = doctor._check_service_python()
+    assert c["status"] == doctor.FAIL
+    assert "ros_fairy.watchdog.watchdog" in c["detail"]
+    assert "--refresh-env" in c["hint"]
 
 
 def test_doctor_watchdog_stale_heartbeat_only_matters_while_recording():
@@ -1695,7 +1710,7 @@ def test_doctor_watchdog_stale_heartbeat_only_matters_while_recording():
     import os
     from datetime import datetime, timedelta, timezone
 
-    from ros_fairy.watchdog import watchdog as wd
+    from fairy.watchdog import watchdog as wd
     old = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
     idle = {"pid": os.getpid(), "state": "IDLE", "heartbeat_at": old}
     with mock.patch.object(wd, "read_state", return_value=idle):
@@ -1710,7 +1725,7 @@ def test_doctor_watchdog_stale_heartbeat_only_matters_while_recording():
 
 
 def test_doctor_service_harvest_distinguishes_service_context():
-    from ros_fairy.watchdog import watchdog as wd
+    from fairy.watchdog import watchdog as wd
     with mock.patch.object(wd, "read_state",
                            return_value={"harvest_status": {"ros_graph": "ok"}}):
         assert doctor._check_service_harvest()["status"] == doctor.OK
@@ -1727,7 +1742,7 @@ def test_doctor_service_harvest_partial_is_history_not_a_warning():
     """2026-10-02: "parameter capture timed out" warned next to "no nodes are
     running" — it described the last recording, not now. A partial capture
     still proves the service reaches ROS."""
-    from ros_fairy.watchdog import watchdog as wd
+    from fairy.watchdog import watchdog as wd
     captured = datetime.now(timezone.utc).isoformat()
     state = {"harvest_status": {"ros_graph": "partial"},
              "harvest_captured_at": captured, "harvest_node_count": 38}
@@ -1746,7 +1761,7 @@ def test_doctor_service_env_missing_file_fails(fairy_dirs):
 
 
 def test_doctor_service_env_no_distro_fails(fairy_dirs):
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     ros_env.write_file(paths.watchdog_env_path(), {"PATH": "/usr/bin"})
     assert doctor._check_service_env()["status"] == doctor.FAIL
 
@@ -1757,7 +1772,7 @@ SERVICE_ENV = {"ROS_DISTRO": "jazzy", "ROS_DOMAIN_ID": "7",
 
 
 def _service_check(shell):
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     ros_env.write_file(paths.watchdog_env_path(), SERVICE_ENV)
     fairy = {k: v for k, v in os.environ.items() if k.startswith("ROS_FAIRY_")}
     with mock.patch.dict(doctor.os.environ, {**fairy, **shell}, clear=True):
@@ -1811,7 +1826,7 @@ def test_doctor_check_that_raises_becomes_fail():
     ("could not join the ROS graph: boom", "fail", "not reachable"),
 ])
 def test_doctor_ros_reachable_classifies_snapshot_errors(error, status, title):
-    from ros_fairy.harvest import ros_graph
+    from fairy.harvest import ros_graph
     with mock.patch.object(ros_graph, "list_nodes",
                            side_effect=ros_graph.RosGraphError(error)):
         result = doctor._check_ros_reachable()
@@ -1926,7 +1941,7 @@ def test_setup_written_identity_is_harvestable(fairy_dirs):
                      "make_model": "F9P", "topic": "/fix"}],
     }
     setup_cmd.write_identity(config)
-    from ros_fairy.harvest import robot_identity
+    from fairy.harvest import robot_identity
     data = robot_identity.harvest()
     assert data["robot"]["name"] == "Heron-02"
     assert data["sensors"][0]["sensor_id"] == "gps0"
@@ -1935,7 +1950,7 @@ def test_setup_written_identity_is_harvestable(fairy_dirs):
 # --- verb boundary guard (no tracebacks, Ctrl-C -> 130) ----------------------
 
 def test_guarded_main_turns_ctrl_c_into_130(capsys):
-    from ros_fairy.subcommands import guarded_main
+    from fairy.subcommands import guarded_main
 
     def run(args):
         raise KeyboardInterrupt
@@ -1947,7 +1962,7 @@ def test_guarded_main_turns_ctrl_c_into_130(capsys):
 
 
 def test_guarded_main_hides_unexpected_errors(capsys):
-    from ros_fairy.subcommands import guarded_main
+    from fairy.subcommands import guarded_main
 
     def run(args):
         raise RuntimeError("internal detail the operator must not see")
@@ -1960,7 +1975,7 @@ def test_guarded_main_hides_unexpected_errors(capsys):
 
 
 def test_guarded_main_reraises_for_engineers():
-    from ros_fairy.subcommands import guarded_main
+    from fairy.subcommands import guarded_main
 
     def run(args):
         raise RuntimeError("boom")
@@ -1970,7 +1985,7 @@ def test_guarded_main_reraises_for_engineers():
 
 
 def test_guarded_main_passes_through_exit_codes():
-    from ros_fairy.subcommands import guarded_main
+    from fairy.subcommands import guarded_main
     assert guarded_main(lambda args: 0, SimpleNamespace()) == 0
     assert guarded_main(lambda args: 3, SimpleNamespace()) == 3
 
@@ -1981,13 +1996,13 @@ def test_all_verb_wrappers_are_guarded():
     import inspect
     import re
 
-    from ros_fairy import subcommands as pkg
+    from fairy import subcommands as pkg
     # Every verb registered in setup.py (S20: a hand-kept list let a new
     # verb go unchecked).
     setup_py = (Path(__file__).resolve().parents[2] / "setup.py").read_text()
     block = setup_py[setup_py.index('"fairy.verb": ['):]
     block = block[:block.index("]")]
-    targets = re.findall(r'"\s*\w+\s*=\s*(ros_fairy\.subcommands\.\w+):'
+    targets = re.findall(r'"\s*\w+\s*=\s*(fairy\.subcommands\.\w+):'
                          r'(?:"\s*")?(\w+)', block)
     assert len(targets) >= 15, targets
     modules = [importlib.import_module(mod) for mod, _cls in targets]
@@ -2008,8 +2023,8 @@ def test_all_verb_wrappers_are_guarded():
 # --- reindex ------------------------------------------------------------------
 
 def test_reindex_verb_rebuilds_index(fairy_dirs, capsys):
-    from ros_fairy.archive import assembler, index
-    from ros_fairy.subcommands import reindex
+    from fairy.archive import assembler, index
+    from fairy.subcommands import reindex
 
     harvest, context = _spool(fairy_dirs)
     record = builder.build(harvest, context)
@@ -2024,7 +2039,7 @@ def test_reindex_verb_rebuilds_index(fairy_dirs, capsys):
 
 
 def test_reindex_verb_json_and_empty_archive(fairy_dirs, capsys):
-    from ros_fairy.subcommands import reindex
+    from fairy.subcommands import reindex
 
     args = SimpleNamespace(json=True, debug=False)
     assert reindex.run(args, console=_console()) == 0
@@ -2070,7 +2085,7 @@ def _delete(args, confirm=(True,), phrase=mission_delete.PHRASE, tty=True,
 
 
 def _saved(fairy_dirs, *created):
-    from ros_fairy.archive import index
+    from fairy.archive import index
     for c in created:
         _make_archive(fairy_dirs, created_at=c)
     rows, _ = index.query(limit=None)
@@ -2078,7 +2093,7 @@ def _saved(fairy_dirs, *created):
 
 
 def test_mission_delete_one_by_id(fairy_dirs):
-    from ros_fairy.archive import index
+    from fairy.archive import index
     saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00",
                    "2026-06-11T09:00:00+00:00")
     victim, keep = sorted(saved)
@@ -2109,7 +2124,7 @@ def test_mission_delete_takes_exact_ids_only(fairy_dirs):
 
 
 def test_mission_delete_all_asks_for_sudo_first(fairy_dirs):
-    from ros_fairy.archive import index
+    from fairy.archive import index
     saved = _saved(fairy_dirs, "2026-06-10T09:00:00+00:00",
                    "2026-06-11T09:00:00+00:00")
     rc, out, calls, _ = _delete({"all": True})
@@ -2138,7 +2153,7 @@ def test_mission_delete_today_only_today(fairy_dirs):
                        today.isoformat())
         rc, _, calls, _ = _delete({"today": True})
         assert rc == 0 and calls[0] == ["sudo", "-v"]
-        from ros_fairy.archive import index
+        from fairy.archive import index
         remaining = [r["created_at"] for r in index.query()[0]]
         assert remaining == ["2026-06-10T09:00:00+00:00"]
         assert sum(p.exists() for p in saved.values()) == 1
@@ -2179,11 +2194,11 @@ def test_mission_delete_never_leaves_the_archive(fairy_dirs, tmp_path):
 
 def _refresh(fairy_dirs, tmp_path, shell, service, unit_python="/usr/bin/python3",
              active=True, **extra):
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     unit_dir = tmp_path / "units"
     unit_dir.mkdir(exist_ok=True)
     (unit_dir / setup_cmd.SERVICE_NAME).write_text(
-        f"[Service]\nExecStart={unit_python} -m ros_fairy.watchdog.watchdog\n")
+        f"[Service]\nExecStart={unit_python} -m fairy.watchdog.watchdog\n")
     paths.robot_identity_path().write_text("robot: {}\n")
     ros_env.write_file(paths.watchdog_env_path(), service)
     console = _console()
@@ -2224,7 +2239,7 @@ def test_refresh_env_restarts_an_inactive_service(fairy_dirs, tmp_path):
 
 
 def test_refresh_env_shows_changes_and_applies(fairy_dirs, tmp_path):
-    from ros_fairy.utils import ros_env
+    from fairy.utils import ros_env
     ros_env.write_file(paths.session_env_path(), {"ROS_DOMAIN_ID": "7"})
     shell = {**ENV, "ROS_DOMAIN_ID": "42"}
     code, out, sudo = _refresh(fairy_dirs, tmp_path, shell, ENV,
@@ -2364,7 +2379,7 @@ def test_list_refuses_dates_that_find_nothing(fairy_dirs, since, until,
 def test_diff_with_one_mission_or_the_same_one(fairy_dirs):
     # "There is only 1 saved mission; 2 is out of range", and a mission
     # compared with itself.
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     h1, c1 = _spool(fairy_dirs)
     assembler.assemble(builder.build(h1, c1), h1)
     console = _console()
@@ -2377,7 +2392,7 @@ def test_diff_with_one_mission_or_the_same_one(fairy_dirs):
 
 
 def test_no_missions_yet_is_said_plainly(fairy_dirs):
-    from ros_fairy.archive import index, locate
+    from fairy.archive import index, locate
     index._connect().close()  # an empty index
     with pytest.raises(locate.LocateError,
                        match="No missions have been saved on this robot yet"):

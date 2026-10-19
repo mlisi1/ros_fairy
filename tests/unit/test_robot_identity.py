@@ -1,7 +1,7 @@
 import pytest
 
-from ros_fairy.harvest import robot_identity
-from ros_fairy.harvest.robot_identity import RobotIdentityError
+from fairy.harvest import robot_identity
+from fairy.harvest.robot_identity import RobotIdentityError
 
 
 def test_valid_identity(identity_yaml):

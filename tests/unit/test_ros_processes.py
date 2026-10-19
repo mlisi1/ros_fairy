@@ -8,11 +8,11 @@ import os
 import pytest
 from rich.console import Console
 
-from ros_fairy.harvest import docker_info
-from ros_fairy.subcommands import doctor
-from ros_fairy.subcommands import setup as setup_cmd
-from ros_fairy.utils import paths, ros_env
-from ros_fairy.watchdog import ros_processes
+from fairy.harvest import docker_info
+from fairy.subcommands import doctor
+from fairy.subcommands import setup as setup_cmd
+from fairy.utils import paths, ros_env
+from fairy.watchdog import ros_processes
 from tests.unit.test_containers import (
     ROS,
     _inspect,
@@ -100,7 +100,7 @@ def test_read_without_or_with_a_broken_file(fairy_dirs):
 
 
 def test_the_watchdog_scans_at_once_then_every_ten_seconds(fairy_dirs):
-    from ros_fairy.watchdog.watchdog import Watchdog
+    from fairy.watchdog.watchdog import Watchdog
     from tests.unit.test_watchdog import (
         FakeClock,
         FakeINotify,

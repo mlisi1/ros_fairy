@@ -10,9 +10,9 @@ from unittest import mock
 
 from rich.console import Console
 
-from ros_fairy.archive import assembler
-from ros_fairy.subcommands import mission_abort, mission_close, mission_start
-from ros_fairy.utils import fsio, paths
+from fairy.archive import assembler
+from fairy.subcommands import mission_abort, mission_close, mission_start
+from fairy.utils import fsio, paths
 from tests.conftest import make_bag
 from tests.unit.test_archive import _spool
 from tests.unit.test_drop import (

@@ -28,13 +28,13 @@ from pathlib import Path
 
 import pytest
 
-from ros_fairy.archive import assembler
-from ros_fairy.harvest import ros_graph
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import verify
-from ros_fairy.utils import fsio, paths
-from ros_fairy.watchdog import recorder_scan, watchdog
-from ros_fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
+from fairy.archive import assembler
+from fairy.harvest import ros_graph
+from fairy.manifest import builder
+from fairy.subcommands import verify
+from fairy.utils import fsio, paths
+from fairy.watchdog import recorder_scan, watchdog
+from fairy.watchdog.watchdog import IDLE, RECORDING, Watchdog
 
 pytestmark = pytest.mark.ros
 
@@ -113,7 +113,7 @@ def test_fair_verb_is_discoverable():
          "import sys; sys.exit(not any(e.name == 'fairy' for e in "
          "entry_points(group='ros2cli.command')))"], cwd="/").returncode == 0
     if not installed:
-        pytest.skip("ros_fairy isn't installed (./install.sh), so ros2 "
+        pytest.skip("the fairy package isn't installed (./install.sh), so ros2 "
                     "can't know its command")
     out = subprocess.run(["ros2", "fairy", "--help"],
                          capture_output=True, text=True, timeout=30)

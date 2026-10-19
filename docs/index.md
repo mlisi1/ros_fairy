@@ -2,7 +2,7 @@
 
 # ROS F.A.I.R.y
 
-ROS F.A.I.R.y (the `ros_fairy` ROS 2 package) makes field-mission data
+ROS F.A.I.R.y (the `fairy` ROS 2 package) makes field-mission data
 [FAIR](references.md#fair): Findable, Accessible, Interoperable and Reusable,
 without extra work in the field. The operator answers five questions; a
 background service captures everything else about the robot while it records;

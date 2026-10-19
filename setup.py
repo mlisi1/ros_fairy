@@ -5,7 +5,7 @@ from pathlib import Path
 from setuptools import find_packages, setup
 from setuptools.command.build_py import build_py
 
-package_name = "ros_fairy"
+package_name = "fairy"
 HERE = Path(__file__).resolve().parent
 
 
@@ -13,7 +13,7 @@ def _git(*args):
     """Output of a git command in this checkout, or None. safe.directory: a
     root install (sudo ./install.sh) of a checkout owned by the operator is
     otherwise refused as "dubious ownership". Same logic as
-    ros_fairy/build_info.py's git_details (setup can't import the package it
+    fairy/build_info.py's git_details (setup can't import the package it
     is building)."""
     try:
         out = subprocess.run(
@@ -38,7 +38,7 @@ def _build_details():
 
 
 class BuildPyWithBuildInfo(build_py):
-    """Write ros_fairy/_build_info.py (git commit, describe, branch, dirty,
+    """Write fairy/_build_info.py (git commit, describe, branch, dirty,
     build time) into the built package: an installed package has no .git,
     so this is the only moment the commit can be recorded. Written into the
     build directory only; the source tree is left untouched."""
@@ -58,7 +58,7 @@ setup(
     packages=find_packages(exclude=["tests", "tests.*"]),
     python_requires=">=3.10",
     package_data={
-        "ros_fairy.watchdog": ["ros-fairy-watchdog.service"],
+        "fairy.watchdog": ["ros-fairy-watchdog.service"],
     },
     data_files=[
         ("share/ament_index/resource_index/packages",
@@ -98,43 +98,43 @@ setup(
     license="Apache-2.0",
     entry_points={
         "ros2cli.command": [
-            "fairy = ros_fairy.command.fairy:FairyCommand",
+            "fairy = fairy.command.fairy:FairyCommand",
         ],
         "ros2cli.extension_point": [
-            "fairy.verb = ros_fairy.subcommands:VerbExtension",
+            "fairy.verb = fairy.subcommands:VerbExtension",
         ],
         "fairy.verb": [
-            "setup = ros_fairy.subcommands.setup:SetupVerb",
-            "mission_start = ros_fairy.subcommands.mission_start:"
+            "setup = fairy.subcommands.setup:SetupVerb",
+            "mission_start = fairy.subcommands.mission_start:"
             "MissionStartVerb",
-            "mission_record = ros_fairy.subcommands.mission_record:"
+            "mission_record = fairy.subcommands.mission_record:"
             "MissionRecordVerb",
-            "mission_close = ros_fairy.subcommands.mission_close:"
+            "mission_close = fairy.subcommands.mission_close:"
             "MissionCloseVerb",
-            "mission_abort = ros_fairy.subcommands.mission_abort:"
+            "mission_abort = fairy.subcommands.mission_abort:"
             "MissionAbortVerb",
-            "drop = ros_fairy.subcommands.drop:DropVerb",
-            "mission_edit = ros_fairy.subcommands.mission_edit:"
+            "drop = fairy.subcommands.drop:DropVerb",
+            "mission_edit = fairy.subcommands.mission_edit:"
             "MissionEditVerb",
-            "mission_delete = ros_fairy.subcommands.mission_delete:"
+            "mission_delete = fairy.subcommands.mission_delete:"
             "MissionDeleteVerb",
-            "mission_status = ros_fairy.subcommands.mission_status:"
+            "mission_status = fairy.subcommands.mission_status:"
             "MissionStatusVerb",
-            "list = ros_fairy.subcommands.list_missions:ListVerb",
-            "diff = ros_fairy.subcommands.mission_diff:DiffVerb",
-            "verify = ros_fairy.subcommands.verify:VerifyVerb",
-            "doctor = ros_fairy.subcommands.doctor:DoctorVerb",
-            "export = ros_fairy.subcommands.export:ExportVerb",
-            "repair = ros_fairy.subcommands.repair:RepairVerb",
-            "adopt = ros_fairy.subcommands.adopt:AdoptVerb",
-            "reindex = ros_fairy.subcommands.reindex:ReindexVerb",
-            "add_operator = ros_fairy.subcommands.add_operator:"
+            "list = fairy.subcommands.list_missions:ListVerb",
+            "diff = fairy.subcommands.mission_diff:DiffVerb",
+            "verify = fairy.subcommands.verify:VerifyVerb",
+            "doctor = fairy.subcommands.doctor:DoctorVerb",
+            "export = fairy.subcommands.export:ExportVerb",
+            "repair = fairy.subcommands.repair:RepairVerb",
+            "adopt = fairy.subcommands.adopt:AdoptVerb",
+            "reindex = fairy.subcommands.reindex:ReindexVerb",
+            "add_operator = fairy.subcommands.add_operator:"
             "AddOperatorVerb",
-            "move_data = ros_fairy.subcommands.move_data:MoveDataVerb",
+            "move_data = fairy.subcommands.move_data:MoveDataVerb",
         ],
         "console_scripts": [
-            "ros-fairy-watchdog = ros_fairy.watchdog.watchdog:main",
-            "ros-fairy-setup = ros_fairy.subcommands.setup:main",
+            "ros-fairy-watchdog = fairy.watchdog.watchdog:main",
+            "ros-fairy-setup = fairy.subcommands.setup:main",
         ],
     },
 )

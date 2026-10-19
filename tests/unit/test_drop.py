@@ -8,11 +8,11 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import drop
-from ros_fairy.ui import status
-from ros_fairy.utils import fsio, paths
-from ros_fairy.watchdog import watchdog as wd
+from fairy.manifest import builder
+from fairy.subcommands import drop
+from fairy.ui import status
+from fairy.utils import fsio, paths
+from fairy.watchdog import watchdog as wd
 from tests.conftest import make_bag
 
 T0 = 1_790_000_000.0

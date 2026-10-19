@@ -8,7 +8,7 @@ import time
 CHILD = """
 from types import SimpleNamespace
 from rich.prompt import Prompt
-from ros_fairy.subcommands import guarded_main
+from fairy.subcommands import guarded_main
 
 def run(args):
     print("ANSWER", repr(Prompt.ask("Goal")))

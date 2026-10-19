@@ -1,4 +1,4 @@
-"""Unit tests for ros_fairy.harvest.hardware_devices.
+"""Unit tests for fairy.harvest.hardware_devices.
 
 No real USB devices, cameras, or serial ports required. All external commands
 and filesystem globs are monkeypatched.
@@ -7,7 +7,7 @@ and filesystem globs are monkeypatched.
 import subprocess
 from unittest.mock import MagicMock
 
-import ros_fairy.harvest.hardware_devices as hd
+import fairy.harvest.hardware_devices as hd
 
 # ---------------------------------------------------------------------------
 # helpers

@@ -9,8 +9,8 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.subcommands import setup as setup_cmd
-from ros_fairy.utils import paths
+from fairy.subcommands import setup as setup_cmd
+from fairy.utils import paths
 
 
 def _console():

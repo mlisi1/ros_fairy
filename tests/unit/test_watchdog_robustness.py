@@ -12,12 +12,12 @@ from unittest import mock
 import pytest
 from inotify_simple import flags
 
-from ros_fairy.manifest import builder
-from ros_fairy.ui import status
-from ros_fairy.utils import bag_storage, fsio, paths, ros_env
-from ros_fairy.watchdog import recorder_scan
-from ros_fairy.watchdog import watchdog as wd_mod
-from ros_fairy.watchdog.watchdog import FINALISING, IDLE, RECORDING, Watchdog
+from fairy.manifest import builder
+from fairy.ui import status
+from fairy.utils import bag_storage, fsio, paths, ros_env
+from fairy.watchdog import recorder_scan
+from fairy.watchdog import watchdog as wd_mod
+from fairy.watchdog.watchdog import FINALISING, IDLE, RECORDING, Watchdog
 from tests.conftest import make_bag
 from tests.unit.test_watchdog import (
     T0,
@@ -66,7 +66,7 @@ def _me():
 
 def _capture_log():
     """Records logged by the watchdog. Attached to its own logger: the
-    ``ros_fairy`` parent may be a launch LaunchLogger that doesn't pass
+    ``fairy`` parent may be a launch LaunchLogger that doesn't pass
     records to added handlers."""
     records = []
     handler = logging.Handler()
@@ -591,7 +591,7 @@ def test_user_writable_search_paths_are_dropped(tmp_path):
 
 
 def test_setup_writes_a_root_safe_watchdog_env(fairy_dirs, tmp_path):
-    from ros_fairy.subcommands import setup
+    from fairy.subcommands import setup
     mine = tmp_path / "bin"
     mine.mkdir()
     setup.write_watchdog_env({"PATH": f"{mine}:/usr/bin",

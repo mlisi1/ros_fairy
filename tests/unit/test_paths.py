@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from ros_fairy.utils import paths
+from fairy.utils import paths
 
 
 def test_defaults(monkeypatch):

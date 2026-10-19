@@ -1,6 +1,6 @@
 # Architecture
 
-ros_fairy has two halves that share one directory tree:
+ROS F.A.I.R.y has two halves that share one directory tree:
 
 - **The CLI** (`ros2 fairy <verb>`), run by the operator. It asks the briefing
   questions, starts recordings, and makes the save/discard decision.
@@ -17,11 +17,11 @@ plus the watchdog's status file (see [Paths](configuration.md#paths)).
 
 ## The watchdog
 
-Source: `ros_fairy/watchdog/watchdog.py`, `ros_fairy/watchdog/recorder_scan.py`.
+Source: `fairy/watchdog/watchdog.py`, `fairy/watchdog/recorder_scan.py`.
 
 ### Startup
 
-1. Records its own build (see [Provenance of ros_fairy itself](#provenance-of-ros_fairy-itself)).
+1. Records its own build (see [Provenance of ROS F.A.I.R.y itself](#provenance-of-ros-fairy-itself)).
 2. Logs to stdout (the systemd journal) and mirrors INFO and above to
    `spool/watchdog.log`. That file is capped at 1 MiB (the oldest half is dropped)
    and is archived with the mission as `harvest/watchdog.log`.
@@ -54,7 +54,7 @@ Source: `ros_fairy/watchdog/watchdog.py`, `ros_fairy/watchdog/recorder_scan.py`.
 - a `.mcap` or `.db3` file appears in a new folder under `spool/bags/` (inotify);
 - a folder that already holds a storage file is moved into the spool;
 - the `/proc` scan finds a recorder writing somewhere else (see
-  [Recordings made outside ros_fairy](#recordings-made-outside-ros_fairy));
+  [Recordings made outside ROS F.A.I.R.y](#recordings-made-outside-ros-fairy));
 - after a restart, a bag is found that is still being written.
 
 On entering RECORDING the watchdog starts the
@@ -91,7 +91,7 @@ retry whose own graph capture fails stays a description retry.
 When captures are merged, a failed ROS capture never overwrites an earlier
 successful one.
 
-### Recordings made outside ros_fairy
+### Recordings made outside ROS F.A.I.R.y
 
 inotify only sees the spool, but people also run a plain `ros2 bag record` in
 another terminal, the bare recorder node
@@ -226,8 +226,8 @@ fails is recorded with its status, and the others still run. The result is
 
 ### One DDS participant for the whole ROS capture
 
-`ros_fairy/harvest/ros_snapshot.py` runs as a short-lived child process
-(`python -m ros_fairy.harvest.ros_snapshot`). A hang can be killed, and no rclpy
+`fairy/harvest/ros_snapshot.py` runs as a short-lived child process
+(`python -m fairy.harvest.ros_snapshot`). A hang can be killed, and no rclpy
 state lives in the watchdog. A single rclpy node:
 
 1. waits for discovery to settle (2–8 s);
@@ -260,7 +260,7 @@ Hidden nodes (a name segment starting with `_`) and tf2's
 ## Saving a mission
 
 Saving is the CLI's job, never the watchdog's: `mission_close` turns the spool
-into a crate in three stages, in `ros_fairy/archive/assembler.py`. A plan file
+into a crate in three stages, in `fairy/archive/assembler.py`. A plan file
 records which stage a save has reached, so one cut off by a crash is
 discarded or finished by the next `mission_close`. The details are in
 [How a save works](archive-format.md#how-a-save-works).
@@ -274,17 +274,17 @@ discarded or finished by the next `mission_close`. The details are in
   <img src="../assets/diagrams/save-stages-dark.svg#only-dark" alt="Saving a mission in three stages: build in archive/.staging (plan: building; a failure throws the staging copy away), move the spool recordings into staging (plan: moving; a failure moves them back, a crash is finished later), commit with one atomic rename into the archive, then update the index and clear the spool (plan: committed)." style="width: auto; max-width: 100%">
 </picture>
 
-## Provenance of ros_fairy itself
+## Provenance of ROS F.A.I.R.y itself
 
-Every harvest and every saved mission records which ros_fairy produced it
-(`ros_fairy/build_info.py`):
+Every harvest and every saved mission records which ROS F.A.I.R.y produced it
+(`fairy/build_info.py`):
 
-- **Installed package:** `setup.py` writes `ros_fairy/_build_info.py` at build
+- **Installed package:** `setup.py` writes `fairy/_build_info.py` at build
   time, recording the git commit, `git describe`, branch, whether the tree was
   dirty, and the build time. An installed package has no `.git`, so build time
   is the only chance to record these.
 - **Source checkout:** the same details are read from git directly.
-- **`code_id`:** a 12-character SHA-256 over all of ros_fairy's `.py` files.
+- **`code_id`:** a 12-character SHA-256 over all of the `fairy` package's `.py` files.
   It changes when the code is edited after the build. `doctor` uses it to tell
   that a running watchdog is out of date and needs a restart; `mission_close`
   warns in the review (and the saved README) when the context was captured by

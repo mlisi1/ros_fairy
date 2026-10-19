@@ -9,12 +9,12 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy import SCHEMA_VERSION
-from ros_fairy.archive import assembler, edit, index
-from ros_fairy.manifest import builder
-from ros_fairy.manifest.schema import HealthWarning
-from ros_fairy.subcommands import mission_edit, verify
-from ros_fairy.utils import fsio
+from fairy import SCHEMA_VERSION
+from fairy.archive import assembler, edit, index
+from fairy.manifest import builder
+from fairy.manifest.schema import HealthWarning
+from fairy.subcommands import mission_edit, verify
+from fairy.utils import fsio
 from tests.unit.test_archive import _spool
 
 
@@ -250,7 +250,7 @@ def test_verb_takes_a_mission_id(crate):
 def _everywhere(crate):
     """Every place the briefing text could still be: the crate's files and
     the index file (old pages included)."""
-    from ros_fairy.utils import paths
+    from fairy.utils import paths
     text = "".join((crate / n).read_text() for n in
                    (edit.RECORD, edit.README, edit.CRATE))
     return text + paths.index_db_path().read_bytes().decode("latin-1")
@@ -326,7 +326,7 @@ def test_verb_redact_passes_values_that_look_like_options(crate):
                               ) as run:
         assert mission_edit.run(args, console=console) == 0
     command = run.call_args.args[0]
-    child = command[command.index("ros_fairy.subcommands.mission_edit") + 1:]
+    child = command[command.index("fairy.subcommands.mission_edit") + 1:]
     parser = argparse.ArgumentParser()
     mission_edit._add_arguments(parser)
     parsed = parser.parse_args(child)

@@ -10,10 +10,10 @@ from unittest import mock
 import pytest
 from rich.console import Console
 
-from ros_fairy.harvest import docker_info
-from ros_fairy.subcommands import doctor
-from ros_fairy.subcommands import setup as setup_cmd
-from ros_fairy.utils import paths, ros_env
+from fairy.harvest import docker_info
+from fairy.subcommands import doctor
+from fairy.subcommands import setup as setup_cmd
+from fairy.utils import paths, ros_env
 
 
 def _inspect(name, env, network="host"):

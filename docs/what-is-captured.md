@@ -65,7 +65,7 @@ Captured through a single DDS participant (see
 
 ## Software
 
-- **Python environment** of the interpreter running ros_fairy: version,
+- **Python environment** of the interpreter running ROS F.A.I.R.y: version,
   executable, virtualenv, every installed package with its version and
   installer, and whether it is an editable install. `pip freeze` is
   archived as `harvest/pip_freeze.txt`.
@@ -76,10 +76,10 @@ Captured through a single DDS participant (see
   It includes each container's environment variables, so a password or token
   passed to a container that way ends up in the archive too: keep secrets in
   files or Docker secrets, not in `-e`/`environment:`.
-- **ros_fairy itself:** version, git commit, `git describe`, branch, dirty flag,
+- **ROS F.A.I.R.y itself:** version, git commit, `git describe`, branch, dirty flag,
   build time and a hash of its code, both for the watchdog that harvested and
   for the CLI that saved (see
-  [Provenance of ros_fairy itself](architecture.md#provenance-of-ros_fairy-itself)).
+  [Provenance of ROS F.A.I.R.y itself](architecture.md#provenance-of-ros-fairy-itself)).
 
 ## Hardware
 
@@ -99,7 +99,7 @@ Captured through a single DDS participant (see
 
 A robot's udev rules are often what makes a sensor work: fixed device names,
 permissions, latency timers, disabled autosuspend. They are rarely written down
-anywhere. ros_fairy records them in three ways:
+anywhere. ROS F.A.I.R.y records them in three ways:
 
 1. **Which rule files are the robot's own.** A file is *default* if a Debian
    package ships it and it is unmodified (its md5 still matches dpkg's). Every
@@ -151,7 +151,7 @@ one flaky channel can't swamp the review.
 **Timing is recovered from the messages, not from `metadata.yaml`.** rosbag2
 takes the bag's start from its earliest timestamp, so a single message
 stamped in 1970 makes a ten-minute bag claim to start in 1970 and last decades.
-ros_fairy reads the receive time of every message (sqlite3 and MCAP, without
+ROS F.A.I.R.y reads the receive time of every message (sqlite3 and MCAP, without
 decompressing indexed MCAP chunks), discards implausible stamps, stitches over
 clock steps, and computes the real start and duration. If most stamps are
 implausible, the timing is reported as unknown rather than guessed. Such

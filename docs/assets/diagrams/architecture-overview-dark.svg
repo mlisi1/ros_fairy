@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 560" width="1040" height="560" role="img" aria-labelledby="t d">
-  <title id="t">ros_fairy architecture overview</title>
+  <title id="t">ROS F.A.I.R.y architecture overview</title>
   <desc id="d">The operator's ros2 fairy commands and the watchdog service share only files under /var/ros-fairy. mission_start writes the briefing and DDS settings; mission_record writes bags into the spool; the watchdog notices them through inotify, or finds recorders elsewhere by scanning /proc, runs the harvest pipeline and writes harvest.json and watchdog.state. mission_status reads the state; mission_close reads the harvest and saves an RO-Crate into the archive and the mission index.</desc>
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">

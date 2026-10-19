@@ -6,8 +6,8 @@ import pytest
 import yaml
 from rich.console import Console
 
-from ros_fairy.subcommands import repair
-from ros_fairy.utils import bag_repair, topic_health
+from fairy.subcommands import repair
+from fairy.utils import bag_repair, topic_health
 from tests.conftest import make_mcap_bag
 
 _MCAP_PRESENT = importlib.util.find_spec("mcap") is not None

@@ -2,7 +2,7 @@
 
 Each saved mission is one folder in `/var/ros-fairy/archive/`, and each folder
 is a valid [RO-Crate 1.1](references.md#ro-crate): a directory of data
-plus a JSON-LD file describing it. You can read it without ros_fairy:
+plus a JSON-LD file describing it. You can read it without ROS F.A.I.R.y:
 everything is JSON, YAML, text or standard rosbag2.
 
 ## Folder name
@@ -103,10 +103,10 @@ Each `health_warnings[]` entry has `topic`, `sensor_id`, `kind`, `plain_text`,
 
 `schema_version` is `MAJOR.MINOR`:
 
-- **Minor** bumps only **add** fields. An older ros_fairy still reads the
+- **Minor** bumps only **add** fields. An older ROS F.A.I.R.y still reads the
   record; it sets the unknown fields aside and says so (`verify` and `diff`
   report what they couldn't check).
-- **Major** bumps change or remove fields. An older ros_fairy refuses the record
+- **Major** bumps change or remove fields. An older ROS F.A.I.R.y refuses the record
   and asks you to update.
 
 | Version | Changes |
@@ -132,7 +132,7 @@ load it.
 | `#place` | `Place` | Where the mission took place. |
 | `#robot` | `sosa:Platform` | The robot: `model`, `serialNumber`, `owner`, `sosa:hosts` its sensors. |
 | `#sensor-<id>` | `sosa:Sensor` | Each declared sensor: topic, frame, whether it was detected, and its calibration file (`subjectOf`). |
-| `https://github.com/mlisi1/ros_fairy` | `SoftwareApplication` | The ros_fairy build that saved the crate (version, commit). |
+| `https://github.com/mlisi1/ros_fairy` | `SoftwareApplication` | The ROS F.A.I.R.y build that saved the crate (version, commit). |
 | `#ros2`, `#python-runtime`, `#container-<name>` | `SoftwareApplication` | The ROS distro, the Python runtime and each container. |
 | `bags/<name>/` | `Dataset` | Each recording: size, format, time span, one `variableMeasured` per topic (message count and type), health warnings as `comment`, and its files with their `sha256`. |
 | other files | `File` | Every other file in the crate, `checksums.sha256` included (without a `sha256` of its own), each listed once even when several sensors share a calibration file. |

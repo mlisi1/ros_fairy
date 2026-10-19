@@ -3,7 +3,7 @@ import sqlite3
 import pytest
 import yaml
 
-from ros_fairy.utils import bag_repair, topic_health
+from fairy.utils import bag_repair, topic_health
 from tests.conftest import make_bag
 
 T0 = 1_750_000_000.0

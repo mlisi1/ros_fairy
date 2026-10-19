@@ -9,12 +9,12 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from ros_fairy import SCHEMA_VERSION
-from ros_fairy.archive import assembler, duplicates, index, locate, ro_crate
-from ros_fairy.manifest import builder
-from ros_fairy.manifest.schema import read_record
-from ros_fairy.subcommands import verify
-from ros_fairy.utils import paths
+from fairy import SCHEMA_VERSION
+from fairy.archive import assembler, duplicates, index, locate, ro_crate
+from fairy.manifest import builder
+from fairy.manifest.schema import read_record
+from fairy.subcommands import verify
+from fairy.utils import paths
 from tests.unit.test_archive import _spool
 
 

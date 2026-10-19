@@ -5,8 +5,8 @@ from unittest import mock
 
 import pytest
 
-from ros_fairy.archive import index
-from ros_fairy.subcommands import mission_delete
+from fairy.archive import index
+from fairy.subcommands import mission_delete
 from tests.unit.test_subcommands import _delete, _saved
 
 pytestmark = pytest.mark.skipif(os.geteuid() == 0,

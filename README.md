@@ -24,7 +24,7 @@ how it was configured, which software and parameters were running, what the
 mission was for, or whether the recording is any good. Months later, that is
 what decides whether the data can be found, trusted and reused.
 
-ROS F.A.I.R.y (the `ros_fairy` package) makes field data
+ROS F.A.I.R.y (the `fairy` package) makes field data
 [FAIR](https://mlisi1.github.io/ros_fairy/references/#fair) (Findable,
 Accessible, Interoperable, Reusable) without extra work in the field. It is a
 `ros2 fairy` command for the operator and a background service that does the
@@ -136,7 +136,7 @@ Every option: [Command reference](https://mlisi1.github.io/ros_fairy/commands/).
 ```bash
 ./install.sh --dev            # also installs pytest, rocrate, ruff and mypy
 pytest                        # no ROS needed
-ruff check . && mypy ros_fairy
+ruff check . && mypy fairy
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), and the

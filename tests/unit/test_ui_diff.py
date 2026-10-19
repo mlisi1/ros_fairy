@@ -11,8 +11,8 @@ import io
 import pytest
 from rich.console import Console
 
-from ros_fairy.manifest import builder
-from ros_fairy.ui import diff as diff_ui
+from fairy.manifest import builder
+from fairy.ui import diff as diff_ui
 from tests.unit.test_archive import _spool
 
 
@@ -324,7 +324,7 @@ def test_urdf_diff_reads_archived_file_content(fairy_dirs):
     """Once archived, ros_graph.robot_description is rewritten to a
     crate-relative path — the diff must read the actual file, not compare
     two identical path strings."""
-    from ros_fairy.archive import assembler, locate
+    from fairy.archive import assembler, locate
 
     h1, c1 = _spool(fairy_dirs)
     h1["ros_graph"]["robot_description"] = "<robot><link name='a'/></robot>"

@@ -17,10 +17,10 @@ from pathlib import Path
 
 import pytest
 
-from ros_fairy.archive import assembler
-from ros_fairy.manifest import builder
-from ros_fairy.utils import bag_storage, fsio, paths, topic_health
-from ros_fairy.watchdog import watchdog
+from fairy.archive import assembler
+from fairy.manifest import builder
+from fairy.utils import bag_storage, fsio, paths, topic_health
+from fairy.watchdog import watchdog
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 

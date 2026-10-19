@@ -14,11 +14,11 @@ import pytest
 from inotify_simple import flags
 from rich.console import Console
 
-from ros_fairy.archive import assembler
-from ros_fairy.manifest import builder
-from ros_fairy.subcommands import list_missions, mission_close, mission_start
-from ros_fairy.utils import paths
-from ros_fairy.watchdog.watchdog import Watchdog
+from fairy.archive import assembler
+from fairy.manifest import builder
+from fairy.subcommands import list_missions, mission_close, mission_start
+from fairy.utils import paths
+from fairy.watchdog.watchdog import Watchdog
 from tests.conftest import make_bag
 from tests.unit.test_archive import _spool
 from tests.unit.test_watchdog import (
@@ -105,7 +105,7 @@ def test_full_mission_lifecycle(fairy_dirs, tmp_path, capsys):
     assert "1" in listing  # the warning column
 
     # 7. the saved archive stands up to verification
-    from ros_fairy.subcommands import verify
+    from fairy.subcommands import verify
     v_args = SimpleNamespace(mission="1", json=True, debug=False)
     assert verify.run(v_args, console=_console()) == 0
     v = json.loads(capsys.readouterr().out)
@@ -113,7 +113,7 @@ def test_full_mission_lifecycle(fairy_dirs, tmp_path, capsys):
     assert not any(c["status"] == "fail" for c in v["checks"])
 
     # 8. it exports to a portable bundle with a checksum sidecar
-    from ros_fairy.subcommands import export
+    from fairy.subcommands import export
     e_args = SimpleNamespace(mission="1", output=str(tmp_path / "out"),
                              format="zip", force=False, json=True, debug=False)
     (tmp_path / "out").mkdir()
@@ -124,7 +124,7 @@ def test_full_mission_lifecycle(fairy_dirs, tmp_path, capsys):
     assert any(f.name.endswith(".sha256") for f in exported)
 
     # 9. a second mission (adopted bag, different goal) diffs against the first
-    from ros_fairy.subcommands import adopt, mission_diff
+    from fairy.subcommands import adopt, mission_diff
     answers2 = {"operator_name": "Jane Doe", "goal": "Follow-up transect",
                 "location_name": "Marsh Creek, north bank",
                 "environment": "marine", "notes": None}
@@ -150,8 +150,8 @@ def test_full_mission_lifecycle(fairy_dirs, tmp_path, capsys):
     assert goal_change and goal_change[0]["b"] == "Follow-up transect"
 
     # 10. a lost index is rebuilt from the archives on disk
-    from ros_fairy.archive import index
-    from ros_fairy.subcommands import reindex
+    from fairy.archive import index
+    from fairy.subcommands import reindex
     paths.index_db_path().unlink()
     assert reindex.run(SimpleNamespace(json=False, debug=False),
                        console=_console()) == 0

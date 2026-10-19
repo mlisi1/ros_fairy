@@ -9,9 +9,9 @@ from unittest import mock
 
 import pytest
 
-from ros_fairy.harvest import usb_udev
-from ros_fairy.manifest import builder
-from ros_fairy.manifest.schema import UdevRules, UsbState
+from fairy.harvest import usb_udev
+from fairy.manifest import builder
+from fairy.manifest.schema import UdevRules, UsbState
 
 JO_RULE = 'ACTION=="add", SUBSYSTEM=="usb", ATTR{power/control}="on"\n'
 DEFAULT_RULE = 'SUBSYSTEM=="tty", GROUP="dialout"\n'
@@ -248,7 +248,7 @@ def _usb_doc(control="on", rule_sha="a" * 64, in_effect=True):
 
 
 def test_crate_archives_the_rules_and_trace(fairy_dirs):
-    from ros_fairy.archive import assembler
+    from fairy.archive import assembler
     from tests.unit.test_archive import _spool
     harvest, context = _spool(fairy_dirs)
     harvest.update(_usb_doc())
@@ -266,7 +266,7 @@ def test_crate_archives_the_rules_and_trace(fairy_dirs):
 
 
 def test_diff_shows_rule_and_port_changes(fairy_dirs):
-    from ros_fairy.ui import diff
+    from fairy.ui import diff
     from tests.unit.test_archive import _spool
     harvest, context = _spool(fairy_dirs)
     a = builder.build({**harvest, **_usb_doc()}, context)
