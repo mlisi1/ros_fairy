@@ -242,6 +242,10 @@ def _run_locked(args, console: Console) -> int:
     wd.refresh_salvaged_records()
     harvest, context = builder.load_spool()
     harvest = _salvage_bags(harvest)
+    if not (harvest or {}).get("bags") and context is None:
+        console.print("There's no mission in progress: start one with "
+                      "[bold]ros2 fairy mission_start[/bold], then record.")
+        return 1
     if not (harvest or {}).get("bags"):
         console.print("There's nothing recorded yet. If you recorded outside "
                       "ros-fairy while the recording assistant wasn't "

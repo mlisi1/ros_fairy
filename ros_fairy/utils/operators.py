@@ -88,9 +88,17 @@ def add(names: list[str], *, use_sudo: bool = False) -> dict[str, str]:
 
 def access_problem() -> str | None:
     """Why this account can't record or save missions here, in plain words,
-    or None. Checked only once the robot is set up (the spool exists)."""
+    or None."""
     spool = paths.spool_dir()
-    if not spool.is_dir() or os.access(spool, os.W_OK):
+    if not spool.is_dir():
+        # setup makes both: without them, the verbs would fail on the first
+        # folder they can't create.
+        if not paths.robot_identity_path().is_file():
+            return ("This robot isn't set up yet, so missions can't be "
+                    "recorded or saved. Ask your engineer to run: "
+                    "ros2 fairy setup")
+        return None
+    if os.access(spool, os.W_OK):
         return None
     try:
         gid = grp.getgrnam(GROUP_NAME).gr_gid

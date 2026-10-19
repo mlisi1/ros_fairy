@@ -46,6 +46,9 @@ def watchdog_alive(state: dict | None) -> TypeGuard[dict]:
 def assistant_line(state: dict | None) -> str:
     """One plain-language line about the watchdog."""
     if not watchdog_alive(state):
+        if not paths.robot_identity_path().is_file():
+            return "not installed — this robot isn't set up yet (ask your "\
+                   "engineer to run: ros2 fairy setup)"
         return "not running — recordings will still work, but background "\
                "details won't be captured"
     try:

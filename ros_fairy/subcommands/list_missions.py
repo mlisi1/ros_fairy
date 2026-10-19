@@ -45,6 +45,24 @@ def _quality_cell(value: str | None) -> str:
     return _QUALITY_CELL.get(value or "", "")
 
 
+def _dates_problem(since: str | None, until: str | None) -> str | None:
+    """Why --since/--until can't be used, or None. A date that isn't one
+    used to find nothing, as if there were no missions."""
+    parsed = {}
+    for flag, value in (("--since", since), ("--until", until)):
+        if value is None:
+            continue
+        try:
+            parsed[flag] = datetime.fromisoformat(value)
+        except ValueError:
+            return (f"{flag}: '{value}' isn't a date; write it as "
+                    "YYYY-MM-DD, e.g. 2026-10-19.")
+    if len(parsed) == 2 and \
+            parsed["--since"].date() > parsed["--until"].date():
+        return f"--since ({since}) is after --until ({until})."
+    return None
+
+
 def run(args, console: Console | None = None) -> int:
     _configure_logging(getattr(args, "debug", False))
     console = console or Console()
@@ -59,6 +77,14 @@ def run(args, console: Console | None = None) -> int:
         if as_json:
             return json_error(message)
         console.print(f"[red]{message}[/red]")
+        return 1
+
+    problem = _dates_problem(getattr(args, "since", None),
+                             getattr(args, "until", None))
+    if problem:
+        if as_json:
+            return json_error(problem)
+        console.print(f"[red]{problem}[/red]")
         return 1
 
     if not paths.index_db_path().is_file():

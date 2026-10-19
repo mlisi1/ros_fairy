@@ -62,6 +62,32 @@ def _record_parser() -> argparse.ArgumentParser | None:
     return parser
 
 
+def storage_names() -> list[str] | None:
+    """The storage plugins the installed rosbag2 can record with (mcap,
+    sqlite3), or None when it can't be asked. Not from ros2 bag record's
+    parser: building it reads this process's own command line for a
+    --storage, and stops the program on one it doesn't know."""
+    try:
+        from rosbag2_py import get_registered_writers
+        return sorted(get_registered_writers()) or None
+    except Exception:  # no rosbag2 here, or a plugin that fails to load
+        return None
+
+
+def storage_problem() -> str | None:
+    """Why robot_identity.yaml's recording storage can't be used, or None
+    (a name rosbag2 doesn't have stops every recording)."""
+    try:
+        storage = robot_identity.harvest()["recording"].get("storage")
+    except robot_identity.RobotIdentityError:
+        return None
+    names = storage_names()
+    if not storage or names is None or storage in names:
+        return None
+    return (f"the robot's configuration records with storage '{storage}', "
+            f"which rosbag2 here doesn't have ({', '.join(names)})")
+
+
 def given_options(extra: list[str]) -> set[str]:
     """Which of ros2 bag record's settings ``extra`` sets (argparse
     destinations). Raises RecordOptionsError for options it rejects, and
@@ -165,6 +191,12 @@ def run(args, console: Console | None = None) -> int:
     except RecordOptionsError as exc:
         console.print(f"[red]Can't pass that to ros2 bag record: {exc}[/red]")
         return 1
+    problem = None if "storage" in given else storage_problem()
+    if problem:
+        console.print(f"[red]Can't record: {problem}. Ask your engineer to "
+                      "fix it with `ros2 fairy setup --storage NAME`, or "
+                      "choose one for this recording with --storage.[/red]")
+        return 1
     if given & SELECTION_DESTS:
         console.print("[dim]Recording the topics chosen here, instead of "
                       "robot_identity.yaml's selection.[/dim]")
@@ -187,6 +219,20 @@ def run(args, console: Console | None = None) -> int:
             "mission. Continue?", default=True, console=console,
             assume_yes=yes)
         if not proceed:
+            return 0
+
+    # A second recorder is sometimes meant (other topics), more often a
+    # forgotten one in another terminal; both recordings join the mission.
+    from ros_fairy.subcommands.mission_close import _recording_in_progress
+    if _recording_in_progress():
+        from ros_fairy.watchdog import watchdog as wd
+        active = Path((wd.read_state() or {}).get("active_bag_dir") or "")
+        proceed = confirm(
+            f"A recording is already running ({active.name or 'unknown'}). "
+            "Start another one alongside it? Both will belong to this "
+            "mission.", default=False, console=console, assume_yes=yes)
+        if not proceed:
+            console.print("Nothing was started.")
             return 0
 
     from ros_fairy.subcommands.mission_start import _watchdog_alive
@@ -305,7 +351,8 @@ class MissionRecordVerb(VerbExtension):
         parser.add_argument(
             "--yes", "-y", action="store_true",
             help="record without asking about low disk space, a missing "
-                 "briefing or an unsynchronised clock")
+                 "briefing, an unsynchronised clock or a recording already "
+                 "running")
         add_record_options(parser)
         parser.add_argument(
             "--debug", action="store_true",

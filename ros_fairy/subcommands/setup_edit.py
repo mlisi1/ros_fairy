@@ -182,6 +182,11 @@ def _drop_unused_calibrations(config: dict, also: str | None = None) -> None:
         config.pop("calibrations", None)
 
 
+def _storage_names() -> list[str] | None:
+    from ros_fairy.subcommands.mission_record import storage_names
+    return storage_names()
+
+
 def apply(current: dict, args) -> dict:
     """The configuration with the edit flags applied, in this order: robot
     and owner fields, removed sensors, changed sensors, added sensors,
@@ -300,6 +305,9 @@ def apply(current: dict, args) -> dict:
             elif not SLUG_RE.match(storage):
                 raise EditError(f"--storage: {storage!r} isn't a storage "
                                 "name such as mcap or sqlite3")
+            elif (known := _storage_names()) and storage not in known:
+                raise EditError(f"--storage: rosbag2 here has no storage "
+                                f"{storage!r} (it has {', '.join(known)})")
             else:
                 recording["storage"] = storage
         if not recording:

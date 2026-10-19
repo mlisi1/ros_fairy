@@ -187,3 +187,23 @@ def test_main_hands_the_typed_options_to_run(monkeypatch):
     mission_record.MissionRecordVerb().main(args=SimpleNamespace(yes=True))
     assert seen["args"].record_args == ["--qos-profile-overrides-path",
                                         "qos.yaml"]
+
+
+def test_a_saved_storage_rosbag2_lacks_stops_before_recording(
+        fairy_dirs, monkeypatch):
+    from ros_fairy.harvest import robot_identity
+    from ros_fairy.subcommands import doctor
+    monkeypatch.setattr(robot_identity, "harvest", lambda: {
+        "robot": {}, "recording": {"topics": None, "storage": "bogus"}})
+    monkeypatch.setattr(mission_record, "storage_names",
+                        lambda: ["mcap", "sqlite3"])
+    monkeypatch.setattr(mission_record.shutil, "which", lambda name: "/x")
+    console = Console(file=io.StringIO(), width=200)
+    with mock.patch.object(mission_record, "_start") as start:
+        assert mission_record.run(SimpleNamespace(yes=True), console) == 1
+    start.assert_not_called()
+    out = " ".join(console.file.getvalue().split())
+    assert "storage 'bogus', which rosbag2 here doesn't have (mcap, " \
+        "sqlite3)" in out and "--storage NAME" in out
+    check = doctor._check_identity()
+    assert check["status"] == doctor.FAIL and "bogus" in check["detail"]

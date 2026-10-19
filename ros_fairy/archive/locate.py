@@ -49,6 +49,9 @@ def resolve_archive(identifier: str) -> Path:
             rows, total = index.query(limit=n)
         except index.IndexUnavailableError as exc:
             raise LocateError(str(exc)) from exc
+        if n > len(rows) and total == 0:
+            raise LocateError("No missions have been saved on this robot "
+                              "yet.")
         if n > len(rows):
             raise LocateError(
                 f"There {'is' if total == 1 else 'are'} only {total} saved "

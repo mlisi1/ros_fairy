@@ -149,8 +149,11 @@ def test_refused_while_recording(mission):
 
 
 def test_nothing_to_drop(fairy_dirs):
-    code, out = _run("1")
-    assert code == 0 and "no recordings" in out
+    # With no mission open it said "The open mission has no recordings".
+    assert _run("1") == (0, "There's no mission in progress.")
+    fsio.atomic_write_json(paths.mission_context_path(),
+                           builder.new_mission_context("Ana", "Map", "Lab"))
+    assert _run("1") == (0, "The open mission has no recordings.")
 
 
 # --- where the numbers show up -------------------------------------------------
@@ -181,3 +184,4 @@ def test_the_saved_record_has_no_numbers(mission):
     harvest = {**good_pipeline(), "bags": harvest["bags"]}
     record = builder.build(harvest, context)
     assert len(record.bags) == 3  # validated without recording_id
+

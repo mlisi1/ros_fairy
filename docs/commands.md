@@ -213,7 +213,7 @@ open, the folder prefix is `unbriefed`.
 
 | Option | |
 | --- | --- |
-| `--yes`, `-y` | Record without asking about low disk space, a missing briefing or an unsynchronised clock. |
+| `--yes`, `-y` | Record without asking about low disk space, a missing briefing, an unsynchronised clock or a recording already running. |
 | any `ros2 bag record` option | Passed on as typed, e.g. `--max-bag-size 1000000000`, `--compression-mode file --compression-format zstd`, `--qos-profile-overrides-path qos.yaml`, or topics. `ros2 fairy mission_record -h` lists them, and Tab completes them. |
 
 `mission_record` takes `ros2 bag record`'s options directly: they come from the
@@ -227,16 +227,20 @@ Then:
   `--topic-types`, `-a`/`--all`, `--all-topics`, `--all-services`,
   `-e`/`--regex`) replaces the one from `robot_identity.yaml`, and it says so.
   Exclusions (`--exclude-…`) are added to it.
-- `--storage` of your own replaces the configured one.
+- `--storage` of your own replaces the configured one. A configured storage
+  this rosbag2 doesn't have stops it before recording (exit 1), and says how
+  to change it.
 - Everything else is passed as written.
 
 A recording compressed as whole files (`--compression-mode file`) is saved like
 any other, but its timing can't be checked: see
 [recording health](what-is-captured.md#recording-health).
 
-Before recording it checks that `ros2` exists (exit 1 if not), free disk space
-(at least 1 GiB, otherwise it asks), that a briefing exists, that the watchdog
-is running (warning only) and clock sync (asks).
+Before recording it checks that the robot is set up and this account may
+record (exit 1 if not), that `ros2` exists (exit 1 if not), free disk space
+(at least 1 GiB, otherwise it asks), that a briefing exists, that no other
+recording is running (asks; default no), that the watchdog is running
+(warning only) and clock sync (asks).
 
 Ctrl-C forwards one SIGINT so rosbag2 finishes the file cleanly. Two further
 presses force it to stop. SIGTERM and SIGHUP are handled the same way. Exit 1
@@ -254,7 +258,7 @@ Shows:
 
 | Row | Content |
 | --- | --- |
-| Assistant | not running · not responding · recording (since when) · wrapping up · watching |
+| Assistant | not installed (before `setup`) · not running · not responding · recording (since when) · wrapping up · watching |
 | Briefing | operator and goal, or "not started yet" |
 | Recording | the active bag and its size so far |
 | Recordings waiting | recordings to close, with total size, then one line each: its number (#1, #2, … for [`drop`](#drop)), start time, length, size, and where it is if it wasn't made in the spool |
@@ -447,7 +451,7 @@ ros2 fairy list [--operator NAME] [--location PLACE] [--since YYYY-MM-DD]
 | Option | |
 | --- | --- |
 | `--operator`, `--location` | Case-insensitive substring match. |
-| `--since`, `--until` | Local dates, both inclusive. |
+| `--since`, `--until` | Local dates (`YYYY-MM-DD`), both inclusive. A date that doesn't exist, or `--since` after `--until`, is refused. |
 | `--quality` | Only missions with this verdict. |
 | `--search WORDS` | Only missions whose goal or notes contain every word, in any order. Case and accents are ignored (`citta` finds "Città"); quote a phrase to keep it together: `--search '"north pier" sonar'`. |
 | `--exported`, `--not-exported` | Only missions exported at least once, or never (what `export --all` would export). |
@@ -548,9 +552,9 @@ ros2 fairy export [MISSION | --all | --today] [--exclude ID]... [-o PATH]
 | `MISSION` | Defaults to the newest. |
 | `--all` | Every mission not yet exported successfully. |
 | `--today` | Every mission recorded today. |
-| `--exclude`, `-e ID` | Skip this mission (repeatable; with `--all`/`--today`). |
+| `--exclude`, `-e ID` | Skip this mission (repeatable; only with `--all`/`--today`). |
 | `--output`, `-o` | A file name (one mission) or a directory. Default: the current directory. |
-| `--format` | `zip` (default), `tar`, or a compressed tar: `tar.gz` or `tar.zst`. |
+| `--format` | `zip`, `tar`, or a compressed tar: `tar.gz` or `tar.zst`. Default: what the `-o` file name ends in, else `zip`. A file name that says another format than the bundle would have (`-o m.zip --format tar`) is refused. |
 | `--compress`, `-z` | Compress the bundle (see below). |
 | `--force` | Overwrite existing files. |
 | `--yes`, `-y` | Don't ask before batch exports. Implied by `--json`. |

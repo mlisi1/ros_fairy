@@ -33,6 +33,11 @@ sudo python3 -m pip install --break-system-packages \
     --ignore-installed typing_extensions "pydantic>=2.5"
 ```
 
+**"This robot isn't set up yet".**
+`ros2 fairy setup` hasn't been run on this robot (or `uninstall.sh` was), so
+there is nowhere to record or save missions. An engineer runs it once; see
+[Set up the robot](getting-started.md#2-set-up-the-robot).
+
 **"Recording assistant is not running".**
 `systemctl status ros-fairy-watchdog` and `journalctl -u ros-fairy-watchdog`
 show why. If `doctor` also says "Background service can't load ros_fairy",

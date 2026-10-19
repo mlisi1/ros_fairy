@@ -89,6 +89,9 @@ This runs `ros2 bag record` for you, into the spool, with some checks first:
 - **Disk:** under 1 GiB free, it asks before recording (default: no).
 - **Briefing:** if you skipped `mission_start`, it still records, and asks the
   questions at `mission_close`.
+- **Another recording:** if one is already running (perhaps in another
+  terminal), it asks before starting a second one alongside it (default: no).
+  Both would belong to the mission.
 - **Clock:** if the system clock isn't synchronised, it asks before recording
   (default: no). Recordings made with a bad clock play back badly; see
   [repair](#unplayable-recordings-repair).

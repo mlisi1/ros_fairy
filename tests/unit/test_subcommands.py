@@ -322,6 +322,10 @@ def test_build_record_command_from_identity(fairy_dirs, identity_yaml):
 def test_mission_close_nothing_recorded(fairy_dirs):
     console = _console()
     assert mission_close.run(ARGS, console=console) == 1
+    assert "no mission in progress" in console.file.getvalue()
+    _open_mission()  # a briefing, no recording
+    console = _console()
+    assert mission_close.run(ARGS, console=console) == 1
     assert "nothing recorded" in console.file.getvalue()
 
 
@@ -2286,3 +2290,120 @@ def test_doctor_before_setup_points_at_setup(fairy_dirs):
     assert "Recording assistant is not installed" in titles
     assert not any("enable" in r["hint"] or "--refresh-env" in r["hint"]
                    for r in results)
+
+
+@pytest.mark.parametrize("name, fmt, compress, says", [
+    ("m.zip", "tar", False, "is a .zip name, but the bundle would be tar: "
+                            "name it {dir}/m.tar"),
+    ("m.tar", None, True, "would be tar.zst: name it {dir}/m.tar.zst"),
+])
+def test_export_refuses_a_name_that_says_another_format(
+        fairy_dirs, tmp_path, name, fmt, compress, says):
+    # `-o m.zip --format tar` wrote a tar called m.zip.
+    crate = _make_archive(fairy_dirs)
+    console = Console(file=io.StringIO(), width=1000)
+    args = SimpleNamespace(mission=str(crate), output=str(tmp_path / name),
+                           format=fmt, compress=compress, force=False,
+                           json=False)
+    assert export.run(args, console=console) == 1
+    assert says.format(dir=tmp_path) in console.file.getvalue()
+    assert not (tmp_path / name).exists()
+
+
+def test_export_takes_the_format_from_the_name(fairy_dirs, tmp_path):
+    import tarfile
+    crate = _make_archive(fairy_dirs)
+    dest = tmp_path / "m.tar.gz"
+    args = SimpleNamespace(mission=str(crate), output=str(dest), format=None,
+                           force=False, json=False)
+    assert export.run(args, console=_console()) == 0
+    with tarfile.open(dest) as bundle:  # a real gzip'd tar
+        assert any(n.endswith("mission_record.json")
+                   for n in bundle.getnames())
+
+
+def test_export_to_a_folder_it_cannot_read(fairy_dirs, tmp_path):
+    # /root for an operator: "something went wrong that ros-fairy didn't
+    # expect".
+    crate = _make_archive(fairy_dirs)
+    console = _console()
+    args = SimpleNamespace(mission=str(crate), output="/root/x.zip",
+                           format=None, force=False, json=False)
+    with mock.patch.object(export.Path, "exists",
+                           side_effect=PermissionError(13, "Permission "
+                                                       "denied")):
+        assert export.run(args, console=console) == 1
+    assert "can't write to /root/x.zip: Permission denied" in \
+        console.file.getvalue()
+
+
+def test_export_exclude_needs_all_or_today(fairy_dirs):
+    console = _console()
+    args = SimpleNamespace(mission="1", output=None, format=None,
+                           exclude=["m-x"], force=False, json=False)
+    assert export.run(args, console=console) == 1
+    assert "--exclude only applies with --all or --today" in \
+        console.file.getvalue()
+
+
+@pytest.mark.parametrize("since, until, says", [
+    ("2026-13-45", None, "--since: '2026-13-45' isn't a date"),
+    ("yesterday", None, "--since: 'yesterday' isn't a date"),
+    (None, "2026-02-30", "--until: '2026-02-30' isn't a date"),
+    ("2027-01-01", "2026-01-01", "--since (2027-01-01) is after --until"),
+])
+def test_list_refuses_dates_that_find_nothing(fairy_dirs, since, until,
+                                              says):
+    # They found nothing, as if no mission matched.
+    console = _console()
+    args = SimpleNamespace(since=since, until=until)
+    assert list_missions.run(args, console=console) == 1
+    assert says in console.file.getvalue()
+
+
+def test_diff_with_one_mission_or_the_same_one(fairy_dirs):
+    # "There is only 1 saved mission; 2 is out of range", and a mission
+    # compared with itself.
+    from ros_fairy.archive import assembler
+    h1, c1 = _spool(fairy_dirs)
+    assembler.assemble(builder.build(h1, c1), h1)
+    console = _console()
+    assert mission_diff.run(SimpleNamespace(), console=console) == 1
+    assert "only one has been saved" in console.file.getvalue()
+    console = _console()
+    args = SimpleNamespace(mission_a="1", mission_b="1")
+    assert mission_diff.run(args, console=console) == 1
+    assert "are the same mission" in console.file.getvalue()
+
+
+def test_no_missions_yet_is_said_plainly(fairy_dirs):
+    from ros_fairy.archive import index, locate
+    index._connect().close()  # an empty index
+    with pytest.raises(locate.LocateError,
+                       match="No missions have been saved on this robot yet"):
+        locate.resolve_archive("1")
+
+
+@pytest.mark.parametrize("answer, started", [(False, False), (True, True)])
+def test_mission_record_asks_before_a_second_recording(fairy_dirs, answer,
+                                                       started):
+    # A second mission_record started a second recorder without a word.
+    _spool(fairy_dirs)
+    fsio.atomic_write_json(paths.watchdog_state_path(), {
+        "pid": os.getpid(), "state": "RECORDING",
+        "active_bag_dir": "/var/ros-fairy/spool/bags/m_20261019-120000"})
+    console = _console()
+    with mock.patch.object(mission_record.shutil, "which",
+                           return_value="/usr/bin/ros2"), \
+            mock.patch.object(mission_record.clock, "is_synchronized",
+                              return_value=True), \
+            mock.patch("rich.prompt.Confirm.ask",
+                       return_value=answer) as ask, \
+            mock.patch.object(mission_record.subprocess, "Popen") as popen:
+        popen.return_value.wait.return_value = 0
+        assert mission_record.run(ARGS, console=console) == 0
+    question = ask.call_args.args[0]
+    assert "already running (m_20261019-120000)" in question
+    assert popen.called is started
+    if not started:
+        assert "Nothing was started" in console.file.getvalue()

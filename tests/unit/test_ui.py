@@ -273,6 +273,7 @@ def test_confirm_save_paths():
 
 
 def test_status_lines(fairy_dirs):
+    paths.robot_identity_path().write_text("robot: {}\n")  # set up
     assert "not running" in status.assistant_line(None)
     dead = {"pid": 99999999, "state": "IDLE"}
     assert "not running" in status.assistant_line(dead)
@@ -346,3 +347,9 @@ def test_status_before_rosbag2_writes(fairy_dirs, monkeypatch, written, says):
     status.show_status({"state": "RECORDING", "active_bag_dir": str(bag)},
                        None, console=console)
     assert says in console.file.getvalue()
+
+
+def test_status_before_setup_says_so(fairy_dirs):
+    assert "isn't set up yet" in status.assistant_line(None)
+    paths.robot_identity_path().write_text("robot: {}\n")
+    assert status.assistant_line(None).startswith("not running")

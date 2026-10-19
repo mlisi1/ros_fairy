@@ -51,6 +51,14 @@ def _check_identity() -> dict:
                 "detail": str(exc),
                 "hint": "run `ros2 fairy setup` (as an engineer) to create "
                         f"{path}"}
+    from ros_fairy.subcommands.mission_record import storage_problem
+    problem = storage_problem()
+    if problem:
+        return {"status": FAIL,
+                "title": "The robot configuration has a mistake",
+                "detail": problem,
+                "hint": "choose one with `ros2 fairy setup --storage NAME` "
+                        "(or `default`)"}
     robot = data.get("robot") or {}
     n = len(data.get("sensors", []))
     return {"status": OK, "title": "Robot identity configured",

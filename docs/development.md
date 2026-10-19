@@ -148,6 +148,7 @@ tools/sandbox/sandbox.sh up            # build the image, boot the container
 tools/sandbox/sandbox.sh install       # copy this checkout in, ./install.sh,
                                        #   restart the watchdog if set up
 tools/sandbox/sandbox.sh run smoke.py  # setup, then one mission end to end
+tools/sandbox/sandbox.sh run misuse.py # wrong uses (on a fresh robot: reset first)
 tools/sandbox/sandbox.sh shell         # look around as ana
 tools/sandbox/sandbox.sh reset         # a fresh robot
 ```
@@ -165,7 +166,10 @@ The checkout is mounted read-only at `/src`: re-run `install` after changing
 the code. Scenarios in `tools/sandbox/scenarios/` are Python scripts that run
 commands as these accounts and answer prompts on a real terminal
 (`fairy_sandbox.py` has the helpers); they print a check per step and exit 1
-if any failed. The container needs `--privileged` for systemd, so keep it to
+if any failed. `misuse.py` runs about 90 wrong uses (commands before setup,
+in the wrong order, during a recording, by accounts that aren't operators,
+with wrong values) and checks that each stops with the right exit code and
+a plain message, never a traceback, and that nothing saved is lost. The container needs `--privileged` for systemd, so keep it to
 your own machine.
 
 The terminal screenshots in these docs are taken on the sandbox robot:

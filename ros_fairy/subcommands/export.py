@@ -70,6 +70,12 @@ def choose_format(fmt: str, compress: bool) -> tuple[str, str]:
     return fmt, {"tar": "none", "tar.gz": "gzip", "tar.zst": "zstd"}[fmt]
 
 
+def named_format(output: str | None) -> str | None:
+    """The format a bundle file name says (``x.tar.gz``: tar.gz), or None."""
+    name = (output or "").lower()
+    return next((fmt for fmt in FORMATS if name.endswith(_EXT[fmt])), None)
+
+
 def _resolve_output(crate: Path, output: str | None, fmt: str) -> Path:
     """Where to write the bundle, from --output (file or dir) and format.
 
@@ -207,8 +213,16 @@ def _export_one(crate: Path, output_arg: str | None, fmt: str,
         return {"mission_id": None, "source": str(crate), "ok": False,
                 "error": str(exc)}
 
-    dest = _resolve_output(crate, output_arg, fmt)
-    if dest.exists() and not force:
+    try:
+        dest = _resolve_output(crate, output_arg, fmt)
+        exists = dest.exists()
+    except OSError as exc:
+        # A folder this account can't look into, such as /root.
+        return {"mission_id": record.identity.mission_id, "source": str(crate),
+                "ok": False,
+                "error": f"can't write to {output_arg}: "
+                         f"{exc.strerror or exc}"}
+    if exists and not force:
         return {"mission_id": record.identity.mission_id, "source": str(crate),
                 "ok": False,
                 "error": f"{dest} already exists (use --force to overwrite)"}
@@ -376,8 +390,18 @@ def run(args, console: Console | None = None) -> int:
     if (all_mode or today_mode) and mission_arg:
         return fail("Give a mission, or --all/--today — not both.")
 
-    fmt, compression = choose_format(
-        getattr(args, "format", "zip"), getattr(args, "compress", False))
+    output = getattr(args, "output", None)
+    asked = getattr(args, "format", None)
+    named = None if (all_mode or today_mode) else named_format(output)
+    fmt, compression = choose_format(asked or named or "zip",
+                                     getattr(args, "compress", False))
+    # It used to write a tar called x.zip.
+    if output and named and named != fmt:
+        return fail(f"{output} is a .{named} name, but the bundle would be "
+                    f"{fmt}: name it {output[:-len(_EXT[named])]}{_EXT[fmt]}"
+                    f", or leave out --format/--compress.")
+    if getattr(args, "exclude", None) and not (all_mode or today_mode):
+        return fail("--exclude only applies with --all or --today.")
 
     if all_mode or today_mode:
         try:
@@ -445,9 +469,10 @@ class ExportVerb(VerbExtension):
                  "exporting more than one mission (default: current "
                  "directory)")
         parser.add_argument(
-            "--format", choices=FORMATS, default="zip",
-            help="bundle format (default: zip). tar.gz and tar.zst are "
-                 "compressed tar files; tar.gz for recipients without zstd")
+            "--format", choices=FORMATS,
+            help="bundle format (default: the -o file's extension, else "
+                 "zip). tar.gz and tar.zst are compressed tar files; tar.gz "
+                 "for recipients without zstd")
         parser.add_argument(
             "--compress", "-z", action="store_true",
             help="compress the bundle: a zip is deflated (files that are "

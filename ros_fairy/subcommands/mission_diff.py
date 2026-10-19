@@ -2,7 +2,7 @@
 
 from rich.console import Console
 
-from ros_fairy.archive import locate
+from ros_fairy.archive import index, locate
 from ros_fairy.subcommands import (
     VerbExtension,
     _configure_logging,
@@ -33,6 +33,13 @@ def run(args, console: Console | None = None) -> int:
     b_id: str | None = getattr(args, "mission_b", None)
 
     if a_id is None and b_id is None:
+        try:
+            saved = index.query(limit=2)[1]
+        except index.IndexUnavailableError as exc:
+            return fail(str(exc))
+        if saved < 2:
+            return fail("diff compares two missions, and only one has been "
+                        "saved on this robot.")
         a_id, b_id = "2", "1"
     elif b_id is None:
         return fail("Provide either no arguments (compares the two most "
@@ -46,6 +53,11 @@ def run(args, console: Console | None = None) -> int:
         record_b, aside_b = locate.load_record_with_notes(crate_b)
     except locate.LocateError as exc:
         return fail(str(exc))
+
+    if crate_a.resolve() == crate_b.resolve():
+        return fail(f"{a_id} and {b_id} are the same mission "
+                    f"({record_a.identity.mission_id}): give two different "
+                    "ones.")
 
     set_aside = sorted(set(aside_a) | set(aside_b))
     if as_json:

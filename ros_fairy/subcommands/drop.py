@@ -85,7 +85,10 @@ def _run_locked(args, console: Console) -> int:
         return 1
     recs = recording_list()
     if not recs:
-        console.print("The open mission has no recordings.")
+        from ros_fairy.manifest import builder
+        console.print("The open mission has no recordings."
+                      if builder.load_spool()[1] is not None
+                      else "There's no mission in progress.")
         return 0
     which = getattr(args, "recording", None)
     if which is None:

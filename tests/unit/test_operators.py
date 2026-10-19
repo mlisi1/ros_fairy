@@ -135,10 +135,19 @@ def test_verb_without_sudo_says_run_as_root(machine):
     assert "as root" in console.file.getvalue()
 
 
-def test_no_access_problem_before_setup_or_with_access(fairy_dirs):
+def test_no_access_problem_with_access(fairy_dirs):
     assert operators.access_problem() is None  # writable spool
+
+
+def test_before_setup_says_so(fairy_dirs):
+    # The verbs used to go on and fail at the first folder they couldn't
+    # create ("something went wrong that ros-fairy didn't expect").
     shutil.rmtree(operators.paths.spool_dir())
-    assert operators.access_problem() is None  # not set up yet
+    assert "isn't set up yet" in operators.access_problem()
+    # Set up, but the data folder isn't there (a disk not mounted): the
+    # verbs say what is missing themselves.
+    operators.paths.robot_identity_path().write_text("robot: {}\n")
+    assert operators.access_problem() is None
 
 
 def _locked_spool(fairy_dirs, monkeypatch, members, groups):

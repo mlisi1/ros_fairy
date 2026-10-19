@@ -301,3 +301,15 @@ def test_a_section_of_the_wrong_kind_is_refused_plainly(
     assert f"`{key}:` in the configuration should be" in out
     assert "Nothing was changed" in out
     assert identity_yaml.read_text() == before
+
+
+def test_a_storage_rosbag2_lacks_changes_nothing(edit, identity_yaml,
+                                                 monkeypatch):
+    # It was saved, and every mission_record failed after it.
+    monkeypatch.setattr(setup_edit, "_storage_names",
+                        lambda: ["mcap", "sqlite3"])
+    before = identity_yaml.read_text()
+    code, out = edit("--storage", "bogus")
+    assert code == 1 and "no storage 'bogus' (it has mcap, sqlite3)" in out
+    assert identity_yaml.read_text() == before
+    assert edit("--storage", "sqlite3")[0] == 0

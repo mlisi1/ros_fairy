@@ -164,6 +164,8 @@ def test_status_does_not_show_a_dead_watchdogs_recording(fairy_dirs):
 
 
 def test_close_with_nothing_recorded_mentions_adopt(fairy_dirs):
+    fsio.atomic_write_json(paths.mission_context_path(),
+                           builder.new_mission_context("Ana", "Map", "Lab"))
     console = _console()
     assert mission_close.run(ARGS, console=console) == 1
     assert "ros2 fairy adopt" in console.file.getvalue()
