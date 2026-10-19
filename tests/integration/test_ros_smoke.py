@@ -24,6 +24,7 @@ import signal
 import subprocess
 import time
 from contextlib import contextmanager
+from pathlib import Path
 
 import pytest
 
@@ -106,6 +107,14 @@ def talker():
 
 def test_fair_verb_is_discoverable():
     """ros2cli must find the `fairy` command and its verbs (entry_points)."""
+    # From /, as ros2 sees it: here, the checkout's own metadata counts.
+    installed = subprocess.run(
+        ["python3", "-c", "from importlib.metadata import entry_points; "
+         "import sys; sys.exit(not any(e.name == 'fairy' for e in "
+         "entry_points(group='ros2cli.command')))"], cwd="/").returncode == 0
+    if not installed:
+        pytest.skip("ros_fairy isn't installed (./install.sh), so ros2 "
+                    "can't know its command")
     out = subprocess.run(["ros2", "fairy", "--help"],
                          capture_output=True, text=True, timeout=30)
     assert out.returncode == 0, out.stderr
@@ -279,7 +288,14 @@ def test_watchdog_poller_detects_and_finalises_foreign(talker, tmp_path,
     (fairy_dirs["cfg"] / "robot_identity.yaml").write_text(_IDENTITY_YAML)
     bag_dir = (tmp_path / "ext_live").resolve()
 
-    dog = Watchdog(harvest_in_thread=False)  # real inotify, /proc scan, clock
+    # The real /proc scan, but only this test's recorder: any other
+    # `ros2 bag record` on the machine would be followed first.
+    def own_recorders():
+        return [r for r in recorder_scan.scan()
+                if Path(r.get("output_dir") or "/").resolve().is_relative_to(
+                    tmp_path.resolve())]
+    dog = Watchdog(harvest_in_thread=False,  # real inotify, clock
+                   scan_recorders=own_recorders)
     dog.start()
     try:
         with _background(["ros2", "bag", "record",
