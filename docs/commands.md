@@ -248,7 +248,7 @@ if the recorder exits with an error; the data captured so far is kept.
 ros2 fairy mission_status [--json] [--debug]
 ```
 
-![ros2 fairy mission_status during a recording: the assistant recording, the briefing, the active bag, and the context captured so far](assets/screenshots/mission_status.png)
+![ros2 fairy mission_status during a recording: the assistant recording, the briefing, and the recording just started, with nothing written to disk yet](assets/screenshots/mission_status.png)
 
 Shows:
 
