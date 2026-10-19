@@ -18,6 +18,7 @@ authors:
     family-names: Di Lorenzo
     email: giovanni.dilorenzo@phd.unipi.it
 version: 0.1.0
+date-released: 2026-10-20
 license: Apache-2.0
 repository-code: "https://github.com/mlisi1/ros_fairy"
 url: "https://mlisi1.github.io/ros_fairy/"

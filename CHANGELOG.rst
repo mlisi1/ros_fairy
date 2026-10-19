@@ -2,8 +2,8 @@
 Changelog for package fairy
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.1.0 (2026-10-20)
+------------------
 First public release (0.1.0), for ROS 2 Jazzy on Ubuntu 24.04. It is
 usable and field-tested on one robot, but nothing is stable yet: the
 command line and the mission record format (schema 1.3) may still change
