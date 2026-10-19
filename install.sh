@@ -165,6 +165,9 @@ if [ -n "$MISSING_APT$MISSING_PIP" ]; then
         echo "Skipped. Install them later with ./install.sh --with-deps;"
         echo "\`ros2 fairy doctor\` lists whatever is still missing."
     fi
+else
+    echo "The tools the recording assistant uses to describe the robot are"
+    echo "all installed."
 fi
 
 cat <<'EOF'

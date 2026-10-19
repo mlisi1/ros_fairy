@@ -197,6 +197,38 @@ def _discovery_summary(settings: dict[str, str]) -> str:
     return ", ".join(f"{k}={settings[k]}" for k in keys) or "all defaults"
 
 
+def _numbers(values: list[str]) -> str:
+    """"42, 150–159" for domain ids; other values as they are."""
+    if not all(v.isdigit() for v in values):
+        return ", ".join(values)
+    runs: list[list[int]] = []
+    for n in sorted({int(v) for v in values}):
+        if runs and n == runs[-1][1] + 1:
+            runs[-1][1] = n
+        else:
+            runs.append([n, n])
+    return ", ".join(str(a) if a == b else f"{a}–{b}" for a, b in runs)
+
+
+def _disagreement(settings: list[dict[str, str]]) -> str:
+    """The different settings a container's processes run with: each set in
+    full when there are a few, else every key's values (a container that runs
+    ten simulations, one per domain, listed 11 sets)."""
+    if len(settings) <= 3:
+        return " / ".join(_discovery_summary(s) for s in settings)
+    parts = []
+    for key in ros_env.SESSION_ADOPT_KEYS:
+        values = sorted({s.get(key, "") for s in settings})
+        if values == [""]:
+            continue
+        shown = _numbers([v for v in values if v])
+        if "" in values:
+            shown += " or unset"
+        parts.append(f"{key}={shown}" if len(values) == 1
+                     else f"{key} {shown}")
+    return f"{len(settings)} different sets: " + "; ".join(parts)
+
+
 def _check_container_env() -> dict:
     """The robot's ROS containers, compared with the service.
 
@@ -235,8 +267,8 @@ def _check_container_env() -> dict:
         name = container["name"]
         if container.get("disagreeing"):
             problems.append(
-                f"{name}'s ROS processes don't agree: " + " / ".join(
-                    _discovery_summary(s) for s in container["disagreeing"]))
+                f"{name}'s ROS processes don't agree: "
+                + _disagreement(container["disagreeing"]))
             continue
         differences = ros_env.discovery_differences(service, container["env"])
         if differences:
@@ -264,8 +296,10 @@ def _check_container_env() -> dict:
                 f"--refresh-env --from-container {fix}`")
         title = "A ROS container is on a different ROS partition"
     elif disagree:
-        hint = ("give all of the container's nodes the same DDS settings "
-                "(an `export` in one start-up script but not another?)")
+        hint = ("if the container is the robot, give all of its nodes the "
+                "same DDS settings (an `export` in one start-up script but "
+                "not another?); if it runs several ROS systems on purpose, "
+                "ignore this")
         title = "A ROS container's nodes are on different ROS partitions"
     else:
         hint = ("run the container with `--network host` (compose: "
@@ -538,10 +572,33 @@ _CHECKS = (_check_identity, _check_data_dir, _check_watchdog,
            _check_docker, _check_archive)
 
 
+# What the service setup installs: before it, each would give advice for a
+# service that isn't there ("enable" it, refresh its environment).
+_SERVICE_CHECKS = (_check_watchdog, _check_service_python,
+                   _check_watchdog_code, _check_service_env,
+                   _check_container_env, _check_service_harvest)
+
+
+def _service_installed() -> bool:
+    from ros_fairy.subcommands import setup
+    return (setup.UNIT_DIR / setup.SERVICE_NAME).is_file()
+
+
+def _not_installed() -> dict:
+    return {"status": FAIL, "title": "Recording assistant is not installed",
+            "detail": "its background service is installed by setup",
+            "hint": "run `ros2 fairy setup` (as an engineer)"}
+
+
 def diagnose() -> list[dict]:
     """Run every check; a check that raises becomes a FAIL rather than a crash."""
     results = []
+    installed = _service_installed()
     for check in _CHECKS:
+        if not installed and check in _SERVICE_CHECKS:
+            if check is _SERVICE_CHECKS[0]:
+                results.append(_not_installed())
+            continue
         try:
             results.append(check())
         except Exception as exc:  # a broken check must not break doctor

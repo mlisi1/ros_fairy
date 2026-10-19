@@ -1017,7 +1017,9 @@ def test_service_import_location_sees_only_what_the_service_sees(fairy_dirs):
     (user_dir / "ros_fairy").mkdir(parents=True)
     (user_dir / "ros_fairy" / "__init__.py").write_text("")
     env = {"PYTHONPATH": str(user_dir), "PATH": "/usr/bin:/bin"}
-    assert setup_cmd.service_import_location("/usr/bin/python3", env) is None
+    # None, or a system-wide install when this machine has one.
+    found = setup_cmd.service_import_location("/usr/bin/python3", env)
+    assert found is None or not found.startswith(str(user_dir))
 
 
 def test_service_import_location_reports_where_it_imports_from(fairy_dirs):
@@ -2273,3 +2275,14 @@ def test_mission_abort_colours_the_whole_recording_name(fairy_dirs):
                            side_effect=[True, False]):
         mission_abort.run(ARGS, console=console)
     assert "\x1b[31mrosbag2_0\x1b[0m" in console.file.getvalue()
+
+
+def test_doctor_before_setup_points_at_setup(fairy_dirs):
+    # It said to `systemctl enable` a service that doesn't exist yet, and to
+    # refresh the environment of one setup hasn't written.
+    with mock.patch.object(setup_cmd, "UNIT_DIR", fairy_dirs["cfg"]):
+        results = doctor.diagnose()
+    titles = [r["title"] for r in results]
+    assert "Recording assistant is not installed" in titles
+    assert not any("enable" in r["hint"] or "--refresh-env" in r["hint"]
+                   for r in results)

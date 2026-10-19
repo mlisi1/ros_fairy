@@ -142,13 +142,13 @@ Read-only checks, each reported as ok, warning, failure or skipped:
 | --- | --- |
 | Robot identity | `robot_identity.yaml` is missing ("Robot is not set up") or has a mistake ("The robot configuration has a mistake", with what's wrong; fix it with [`setup`'s flags](#changing-one-part-of-the-configuration)) |
 | Data folder | says where missions are kept; fails if `paths.yaml` can't be used, warns if this shell's `ROS_FAIRY_VAR_DIR` points elsewhere than the service, or missions were left behind in `/var/ros-fairy` |
-| Recording assistant | the watchdog isn't running, or has been recording with no heartbeat for 5 minutes |
+| Recording assistant | the watchdog isn't installed yet ("Recording assistant is not installed": run `setup`; the service checks below are left out until then), isn't running, or has been recording with no heartbeat for 5 minutes |
 | Service interpreter | the installed service's interpreter can't load ros_fairy (only installed in a home directory) |
 | Watchdog code | the running watchdog's code differs from the installed code (restart it) |
 | ROS graph | `ros2` isn't on `PATH`, ROS isn't reachable, or no nodes are running |
 | ROS environment | `ROS_DISTRO` isn't set in this shell |
 | Service environment | `watchdog.env` is missing, or differs from this shell's ROS environment (distro, DDS discovery settings, DDS profile, root-owned overlays); the hint is `ros2 fairy setup --refresh-env`. When a running ROS container matches the service, it is this shell that's off, and the hint is the `export` that fixes it |
-| ROS containers | a running ROS container has other DDS discovery settings than the service (hint: `--refresh-env --from-container NAME`), its nodes disagree with each other, or it is on its own Docker network. The settings are what its ROS processes run with when the watchdog has seen them (start-up scripts included), otherwise its configuration ([details](getting-started.md#robots-whose-ros-runs-in-docker)). Without Docker access, the watchdog's findings are compared without names; skipped when there are none either |
+| ROS containers | a running ROS container has other DDS discovery settings than the service (hint: `--refresh-env --from-container NAME`), its nodes disagree with each other (summed up per setting when there are more than three combinations), or it is on its own Docker network. The settings are what its ROS processes run with when the watchdog has seen them (start-up scripts included), otherwise its configuration ([details](getting-started.md#robots-whose-ros-runs-in-docker)). Without Docker access, the watchdog's findings are compared without names; skipped when there are none either |
 | Last harvest | the last ROS capture failed |
 | Clock | the system clock isn't NTP-synchronised |
 | MCAP support | the `mcap` Python package is missing |

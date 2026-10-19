@@ -237,7 +237,8 @@ def ask_operators(console: Console) -> list[str]:
 # Entries ros_fairy keeps in its data directory: a folder holding only these
 # (or nothing) can be taken over.
 _DATA_ENTRIES = {"spool", "archive", "index.db", "index.db-wal",
-                 "index.db-shm", "watchdog.state", "log"}
+                 "index.db-shm", "watchdog.state", "ros_processes.json",
+                 "log"}
 
 
 def has_missions(var_dir: Path) -> bool:
@@ -529,18 +530,24 @@ def _check_ros_visible(console: Console) -> bool:
             f"{SOURCE_RECIPE}[/red]")
         return False
     if not _ros2_list("node"):
+        # ROS is sourced: SOURCE_RECIPE, which says to source it, doesn't fit.
         console.print(
             "[red]ROS is sourced but no nodes are visible (`ros2 node list` is "
             "empty), so the watchdog would harvest an empty graph. Start the "
-            "robot software and check ROS_DOMAIN_ID / RMW_IMPLEMENTATION match "
-            "it, then re-run.\n"
-            f"{SOURCE_RECIPE}[/red]")
+            "robot software and check that ROS_DOMAIN_ID / RMW_IMPLEMENTATION "
+            "in this shell match it (`ros2 node list` should list the "
+            "robot's nodes), then re-run.[/red]")
         containers = _ros_container_names()
-        if containers:
+        if len(containers) == 1:
             console.print(
-                f"[yellow]ROS is running in container(s) {', '.join(containers)}"
-                ": if that's the robot, take its DDS settings with "
+                f"[yellow]ROS is running in container {containers[0]}: if "
+                "that's the robot, take its DDS settings with "
                 f"`--from-container {containers[0]}`.[/yellow]")
+        elif containers:
+            console.print(
+                f"[yellow]ROS is running in containers {', '.join(containers)}"
+                ": if one of them is the robot, take its DDS settings with "
+                "`--from-container <name>`.[/yellow]")
         return False
     return True
 

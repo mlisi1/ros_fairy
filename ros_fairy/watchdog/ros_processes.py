@@ -77,6 +77,14 @@ def _ignored(pid: str) -> bool:
     return any(name.encode() in cmdline for name in _IGNORED)
 
 
+def _discovery(env: dict[str, str]) -> dict[str, str]:
+    """The discovery settings of ``env``; one that states a default counts
+    as unset, so processes differing only by that agree."""
+    return ros_env.without_defaults(
+        {k: env[k] for k in ("ROS_DISTRO", *ros_env.SESSION_ADOPT_KEYS)
+         if k in env})
+
+
 def scan() -> list[dict]:
     """``[{"pid": <container's first process>, "settings": [<distinct
     discovery settings>], "processes": <how many>}]``, by pid."""
@@ -97,9 +105,7 @@ def scan() -> list[dict]:
         env = _environ(pid)
         if not env or "ROS_DISTRO" not in env or _ignored(pid):
             continue
-        settings = {k: env[k] for k in ("ROS_DISTRO",
-                                        *ros_env.SESSION_ADOPT_KEYS)
-                    if k in env}
+        settings = _discovery(env)
         if settings not in entry["settings"]:
             entry["settings"].append(settings)
         entry["processes"] += 1
@@ -142,7 +148,13 @@ def read(path: Path | None = None) -> dict[int, list[dict]]:
     path = path or paths.ros_processes_path()
     try:
         doc = json.loads(path.read_text())
-        return {int(c["pid"]): list(c["settings"])
-                for c in doc.get("containers") or []}
+        found: dict[int, list[dict]] = {}
+        for container in doc.get("containers") or []:
+            # A file from before defaults counted as unset.
+            settings = found.setdefault(int(container["pid"]), [])
+            for each in map(ros_env.without_defaults, container["settings"]):
+                if each not in settings:
+                    settings.append(each)
+        return found
     except (OSError, ValueError, KeyError, TypeError, AttributeError):
         return {}

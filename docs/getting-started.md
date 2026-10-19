@@ -43,7 +43,8 @@ cd ros_fairy
    your shell uses, it says so and how to remove it.
 6. It lists the optional tools the recording assistant uses to describe the
    robot that are missing, and asks "Install them now? [Y/n]" (Enter means
-   yes). Without them those details are left out of every mission:
+   yes); when none is missing it says so and doesn't ask. Without them those
+   details are left out of every mission:
 
    | Tool | Package | Records |
    | --- | --- | --- |

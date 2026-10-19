@@ -237,3 +237,15 @@ def test_setup_without_nodes_suggests_the_container(docker):
             mock.patch.dict(os.environ, ROS):
         assert setup_cmd._check_ros_visible(console) is False
     assert "--from-container navstack" in console.file.getvalue()
+
+
+def test_setup_without_nodes_names_no_container_when_several(docker):
+    docker.containers = [_inspect("navstack", {**ROS, "ROS_DOMAIN_ID": "7"}),
+                         _inspect("bench", {**ROS, "ROS_DOMAIN_ID": "9"})]
+    console = Console(file=io.StringIO(), width=200)
+    with mock.patch.object(setup_cmd, "_ros2_list", return_value=[]), \
+            mock.patch.dict(os.environ, ROS):
+        assert setup_cmd._check_ros_visible(console) is False
+    out = console.file.getvalue()
+    assert "--from-container <name>" in out and "bench, navstack" in out
+    assert "source /opt/ros" not in out

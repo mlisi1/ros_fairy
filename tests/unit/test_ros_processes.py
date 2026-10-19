@@ -227,3 +227,32 @@ def test_doctor_without_docker_still_compares(fairy_dirs, monkeypatch):
     assert "docker ps" in result["hint"]
     _service({"ROS_DOMAIN_ID": "7"})
     assert doctor._check_container_env()["status"] == doctor.OK
+
+
+def test_a_stated_default_is_no_disagreement(proc):
+    # SUBNET is what an unset ROS_AUTOMATIC_DISCOVERY_RANGE means on Jazzy.
+    proc(500, NAV_NS, 1, {**ROS, "ROS_AUTOMATIC_DISCOVERY_RANGE": "SUBNET"})
+    proc(501, NAV_NS, 2, {**ROS})
+    [found] = ros_processes.scan()
+    assert found["settings"] == [{"ROS_DISTRO": "jazzy"}]
+
+
+def test_doctor_sums_up_many_disagreeing_settings(fairy_dirs,
+                                                  docker):  # noqa: F811
+    # A benchmark running ten simulations, one ROS domain each.
+    _service({})
+    docker.containers = [_with_pid(_inspect("bench", ROS), 500)]
+    cyclone = {"ROS_DISTRO": "jazzy", "RMW_IMPLEMENTATION":
+               "rmw_cyclonedds_cpp"}
+    settings = [{**cyclone, "ROS_DOMAIN_ID": str(d),
+                 "ROS_AUTOMATIC_DISCOVERY_RANGE": "LOCALHOST"}
+                for d in range(150, 160)] + [{**cyclone,
+                                              "ROS_DOMAIN_ID": "42"}]
+    ros_processes.write_if_changed(
+        [{"pid": 500, "processes": 11, "settings": settings}])
+    result = doctor._check_container_env()
+    assert "bench's ROS processes don't agree: 11 different sets: " \
+        "ROS_DOMAIN_ID 42, 150–159; " \
+        "RMW_IMPLEMENTATION=rmw_cyclonedds_cpp; " \
+        "ROS_AUTOMATIC_DISCOVERY_RANGE LOCALHOST or unset" in result["detail"]
+    assert "on purpose" in result["hint"]

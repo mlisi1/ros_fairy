@@ -113,7 +113,11 @@ start-up scripts included. See
 **`doctor`: "A ROS container's nodes are on different ROS partitions".**
 Not all of the container's ROS processes have the same discovery settings,
 typically an `export` in one start-up script but not in another. Give them the
-same settings; until then `--from-container` won't choose between them.
+same settings; until then `--from-container` won't choose between them. A
+setting that only states the default (such as
+`ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET`) counts as unset. A container that runs
+several ROS systems on purpose (simulations, one ROS domain each) isn't a
+robot the assistant can follow: ignore the warning there.
 
 **`doctor`: "This shell is on a different ROS partition than the robot".**
 The watchdog matches the robot's container; this shell doesn't. Nothing needs

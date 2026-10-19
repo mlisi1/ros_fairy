@@ -99,6 +99,9 @@ def test_data_dir_problem(fairy_dirs, tmp_path):
     # A folder that only holds ros_fairy's own (empty) layout is fine.
     old = tmp_path / "old"
     (old / "spool").mkdir(parents=True)
+    # Written by a running watchdog, even with no mission.
+    (old / "watchdog.state").write_text("{}")
+    (old / "ros_processes.json").write_text("{}")
     assert setup_cmd.data_dir_problem(str(old), current) is None
 
 

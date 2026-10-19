@@ -221,6 +221,13 @@ DISCOVERY_DEFAULTS = {
 }
 
 
+def without_defaults(env: Mapping[str, str]) -> dict[str, str]:
+    """``env`` without the discovery settings that only state a default
+    (ROS_AUTOMATIC_DISCOVERY_RANGE=SUBNET means what leaving it unset does)."""
+    return {k: v for k, v in env.items()
+            if v and DISCOVERY_DEFAULTS.get(k) != v}
+
+
 def _values(env: Mapping[str, str], key: str) -> str:
     return env.get(key, "") or DISCOVERY_DEFAULTS.get(key, "")
 
